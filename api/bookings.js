@@ -1,25 +1,34 @@
 /*
- * api/bookings.js  (Vercel Serverless Function, repo-root /api)
+ * api/bookings.js (Vercel Serverless Function, repo-root /api)
  * READ-ONLY live booking feed for the front-end.
  *
  * Fetches WON deals from the Pipedrive HIRE pipeline, enriches them with
- * organisation / contact names, transforms each into the booking shape the
- * calendar expects, and returns { bookings: [...] }.
+ * organisation / contact names, resolves enum option IDs to labels, transforms
+ * each into the booking shape the calendar expects, and returns { bookings }.
  *
- * No database required: results are computed on request and held in a short
- * in-memory cache (per warm lambda) to stay well under Pipedrive rate limits.
- *
- * If Pipedrive is not configured or errors, responds 200 with an empty list
- * and an `error` note so the board can fall back to sample data instead of
- * showing a hard failure.
+ * No database: computed per request with a short in-memory cache per warm lambda.
+ * On error, responds 200 with an empty list + error note so the board can fall
+ * back to sample data instead of hard-failing.
  */
 const pipedrive = require('../lib/pipedrive');
-const { dealToBooking } = require('../lib/transform');
+const { dealToBooking, F } = require('../lib/transform');
 
 const CACHE_MS = (parseInt(process.env.BOOKINGS_CACHE_SECONDS, 10) || 120) * 1000;
 let CACHE = { at: 0, bookings: null };
 
-async function enrich(deal) {
+/* Build a map "fieldKey:optionId" -> label for all enum/set deal fields. */
+async function buildOptionLabels() {
+  const fields = await pipedrive.getDealFields();
+  const map = {};
+  fields.forEach(function (f) {
+    (f.options || []).forEach(function (o) {
+      if (o && o.id !== undefined) map[f.key + ":" + o.id] = o.label;
+    });
+  });
+  return map;
+}
+
+async function enrich(deal, optionLabels) {
   let contactName = deal.person_name || '';
   let orgName = deal.org_name || '';
   try {
@@ -34,15 +43,25 @@ async function enrich(deal) {
   } catch (e) {
     console.warn('[api/bookings] enrich warning for deal ' + deal.id + ':', e.message);
   }
-  return { contactName, orgName };
+  return { contactName: contactName, orgName: orgName, optionLabels: optionLabels };
+}
+
+/* Keep deals that are actual hire/outage jobs: those with a start date, OR whose
+   Type resolves to Hire / Planned Power Outage. Drops pure sales/service deals. */
+function isBoardDeal(deal, optionLabels) {
+  if (deal[F.start]) return true;
+  const t = (optionLabels[F.jobType + ":" + deal[F.jobType]] || '').toLowerCase();
+  return t.indexOf('hire') !== -1 || t.indexOf('outage') !== -1 || t.indexOf('planned') !== -1;
 }
 
 async function buildBookings() {
+  const optionLabels = await buildOptionLabels();
   const deals = await pipedrive.getWonHireDeals();
   const bookings = [];
   for (const deal of deals) {
     try {
-      const extras = await enrich(deal);
+      if (!isBoardDeal(deal, optionLabels)) continue;
+      const extras = await enrich(deal, optionLabels);
       bookings.push(dealToBooking(deal, extras));
     } catch (e) {
       console.error('[api/bookings] transform failed for deal ' + deal.id + ':', e.message);
@@ -52,7 +71,6 @@ async function buildBookings() {
 }
 
 module.exports = async function handler(req, res) {
-  // Basic CORS so the static front-end (any origin) can read this.
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
@@ -78,7 +96,6 @@ module.exports = async function handler(req, res) {
     res.status(200).json({ ok: true, cached: false, count: bookings.length, bookings: bookings });
   } catch (e) {
     console.error('[api/bookings] failed:', e.message);
-    // Serve stale cache if we have it, else an empty list with the error note.
     if (CACHE.bookings) {
       res.status(200).json({ ok: true, cached: true, stale: true, error: e.message, count: CACHE.bookings.length, bookings: CACHE.bookings });
     } else {
