@@ -1,9 +1,8 @@
 /*
  * api/deal-fields.js (Vercel Serverless Function)
  * ADMIN / SETUP helper. Protected with ?key=<PIPEDRIVE_WEBHOOK_SECRET>.
- *  - default: lists every Pipedrive deal field (key + label + options)
- *  - &raw=1 : dumps diagnostics for the first WON hire deal so we can see
- *            which custom-field hashes are actually present and their values.
+ *  - default : lists every Pipedrive deal field (key + label + options + option IDs)
+ *  - &raw=1  : aggregate diagnostics across all WON deals (field population, type IDs)
  * Safe to delete once the live board is verified.
  */
 const pipedrive = require('../lib/pipedrive');
@@ -23,38 +22,42 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   try {
     if (req.query && (req.query.raw === '1' || req.query.raw === 'true')) {
+      const fieldDefs = await pipedrive.getDealFields();
+      const typeDef = fieldDefs.filter(function (f) { return f.key === F.jobType; })[0];
+      const sizeDef = fieldDefs.filter(function (f) { return f.key === F.size; })[0];
       const deals = await pipedrive.getWonHireDeals();
-      const total = deals.length;
-      const deal = deals[0] || {};
-      // Which of our mapped field hashes exist on the deal, and their values.
-      const mapped = {};
-      Object.keys(F).forEach(function (name) {
-        const key = F[name];
-        mapped[name] = { key: key, present: key ? Object.prototype.hasOwnProperty.call(deal, key) : false, value: key ? deal[key] : undefined };
+      let withStart = 0, withEnd = 0, withSize = 0, withType = 0, withSite = 0;
+      const typeCounts = {};
+      const pipelineCounts = {};
+      const samplesWithStart = [];
+      deals.forEach(function (d) {
+        if (d[F.start]) withStart++;
+        if (d[F.end]) withEnd++;
+        if (d[F.size]) withSize++;
+        if (d[F.jobType]) withType++;
+        if (d[F.site]) withSite++;
+        const t = d[F.jobType]; typeCounts[t] = (typeCounts[t] || 0) + 1;
+        const pl = d.pipeline_id; pipelineCounts[pl] = (pipelineCounts[pl] || 0) + 1;
+        if (d[F.start] && samplesWithStart.length < 5) {
+          samplesWithStart.push({ id: d.id, title: d.title, start: d[F.start], end: d[F.end], size: d[F.size], type: d[F.jobType], pipeline: d.pipeline_id });
+        }
       });
-      // Sample of all top-level keys on the deal (so we can spot where custom fields live).
-      const topKeys = Object.keys(deal);
-      // Heuristic: keys that look like 40-char hashes and have a non-null value.
-      const hashKeysWithValues = topKeys.filter(function (k) {
-        return /^[0-9a-f]{40}/.test(k) && deal[k] !== null && deal[k] !== undefined && deal[k] !== '';
-      }).map(function (k) { return { key: k, value: deal[k] }; });
       res.status(200).json({
         ok: true,
         pipelineIdEnv: process.env.PIPEDRIVE_HIRE_PIPELINE_ID || null,
-        wonDealCount: total,
-        dealId: deal.id || null,
-        dealTitle: deal.title || null,
-        dealPipelineId: deal.pipeline_id,
-        topLevelKeyCount: topKeys.length,
-        hasCustomFieldsObject: Object.prototype.hasOwnProperty.call(deal, 'custom_fields'),
-        mapped: mapped,
-        hashKeysWithValues: hashKeysWithValues
+        wonDealCount: deals.length,
+        population: { withStart: withStart, withEnd: withEnd, withSize: withSize, withType: withType, withSite: withSite },
+        typeCounts: typeCounts,
+        pipelineCounts: pipelineCounts,
+        typeFieldOptions: typeDef ? typeDef.options : null,
+        sizeFieldOptions: sizeDef ? sizeDef.options : null,
+        samplesWithStart: samplesWithStart
       });
       return;
     }
     const fields = await pipedrive.getDealFields();
     const out = fields
-      .map(function (f) { return { key: f.key, name: f.name, type: f.fieldType, options: (f.options || []).map(function (o) { return o.label; }) }; })
+      .map(function (f) { return { key: f.key, name: f.name, type: f.fieldType, options: f.options || [] }; })
       .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
     res.status(200).json({ ok: true, count: out.length, fields: out });
   } catch (e) {
