@@ -1,0 +1,40 @@
+# .github/workflows/hourly-sync.yml
+# Fallback reconcile job. Runs every hour and POSTs to the deployed /api/sync
+# endpoint so any missed webhooks, manual Pipedrive edits or API blips are caught.
+#
+# Required GitHub repository secrets (Settings > Secrets and variables > Actions):
+#   SYNC_ENDPOINT_URL   e.g. https://your-deployment.vercel.app/api/sync
+#   CRON_SECRET         must equal PIPEDRIVE_WEBHOOK_SECRET in your deployment env
+#
+# Do NOT put tokens directly in this file. Use the secrets above.
+
+name: Hourly Pipedrive sync
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # top of every hour (UTC)
+  workflow_dispatch:        # allow manual run from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reconcile
+        run: |
+          if [ -z "${SYNC_ENDPOINT_URL}" ]; then
+            echo "SYNC_ENDPOINT_URL secret not set - skipping."
+            exit 0
+          fi
+          echo "Calling sync endpoint..."
+          HTTP=$(curl -s -o response.json -w "%{http_code}" \
+            -X POST "${SYNC_ENDPOINT_URL}" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            -H "Content-Type: application/json")
+          echo "HTTP ${HTTP}"
+          cat response.json || true
+          if [ "${HTTP}" -ge 400 ]; then
+            echo "Sync failed"; exit 1
+          fi
+        env:
+          SYNC_ENDPOINT_URL: ${{ secrets.SYNC_ENDPOINT_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
