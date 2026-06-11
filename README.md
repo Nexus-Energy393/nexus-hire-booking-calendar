@@ -33,21 +33,22 @@ Pipedrive stays the sales trigger. When a deal is marked **won in the HIRE pipel
 
 Booking lifecycle: a won hire deal **creates** a booking; an edited won deal **updates** it; a deal moved out of the hire pipeline or no longer won is **archived** (never hard-deleted). History is retained.
 
-## 3. Required Pipedrive fields (and what was actually found)
+## 3. Required Pipedrive fields (verified against the live account)
 
 The mapping below was checked against the live Nexus Pipedrive account (Settings > Data fields, Lead/deal tab). Pipedrive custom fields are addressed by a long hash **key**, not the label. Run `npm run list-fields` to print every key, then set the `PD_FIELD_*` values in `.env.local`.
 
-### Fields that already exist and map cleanly
+### Current field mapping
 
-| Booking field | Pipedrive field (found) | Type | Env var |
+| Booking field | Pipedrive field (live) | Type | Env var |
 |---|---|---|---|
+| Hire start date | **Planned Outage/Hire Start Date** | Date (Important) | `PD_FIELD_HIRE_START_DATE` |
+| Hire end date | **Planned Outage/Hire End Date** | Date (Important) | `PD_FIELD_HIRE_END_DATE` |
 | Job type | **Type** | Single option (Required) | `PD_FIELD_JOB_TYPE` |
 | Generator size | **Generator Size Required** / **Generator model** | Single / Multiple option | `PD_FIELD_GENERATOR_SIZE` |
 | Equipment / fleet ID | **SERIAL/FLEET #** | Text | `PD_FIELD_EQUIPMENT_ALLOCATED` |
 | Site / suburb | **Site Address** | Address | `PD_FIELD_SITE_ADDRESS` |
-| Hire start (outages) | **Planned Outage Date** | Date | `PD_FIELD_HIRE_START_DATE` |
+| Duration (rough bucket) | **Estimated Rental Term** | Single option | `PD_FIELD_HIRE_DURATION` |
 | Outage on/off times | **Time Off - Time On** | Time range | (shown in notes) |
-| Duration (rough) | **Estimated Rental Term** | Single option | `PD_FIELD_HIRE_DURATION` |
 | Customer | Organisation | Default | (automatic) |
 | Contact | Contact person | Default | (automatic) |
 | Deal owner | Owner | Default | (automatic) |
@@ -55,17 +56,17 @@ The mapping below was checked against the live Nexus Pipedrive account (Settings
 
 Other useful existing fields seen: **Map Link**, **Incident ID**, **Locations**, **Link to Costing Spreadsheet**, **Expected close date**.
 
-### Gaps found - recommended Pipedrive field changes
+### How duration is now resolved
 
-These do **not** currently exist as clean, structured fields and are the reason some bookings will show as "Needs duration" or "Needs review" until added:
+With both **Planned Outage/Hire Start Date** and **Planned Outage/Hire End Date** present, the app calculates the exact hire duration from the date span (`end - start + 1` days) and treats it as **confirmed**. Most bookings will therefore resolve to **Confirmed** rather than "Needs duration". The single-option *Estimated Rental Term* is only used as a rough fallback label when an end date is missing.
 
-1. **Hire start date (general hire)** - there is a *Planned Outage Date* for outages, but no general hire start date. Recommend adding a **Hire Start Date** (Date) used by all hire job types. Until then, general hire start falls back to *Expected close date* / *Won time*, which is approximate.
-2. **Hire duration (days)** - *Estimated Rental Term* is a single-option text bucket (e.g. "1 week"), not a number of days. Recommend adding **Hire Duration (days)** (Numerical) so multi-day spans are exact.
-3. **Hire end date (optional)** - recommend a **Hire End Date** (Date) for long hires where staff prefer to set an end directly.
-4. **Delivery required** - recommend a Yes/No field.
-5. **Electrical connection required** - recommend a Yes/No field.
+### Remaining optional field suggestions (not blocking)
 
-Mapping these env vars to the existing keys gets you live immediately; adding the recommended fields removes the "Needs duration / Needs review" flags.
+These are nice-to-haves; the app works fully without them:
+
+1. **Hire Duration (days)** (Numerical) - only needed if staff want to set a duration without entering an end date. Not required now that start + end dates exist.
+2. **Delivery required** (Yes/No) - currently defaults to false; add the field to drive the "delivery" flag.
+3. **Electrical connection required** (Yes/No) - currently defaults to false; add the field to drive that flag.
 
 ## 4. Environment variables
 
@@ -75,7 +76,7 @@ Copy `.env.example` to `.env.local` and fill in. **Never commit real tokens** - 
 - `PIPEDRIVE_COMPANY_DOMAIN` - `nexusenergy`.
 - `PIPEDRIVE_HIRE_PIPELINE_ID` - `1` (the HIRE pipeline, confirmed).
 - `PIPEDRIVE_WEBHOOK_SECRET` - a long random string; also used to protect the cron sync.
-- `PD_FIELD_*` - the custom field hash keys from `npm run list-fields`.
+- `PD_FIELD_*` - the custom field hash keys from `npm run list-fields`. Map `PD_FIELD_HIRE_START_DATE` to *Planned Outage/Hire Start Date* and `PD_FIELD_HIRE_END_DATE` to *Planned Outage/Hire End Date*.
 - `GOOGLE_CALENDAR_*` - optional Google Calendar push (off by default).
 - `NEXT_PUBLIC_API_BASE` - leave blank to use sample data; set to your deployment `/api` to go live.
 
@@ -138,8 +139,9 @@ Behaviour: all-day events for outages / single-day jobs, multi-day events for lo
 
 All `PD_FIELD_*` keys live in `.env.local` so the mapping can be corrected without code changes. The transform logic (`lib/transform.js`):
 
-- Planned outage with a start date but no confirmed duration -> visual span defaults to **1 day**, status flagged **needs-duration**.
-- General hire with no confirmed duration -> **no** assumed period; status **needs-duration** / **needs-review**.
+- Start + end date both present -> exact duration calculated from the span, status **confirmed** (subject to equipment check).
+- Planned outage with a start date but no end / duration -> visual span defaults to **1 day**, status flagged **needs-duration**.
+- General hire with no end date and no confirmed duration -> **no** assumed period; status **needs-duration** / **needs-review**.
 - No start date -> **needs-review**.
 - Equipment not allocated -> **needs-equipment**.
 - End date in the past -> **completed** (kept visible in history, de-emphasised on the live screen).
@@ -147,16 +149,15 @@ All `PD_FIELD_*` keys live in `.env.local` so the mapping can be corrected witho
 ## 11. Known limitations
 
 - Live sync needs the `PD_FIELD_*` keys filled in; until then the app runs in sample mode.
-- `Estimated Rental Term` is a text bucket, so exact multi-day spans need the recommended **Hire Duration (days)** field.
-- General hire start date currently approximates from close/won dates until a dedicated **Hire Start Date** field is added.
+- Exact duration relies on **Planned Outage/Hire End Date** being set; deals with a start but no end fall back to a 1-day visual (outages) or a needs-duration flag (general hire).
+- `Delivery required` and `Electrical connection required` default to false until those Yes/No fields are added in Pipedrive.
 - The default store is a JSON file; swap `lib/store.js` for a database for multi-instance deployments.
 - This app is **read-only** against Pipedrive. It never creates or edits deals.
 
 ## 12. Next improvements
 
-- Add the recommended Pipedrive fields and remove the approximation fallbacks.
 - Per-generator fleet timeline view to plan around conflicts.
-- Email/Slack alert when a won hire deal is missing duration or equipment.
+- Email/Slack alert when a won hire deal is missing an end date or equipment.
 - Migrate the static front end into the Next.js page for a single deploy.
 
 ## How to test a won hire deal
@@ -165,10 +166,10 @@ All `PD_FIELD_*` keys live in `.env.local` so the mapping can be corrected witho
 
 **With credentials (live):**
 
-1. Fill `.env.local` and run `npm run list-fields` to set the `PD_FIELD_*` keys.
+1. Fill `.env.local` and run `npm run list-fields` to set the `PD_FIELD_*` keys (map start/end to *Planned Outage/Hire Start Date* and *Planned Outage/Hire End Date*).
 2. Run `npm run dev`, then `npm run sync:once` to pull current won hire deals.
-3. In Pipedrive, mark a deal **won** in the **HIRE** pipeline (or move an existing won deal's fields).
-4. The webhook (or the next hourly sync, or the **Refresh now** button) creates/updates the booking; it appears on the calendar with the correct status.
+3. In Pipedrive, mark a deal **won** in the **HIRE** pipeline with a start and end date set.
+4. The webhook (or the next hourly sync, or the **Refresh now** button) creates/updates the booking; it appears on the calendar with the correct status and full span.
 
 ---
 
