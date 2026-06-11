@@ -1,8 +1,8 @@
 /*
  * app.js - Nexus Generator Hire Booking Board
- * Front-end rendering for month / week / day / list / missing-info / sync views,
- * desktop filters, large-screen office mode, fleet-conflict detection and
- * booking detail with a deep-link back to the Pipedrive deal.
+ * Front-end rendering for calendar (month) / list (Jemena-style table) / week / day /
+ * missing-info / sync views, desktop filters, large-screen office mode,
+ * fleet-conflict detection and booking detail with a deep-link back to the Pipedrive deal.
  *
  * Data source: in sample mode it reads window.NEXUS_SAMPLE_BOOKINGS.
  * In live mode set window.NEXUS_CONFIG.apiBase and it fetches GET {apiBase}/bookings.
@@ -30,6 +30,7 @@
   function sameDay(a, b) { return a && b && a.getTime() === startOfDay(b).getTime(); }
   function fmt(d, opts) { return d ? d.toLocaleDateString("en-AU", opts || {day:"numeric",month:"short",year:"numeric"}) : "TBC"; }
   function fmtShort(d) { return d ? d.toLocaleDateString("en-AU", {day:"numeric",month:"short"}) : "TBC"; }
+  function fmtWhen(d) { return d ? d.toLocaleDateString("en-AU", {weekday:"short", day:"numeric", month:"short"}) : "TBC"; }
   function startOfWeek(d) { var x = startOfDay(d); var day = (x.getDay()+6)%7; return addDays(x, -day); } // Monday start
 
   // ---------- booking helpers ----------
@@ -39,9 +40,14 @@
     var e = parseDate(b.endDate);
     if (e) return e;
     if (s && b.durationDays) return addDays(s, b.durationDays - 1);
-    // planned outage default: 1 day visual span, still flagged needs-duration
     if (s && b.jobType === "planned-outage") return s;
-    return s; // general hire with no duration: single block until confirmed
+    return s;
+  }
+  function durationDays(b) {
+    var s = bStart(b), e = bEnd(b);
+    if (b.durationDays) return b.durationDays;
+    if (s && e) return Math.round((e - s) / 86400000) + 1;
+    return null;
   }
   function statusMeta(b) {
     var map = {
@@ -50,7 +56,7 @@
       "needs-equipment":{ label: "Needs equipment",cls: "st-equipment" },
       "needs-review":   { label: "Needs review",   cls: "st-review" },
       "completed":      { label: "Completed",      cls: "st-completed" },
-      "cancelled":      { label: "Cancelled",       cls: "st-cancelled" }
+      "cancelled":      { label: "Cancelled",      cls: "st-cancelled" }
     };
     return map[b.status] || { label: b.status || "Unknown", cls: "st-review" };
   }
@@ -81,7 +87,7 @@
       for (var j = i + 1; j < active.length; j++) {
         var a = active[i], c = active[j];
         var key = a.equipmentId && c.equipmentId ? (a.equipmentId === c.equipmentId)
-                  : (a.generatorSize && a.generatorSize === c.generatorSize);
+          : (a.generatorSize && a.generatorSize === c.generatorSize);
         if (!key) continue;
         var as = bStart(a), ae = bEnd(a) || as, cs = bStart(c), ce = bEnd(c) || cs;
         if (as.getTime() <= ce.getTime() && cs.getTime() <= ae.getTime()) {
@@ -213,19 +219,63 @@
     root.appendChild(wrap);
   }
 
+  // ---------- LIST VIEW (Jemena-style table) ----------
   function renderList(root, bookings) {
-    var today = startOfDay(new Date());
-    var upcoming = bookings.filter(function (b) {
-      var e = bEnd(b) || bStart(b);
-      return e && e.getTime() >= today.getTime() && b.status !== "cancelled";
-    }).sort(function (a, b) {
+    var rows = bookings.slice().sort(function (a, b) {
       var sa = bStart(a) || new Date(8640000000000000), sb = bStart(b) || new Date(8640000000000000);
       return sa - sb;
     });
-    var wrap = el("div", "list-wrap");
-    wrap.appendChild(el("h2", "day-title", "Upcoming bookings"));
-    if (!upcoming.length) wrap.appendChild(el("p", "empty", "No upcoming bookings."));
-    upcoming.forEach(function (b) { wrap.appendChild(bookingCard(b, false)); });
+
+    var wrap = el("div", "list-table-wrap");
+
+    var head = el("div", "list-head");
+    head.appendChild(el("h2", "list-title", "Generator hire bookings"));
+    var count = el("div", "list-count", rows.length + (rows.length === 1 ? " booking" : " bookings"));
+    head.appendChild(count);
+    wrap.appendChild(head);
+
+    if (!rows.length) {
+      wrap.appendChild(el("p", "empty", "No bookings match the current filters."));
+      root.appendChild(wrap);
+      return;
+    }
+
+    var table = el("table", "data-table");
+    var thead = el("thead");
+    var htr = el("tr");
+    ["Status","Customer","Job type","Site","Suburb","When","Duration","Generator","Equipment","Deal owner","Actions"]
+      .forEach(function (h) { htr.appendChild(el("th", null, h)); });
+    thead.appendChild(htr);
+    table.appendChild(thead);
+
+    var tbody = el("tbody");
+    rows.forEach(function (b) {
+      var sm = statusMeta(b), tm = typeMeta(b);
+      var d = durationDays(b);
+      var durTxt = d ? (d + (d === 1 ? " day" : " days")) : "TBC";
+      var when = bStart(b) ? (fmtWhen(bStart(b)) + (bEnd(b) && bEnd(b).getTime() !== bStart(b).getTime() ? " &ndash; " + fmtWhen(bEnd(b)) : "")) : "TBC";
+      var tr = el("tr", "data-row");
+      tr.setAttribute("data-id", b.id);
+      tr.innerHTML =
+        '<td><span class="pill ' + sm.cls + '">' + sm.label + '</span></td>' +
+        '<td class="cell-strong">' + escapeHtml(b.customer || "Unknown customer") + '</td>' +
+        '<td><span class="chip ' + tm.cls + '">' + tm.label + '</span></td>' +
+        '<td>' + escapeHtml(b.site || "&mdash;") + '</td>' +
+        '<td>' + escapeHtml(b.suburb || "&mdash;") + '</td>' +
+        '<td class="cell-nowrap">' + when + '</td>' +
+        '<td>' + durTxt + '</td>' +
+        '<td>' + escapeHtml(b.generatorSize || "TBC") + '</td>' +
+        '<td>' + escapeHtml(b.equipmentId || "&mdash;") + '</td>' +
+        '<td>' + escapeHtml(b.dealOwner || "Unassigned") + '</td>' +
+        '<td class="cell-actions"><a class="row-link" target="_blank" rel="noopener" href="' + dealUrl(b) + '" data-stop="1">Pipedrive</a></td>';
+      tr.addEventListener("click", function (e) {
+        if (e.target.getAttribute("data-stop")) return;
+        openModal(b);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
     root.appendChild(wrap);
   }
 
