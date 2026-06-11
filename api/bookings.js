@@ -28,13 +28,30 @@ async function buildOptionLabels() {
   return map;
 }
 
+/* Pipedrive person phone/email come back as an array of { value, primary, label }
+   (or sometimes a plain string). Return the primary value, else the first. */
+function pickPrimary(field) {
+  if (!field) return '';
+  if (typeof field === 'string') return field;
+  if (Array.isArray(field)) {
+    const primary = field.find(function (x) { return x && x.primary && x.value; });
+    if (primary) return primary.value;
+    const first = field.find(function (x) { return x && x.value; });
+    return first ? first.value : '';
+  }
+  return '';
+}
+
 async function enrich(deal, optionLabels) {
   let contactName = deal.person_name || '';
+  let contactPhone = '';
+  let contactEmail = '';
   let orgName = deal.org_name || '';
   try {
     if (deal.person_id && deal.person_id.value) {
       const p = await pipedrive.getPerson(deal.person_id.value);
       if (p) contactName = p.name || contactName;
+        if (p) { contactPhone = pickPrimary(p.phone) || contactPhone; contactEmail = pickPrimary(p.email) || contactEmail; }
     }
     if (deal.org_id && deal.org_id.value) {
       const o = await pipedrive.getOrganization(deal.org_id.value);
@@ -43,7 +60,7 @@ async function enrich(deal, optionLabels) {
   } catch (e) {
     console.warn('[api/bookings] enrich warning for deal ' + deal.id + ':', e.message);
   }
-  return { contactName: contactName, orgName: orgName, optionLabels: optionLabels };
+  return { contactName: contactName, orgName: orgName, contactPhone: contactPhone, contactEmail: contactEmail, optionLabels: optionLabels };
 }
 
 /* Keep deals that are actual hire/outage jobs: those with a start date, OR whose
