@@ -104,3 +104,34 @@ body[data-mode="tv"] .month-cell.today { box-shadow: inset 0 0 0 3px var(--accen
    .filters input[type="search"] { min-width: 140px; }
    .month-cell { min-height: 80px; }
 }
+
+/* ---------- LIST VIEW (Jemena-style data table) ---------- */
+.list-table-wrap { max-width: 100%; }
+.list-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.list-title { font-size: 18px; margin: 0; color: var(--text); }
+.list-count { font-size: 13px; color: var(--muted); }
+.data-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.data-table thead th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; background: var(--panel); }
+.data-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--text); vertical-align: middle; }
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-row { cursor: pointer; }
+.data-row:hover { background: var(--panel-2); }
+.cell-strong { font-weight: 600; }
+.cell-nowrap { white-space: nowrap; }
+.cell-actions { text-align: right; }
+.row-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+.row-link:hover { text-decoration: underline; }
+.pill { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 10px; color: #fff; white-space: nowrap; }
+.pill.st-confirmed { background: var(--confirmed); }
+.pill.st-duration { background: var(--duration); }
+.pill.st-equipment { background: var(--equipment); }
+.pill.st-review { background: var(--review); }
+.pill.st-completed { background: var(--completed); }
+.pill.st-cancelled { background: var(--cancelled); color: #444; }
+.chip { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 10px; background: #e3f2fd; color: #0d47a1; white-space: nowrap; }
+.chip.jt-outage { background: #fff3e0; color: #b26a00; }
+.chip.jt-emergency { background: #fdecea; color: var(--emergency); }
+.chip.jt-general { background: #e3f2fd; color: #0d47a1; }
+@media (max-width: 980px) {
+  .data-table { display: block; overflow-x: auto; }
+}
