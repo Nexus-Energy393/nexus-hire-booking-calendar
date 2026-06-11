@@ -5,7 +5,8 @@
  * fleet-conflict detection and booking detail with a deep-link back to the Pipedrive deal.
  *
  * Data source: in sample mode it reads window.NEXUS_SAMPLE_BOOKINGS.
- * In live mode set window.NEXUS_CONFIG.apiBase and it fetches GET {apiBase}/bookings.
+ * In live mode set window.NEXUS_CONFIG.apiBase and it fetches GET {apiBase}/bookings,
+ * falling back to sample data if the live feed is empty or unreachable.
  */
 (function () {
 "use strict";
@@ -20,6 +21,7 @@ var STATE = {
   bookings: [],
   filters: { search: "", type: "", status: "", size: "", owner: "" },
   tv: false,
+  live: false,
   lastUpdated: null
 };
 
@@ -116,23 +118,48 @@ function applyFilters(bookings) {
 }
 
 // ---------- data loading ----------
+// Live mode: GET {apiBase}/bookings. If the live feed errors or returns no
+// bookings, fall back to the bundled sample data so the board is never blank.
 function loadBookings() {
+  var sample = window.NEXUS_SAMPLE_BOOKINGS || [];
   if (CONFIG.apiBase) {
-    return fetch(CONFIG.apiBase.replace(/\/$/, "") + "/bookings")
+    var url = CONFIG.apiBase.replace(/\/$/, "") + "/bookings";
+    return fetch(url, { headers: { "Accept": "application/json" } })
       .then(function (r) { return r.json(); })
-      .then(function (data) { return data.bookings || data; })
-      .catch(function () { return window.NEXUS_SAMPLE_BOOKINGS || []; });
+      .then(function (data) {
+        var list = (data && data.bookings) ? data.bookings : (Array.isArray(data) ? data : []);
+        if (list && list.length) { STATE.live = true; return list; }
+        STATE.live = false; return sample;
+      })
+      .catch(function (e) {
+        console.warn("[app] live feed unavailable, using sample data:", e && e.message);
+        STATE.live = false; return sample;
+      });
   }
-  return Promise.resolve(window.NEXUS_SAMPLE_BOOKINGS || []);
+  STATE.live = false;
+  return Promise.resolve(sample);
 }
 
 function refresh() {
   return loadBookings().then(function (bookings) {
     STATE.bookings = bookings;
     STATE.lastUpdated = new Date();
+    updateDataSourceNote();
     populateFilterOptions();
     render();
   });
+}
+
+function updateDataSourceNote() {
+  var note = document.getElementById("dataSourceNote");
+  if (!note) return;
+  if (STATE.live) {
+    note.innerHTML = "Live data &mdash; synced from the Pipedrive hire pipeline.";
+  } else if (CONFIG.apiBase) {
+    note.innerHTML = "Sample data &mdash; live Pipedrive feed returned no bookings or is unavailable. Check API token and field mapping.";
+  } else {
+    note.innerHTML = "Sample data mode &mdash; connect Pipedrive credentials to go live. See README.";
+  }
 }
 
 // ---------- rendering ----------
@@ -243,7 +270,6 @@ function renderDay(root, bookings) {
 // ---------- LIST VIEW (Jemena-style table) - current & future bookings only ----------
 function renderList(root, bookings) {
   var today = startOfDay(new Date());
-  // Only current and future bookings: keep if no end date (TBC) or end date is today/later.
   var upcoming = bookings.filter(function (b) {
     var e = bEnd(b);
     if (!e) return true;
@@ -333,12 +359,11 @@ function renderMissing(root, bookings) {
 function renderSync(root) {
   var wrap = el("div", "list-wrap sync-wrap");
   wrap.appendChild(el("h2", "day-title", "Pipedrive sync status"));
-  var live = !!CONFIG.apiBase;
+  var live = STATE.live;
   var rows = [
-    ["Mode", live ? "Live (API connected)" : "Sample data mode"],
-    ["Source of truth", "App booking store (synced from Pipedrive hire pipeline)"],
-    ["Webhook", live ? "Configured - deal.updated" : "Not connected - see README webhook setup"],
-    ["Hourly fallback sync", live ? "Scheduled" : "Not connected - see README"],
+    ["Mode", live ? "Live (Pipedrive API connected)" : (CONFIG.apiBase ? "Sample data (live feed empty/unavailable)" : "Sample data mode")],
+    ["API base", CONFIG.apiBase || "(not configured)"],
+    ["Source of truth", "Won deals in the Pipedrive hire pipeline (read-only)"],
     ["Total bookings loaded", String(STATE.bookings.length)],
     ["Last refreshed", STATE.lastUpdated ? STATE.lastUpdated.toLocaleString("en-AU") : "--"]
   ];
