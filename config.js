@@ -11,6 +11,6 @@
 window.NEXUS_CONFIG = {
   apiBase: '/api',
   pipedriveCompanyUrl: 'https://nexusenergy.pipedrive.com',
-  autoRefreshSeconds: 120
+  autoRefreshSeconds: 60
 };
 
