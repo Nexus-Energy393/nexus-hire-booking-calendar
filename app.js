@@ -394,7 +394,8 @@ function renderSync(root) {
     ["API base", CONFIG.apiBase || "(not configured)"],
     ["Source of truth", "Won deals in the Pipedrive hire pipeline (read-only)"],
     ["Total bookings loaded", String(STATE.bookings.length)],
-    ["Last refreshed", STATE.lastUpdated ? STATE.lastUpdated.toLocaleString("en-AU") : "--"]
+    ["Last refreshed", STATE.lastUpdated ? STATE.lastUpdated.toLocaleString("en-AU") : "--"],
+    ["Auto-refresh", "Every " + Math.round(REFRESH_MS / 1000) + "s (board re-polls Pipedrive on its own)"]
   ];
   var table = el("table", "sync-table");
   rows.forEach(function (r) {
@@ -404,6 +405,9 @@ function renderSync(root) {
     table.appendChild(tr);
   });
   wrap.appendChild(table);
+  if (CONFIG.apiBase) {
+    wrap.appendChild(el("p", "subtle", "A deal marked won in Pipedrive appears here on the next refresh \u2014 within about a minute once the server cache (\u224860s) clears. Hit \u201CRefresh now\u201D to pull the latest immediately."));
+  }
   root.appendChild(wrap);
 }
 
