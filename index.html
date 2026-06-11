@@ -1,0 +1,63 @@
+TESTLINE1
+TESTLINE2<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Nexus Generator Hire Booking Calendar</title>
+<meta name="description" content="Operational booking board for Nexus Energy generator hire and planned outage jobs." />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body data-mode="desktop">
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">NEXUS</span>
+      <span class="brand-sub">Generator Hire Booking Board</span>
+    </div>
+    <nav class="view-tabs" id="viewTabs">
+      <button class="tab active" data-view="month">Month</button>
+      <button class="tab" data-view="week">Week</button>
+      <button class="tab" data-view="day">Day</button>
+      <button class="tab" data-view="list">Upcoming</button>
+      <button class="tab" data-view="missing">Missing Info</button>
+      <button class="tab" data-view="sync">Sync Status</button>
+    </nav>
+    <div class="header-actions">
+      <span class="updated" id="lastUpdated">Last updated: --</span>
+      <button class="btn" id="refreshBtn" title="Refresh now">&#x21bb; Refresh now</button>
+      <button class="btn btn-tv" id="tvBtn" title="Large-screen office display mode">Office screen</button>
+    </div>
+  </header>
+
+  <section class="toolbar" id="toolbar">
+    <div class="nav-group">
+      <button class="btn ghost" id="prevBtn">&#8592;</button>
+      <button class="btn ghost" id="todayBtn">Today</button>
+      <button class="btn ghost" id="nextBtn">&#8594;</button>
+      <span class="period-label" id="periodLabel"></span>
+    </div>
+    <div class="filters" id="filters">
+      <input type="search" id="searchInput" placeholder="Search customer, site, deal owner..." />
+      <select id="filterType"><option value="">All job types</option><option value="planned-outage">Planned outage</option><option value="emergency">Emergency hire</option><option value="general">General hire</option></select>
+      <select id="filterStatus"><option value="">All statuses</option><option value="confirmed">Confirmed</option><option value="needs-duration">Needs duration</option><option value="needs-equipment">Needs equipment</option><option value="needs-review">Needs review</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>
+      <select id="filterSize"><option value="">All generator sizes</option></select>
+      <select id="filterOwner"><option value="">All deal owners</option></select>
+    </div>
+  </section>
+
+  <main id="calendarRoot" class="calendar-root"></main>
+
+  <div class="conflict-banner" id="conflictBanner" hidden></div>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" id="bookingModal" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <footer class="app-footer">
+    <span id="dataSourceNote">Sample data mode &mdash; connect Pipedrive credentials to go live. See README.</span>
+  </footer>
+
+  <script src="sample-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
