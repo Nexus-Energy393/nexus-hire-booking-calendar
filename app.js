@@ -22,6 +22,8 @@ var STATE = {
   filters: { search: "", type: "", status: "", size: "", owner: "" },
   tv: false,
   live: false,
+  everLive: false,
+  loaded: false,
   lastUpdated: null
 };
 
@@ -120,20 +122,43 @@ function applyFilters(bookings) {
 // ---------- data loading ----------
 // Live mode: GET {apiBase}/bookings. If the live feed errors or returns no
 // bookings, fall back to the bundled sample data so the board is never blank.
+function delay(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+// Fetch /bookings with a couple of quick retries so a cold serverless lambda on the
+// first request doesn't immediately drop the board to the sample fallback.
+function fetchLive(url, attempt) {
+  attempt = attempt || 0;
+  return fetch(url, { headers: { "Accept": "application/json" } })
+    .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function (data) {
+      var list = (data && data.bookings) ? data.bookings : (Array.isArray(data) ? data : []);
+      if (list && list.length) return list;
+      if (attempt < 2) return delay(900 * (attempt + 1)).then(function () { return fetchLive(url, attempt + 1); });
+      return [];
+    })
+    .catch(function (e) {
+      if (attempt < 2) return delay(900 * (attempt + 1)).then(function () { return fetchLive(url, attempt + 1); });
+      throw e;
+    });
+}
+// On a live miss/error never blank the board: keep the last-known live data if we
+// ever had it, otherwise show the bundled sample set.
+function onLiveMiss(sample) {
+  if (STATE.everLive && STATE.bookings && STATE.bookings.length) { STATE.live = true; return STATE.bookings; }
+  STATE.live = false;
+  return sample;
+}
 function loadBookings() {
   var sample = window.NEXUS_SAMPLE_BOOKINGS || [];
   if (CONFIG.apiBase) {
     var url = CONFIG.apiBase.replace(/\/$/, "") + "/bookings";
-    return fetch(url, { headers: { "Accept": "application/json" } })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var list = (data && data.bookings) ? data.bookings : (Array.isArray(data) ? data : []);
-        if (list && list.length) { STATE.live = true; return list; }
-        STATE.live = false; return sample;
+    return fetchLive(url, 0)
+      .then(function (list) {
+        if (list && list.length) { STATE.live = true; STATE.everLive = true; return list; }
+        return onLiveMiss(sample);
       })
       .catch(function (e) {
-        console.warn("[app] live feed unavailable, using sample data:", e && e.message);
-        STATE.live = false; return sample;
+        console.warn("[app] live feed unavailable:", e && e.message);
+        return onLiveMiss(sample);
       });
   }
   STATE.live = false;
@@ -141,9 +166,11 @@ function loadBookings() {
 }
 
 function refresh() {
+  updateDataSourceNote();
   return loadBookings().then(function (bookings) {
     STATE.bookings = bookings;
     STATE.lastUpdated = new Date();
+    STATE.loaded = true;
     updateDataSourceNote();
     populateFilterOptions();
     render();
@@ -153,10 +180,12 @@ function refresh() {
 function updateDataSourceNote() {
   var note = document.getElementById("dataSourceNote");
   if (!note) return;
-  if (STATE.live) {
+  if (!STATE.loaded && CONFIG.apiBase) {
+    note.innerHTML = "Loading live data from the Pipedrive hire pipeline\u2026";
+  } else if (STATE.live) {
     note.innerHTML = "Live data &mdash; synced from the Pipedrive hire pipeline.";
   } else if (CONFIG.apiBase) {
-    note.innerHTML = "Sample data &mdash; live Pipedrive feed returned no bookings or is unavailable. Check API token and field mapping.";
+    note.innerHTML = "Showing sample data &mdash; couldn't reach the live Pipedrive feed just now; it will retry automatically.";
   } else {
     note.innerHTML = "Sample data mode &mdash; connect Pipedrive credentials to go live. See README.";
   }
