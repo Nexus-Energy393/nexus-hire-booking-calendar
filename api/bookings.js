@@ -13,7 +13,7 @@
 const pipedrive = require('../lib/pipedrive');
 const { dealToBooking, F } = require('../lib/transform');
 
-const CACHE_MS = (parseInt(process.env.BOOKINGS_CACHE_SECONDS, 10) || 120) * 1000;
+const CACHE_MS = (parseInt(process.env.BOOKINGS_CACHE_SECONDS, 10) || 60) * 1000;
 let CACHE = { at: 0, bookings: null };
 
 /* Build a map "fieldKey:optionId" -> label for all enum/set deal fields. */
