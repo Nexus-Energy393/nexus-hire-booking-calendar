@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+.next/
+out/
+dist/
+build/
+
+# Environment - NEVER commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Google service account keys
+*service-account*.json
+google-key.json
+
+# Local booking data store
+data/bookings.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
