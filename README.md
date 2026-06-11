@@ -110,3 +110,45 @@ A one-way visibility mirror to a Google "Nexus Generator Hire Bookings" calendar
 ---
 
 *Built for Nexus Energy operations. Pipedrive = source of truth (read-only). This app = operational booking board.*
+
+
+## 10. Dispatch jobsheet (feature/dispatch-jobsheet)
+
+Clicking any booking now opens a full **generator-hire dispatch jobsheet** instead of the old basic popup. The calendar, filters and all views are unchanged - only the booking detail view was upgraded.
+
+The jobsheet works three ways:
+- **On screen** as a wide modal (desktop), responsive field sheet (iPad), and stacked cards (phone).
+- **A4 print**: "Print jobsheet" uses `@media print` + `@page { size: A4 }` to produce a clean warehouse document - app chrome, buttons and shadows are stripped; section rows avoid breaking across pages.
+- **Deep link**: `/#/jobsheet/:dealId` (e.g. `.../#/jobsheet/458`) opens a specific job directly for printing/sharing. Hash-based so it works on the static host with no server rewrites.
+
+Buttons: **Print jobsheet**, **Open Pipedrive deal** (unchanged deep link), **Mark ready for dispatch** (local toggle - see below).
+
+Sections: Customer & Site, Hire Period, Generator (serialised - fleet # confirmation + picked/fuel/tested), Cable and Cable Protection (non-serialised - quantity picked only, no fleet #), Other Hire Items, Electrical Works, Transport & Dispatch, Fuel, Internal Notes. Missing critical dispatch data is highlighted (e.g. "Missing dispatch information: site contact phone, fleet number"). Printing is never blocked by missing data.
+
+### Newly mapped Pipedrive fields (already existed, now surfaced)
+These existing fields were not previously shown and are now mapped in `lib/transform.js` / `api/bookings.js`:
+- Site contact **Phone** and **Email** (from the linked Person record).
+- **Cable Set Required** (`b927099a44c0a0eb9727cf61a10451ec82c8b1f3`, enum) - pre-fills the first cable row.
+- **Time Off - Time On** (`c4918a9b1abfdee0ffc20b052d40f68e7371d27b`, timerange) - shown as the outage window.
+- **State** - derived from the formatted Site Address.
+- **Generator model** - shown alongside the required size.
+
+### Dispatch state: LOCAL ONLY (no fake saving)
+The app is **read-only against Pipedrive and has no write backend** (`api/bookings.js` is computed per request; `lib/store.js` is a JSON-file store that is not wired to a persistent disk on Vercel). So the pick/dispatch checkboxes, quantities, fleet numbers, notes and the "ready for dispatch" flag are saved **only in the current browser** via `localStorage` (key `nexusJobSheetLocal`). They are clearly labelled as local on the sheet and are **never** written back to Pipedrive. No dummy "saved" state is presented as real.
+
+To persist dispatch status across devices/users, add ONE of:
+- A small datastore (e.g. Vercel KV / Postgres / Upstash Redis) plus `GET/POST /api/jobsheet/:dealId` to read/write a dispatch record keyed by deal id. Store: picked flags + quantities, confirmed fleet #, dispatch notes, checked-by and timestamp. Front-end already structures state per deal id, so wiring is straightforward.
+- OR write a summary back to Pipedrive as a **deal Note / Activity** (not deal fields) once dispatch is confirmed - keeps Pipedrive as source of truth and avoids overwriting deal data.
+
+### Recommended NEW Pipedrive fields (currently missing)
+For richer dispatch data without manual entry, add these on the **Deal** (Lead/deal) unless noted:
+- `Site Access Notes` - **Large text**.
+- `Delivery Instructions` - **Large text**.
+- `Required Delivery Date/Time` - **Date/Time**.
+- `Delivery Required` - **Single option** Yes/No (then map `PD_FIELD_DELIVERY_REQUIRED`).
+- `Electrical Connection Required` - **Single option** Yes/No (then map `PD_FIELD_ELECTRICAL_CONNECTION_REQUIRED`).
+- `Electrician Required` - **Single option** Yes/No.
+- `Supplied Fuel Level` - **Single option** (e.g. Full/Three-quarter/Half).
+- `Cable Protection Required` - **Multiple options** (ramp types), to mirror Cable Set Required.
+
+Until added, the matching jobsheet fields render as printable blank checklist lines.
