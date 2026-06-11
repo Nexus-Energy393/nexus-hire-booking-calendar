@@ -137,6 +137,7 @@
 
   // ---------- rendering ----------
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+  function dash(v) { return (v == null || v === "") ? "&mdash;" : escapeHtml(v); }
 
   function bookingCard(b, compact) {
     var sm = statusMeta(b), tm = typeMeta(b);
@@ -230,8 +231,7 @@
 
     var head = el("div", "list-head");
     head.appendChild(el("h2", "list-title", "Generator hire bookings"));
-    var count = el("div", "list-count", rows.length + (rows.length === 1 ? " booking" : " bookings"));
-    head.appendChild(count);
+    head.appendChild(el("div", "list-count", rows.length + (rows.length === 1 ? " booking" : " bookings")));
     wrap.appendChild(head);
 
     if (!rows.length) {
@@ -260,12 +260,12 @@
         '<td><span class="pill ' + sm.cls + '">' + sm.label + '</span></td>' +
         '<td class="cell-strong">' + escapeHtml(b.customer || "Unknown customer") + '</td>' +
         '<td><span class="chip ' + tm.cls + '">' + tm.label + '</span></td>' +
-        '<td>' + escapeHtml(b.site || "&mdash;") + '</td>' +
-        '<td>' + escapeHtml(b.suburb || "&mdash;") + '</td>' +
+        '<td>' + dash(b.site) + '</td>' +
+        '<td>' + dash(b.suburb) + '</td>' +
         '<td class="cell-nowrap">' + when + '</td>' +
         '<td>' + durTxt + '</td>' +
-        '<td>' + escapeHtml(b.generatorSize || "TBC") + '</td>' +
-        '<td>' + escapeHtml(b.equipmentId || "&mdash;") + '</td>' +
+        '<td>' + dash(b.generatorSize) + '</td>' +
+        '<td>' + dash(b.equipmentId) + '</td>' +
         '<td>' + escapeHtml(b.dealOwner || "Unassigned") + '</td>' +
         '<td class="cell-actions"><a class="row-link" target="_blank" rel="noopener" href="' + dealUrl(b) + '" data-stop="1">Pipedrive</a></td>';
       tr.addEventListener("click", function (e) {
