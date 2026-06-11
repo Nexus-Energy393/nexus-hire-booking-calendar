@@ -1,0 +1,6 @@
+asset_type,fleet_number,asset_name,item_name,category,generator_size_kva,make,model,serial_number,registration_number,current_engine_hours,last_service_hours,service_interval_hours,total_quantity,unit,location,status,description,notes
+serialised,2001,200kVA Diesel Generator - Trailer Mounted,,Generator,200,FG Wilson,P200-5,SN200A001,TR2001,120,0,300,,,Sydney Yard,available,,Trailer mounted
+serialised,2002,200kVA Diesel Generator - Trailer Mounted,,Generator,200,FG Wilson,P200-5,SN200A002,TR2002,260,0,300,,,Sydney Yard,available,,Trailer mounted
+serialised,5001,500kVA Diesel Generator - Trailer Mounted,,Generator,500,Cummins,C500D5,SN500A001,TR5001,90,0,300,,,Newcastle Yard,available,,Trailer mounted
+non_serialised,,,95mm x 50m CU Cable Set,Cable,,,,,,,,,2,set,Sydney Yard,available,95mm copper cable set 50 metres,
+non_serialised,,,Cable Ramp 5 Channel,Cable Protection,,,,,,,,,50,item,Sydney Yard,available,5-channel drive-over cable ramp,
