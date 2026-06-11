@@ -1,0 +1,125 @@
+/* Nexus Generator Hire Booking Board - styles.css
+   Two display modes via <body data-mode>: "desktop" (staff) and "tv" (office screen). */
+:root {
+  --bg: #0f141b; --panel: #18202b; --panel-2: #1f2937; --line: #2b3543;
+  --text: #e8edf3; --muted: #9aa7b8; --accent: #ff7a2f; --accent-2: #2f81f7;
+  --outage: #ff7a2f; --emergency: #e5484d; --general: #2f81f7;
+  --confirmed: #2ec47a; --duration: #f5a623; --equipment: #d98cff;
+  --review: #e5484d; --completed: #5b6675; --cancelled: #3a4150;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; display: flex; flex-direction: column; }
+
+.app-header { display: flex; align-items: center; gap: 24px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { display: flex; flex-direction: column; line-height: 1.1; }
+.brand-mark { font-weight: 800; letter-spacing: 2px; color: var(--accent); font-size: 20px; }
+.brand-sub { font-size: 12px; color: var(--muted); }
+.view-tabs { display: flex; gap: 4px; flex: 1; }
+.tab { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.tab:hover { color: var(--text); background: var(--panel-2); }
+.tab.active { color: #fff; background: var(--accent); }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.updated { font-size: 12px; color: var(--muted); }
+.btn { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.btn:hover { border-color: var(--accent); }
+.btn.ghost { background: transparent; }
+.btn-tv { border-color: var(--accent); }
+
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.nav-group { display: flex; align-items: center; gap: 8px; }
+.period-label { font-size: 16px; font-weight: 600; margin-left: 8px; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.filters input, .filters select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px; }
+.filters input[type="search"] { min-width: 240px; }
+
+.calendar-root { flex: 1; overflow: auto; padding: 16px 20px; }
+
+/* Month grid */
+.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.month-dow { text-align: center; color: var(--muted); font-size: 12px; padding: 4px 0; text-transform: uppercase; letter-spacing: 1px; }
+.month-cell { min-height: 110px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; overflow: hidden; }
+.month-cell.other-month { opacity: 0.45; }
+.month-cell.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.mc-num { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.month-cell.today .mc-num { color: var(--accent); font-weight: 700; }
+.mc-more { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* Week + day */
+.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.week-col { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-height: 200px; }
+.week-col.today { border-color: var(--accent); }
+.wc-head { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--muted); }
+.day-wrap, .list-wrap { max-width: 900px; margin: 0 auto; }
+.day-title { font-size: 22px; margin: 0 0 16px; }
+.subtle { color: var(--muted); margin-top: -8px; }
+.empty { color: var(--muted); font-style: italic; }
+
+/* Booking card */
+.booking-card { background: var(--panel-2); border: 1px solid var(--line); border-left: 4px solid var(--general); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+.booking-card:hover { border-color: var(--accent); }
+.booking-card.compact { padding: 3px 6px; margin-bottom: 3px; font-size: 11px; }
+.booking-card.jt-outage { border-left-color: var(--outage); }
+.booking-card.jt-emergency { border-left-color: var(--emergency); background: rgba(229,72,77,0.12); }
+.booking-card.jt-general { border-left-color: var(--general); }
+.booking-card.st-review, .booking-card.st-duration, .booking-card.st-equipment { box-shadow: inset 0 0 0 1px var(--duration); }
+.booking-card.st-completed { opacity: 0.55; }
+.bc-top { display: flex; justify-content: space-between; gap: 8px; }
+.bc-cust { font-weight: 700; }
+.bc-status { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.bc-site { font-size: 13px; color: var(--muted); }
+.bc-meta { display: flex; gap: 10px; font-size: 12px; margin-top: 4px; }
+.bc-dates { font-size: 12px; margin-top: 4px; color: var(--text); }
+.bc-owner { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.bc-flag { margin-top: 6px; font-size: 12px; color: var(--duration); font-weight: 600; }
+
+/* Status pills via colour on status text */
+.st-confirmed .bc-status { color: var(--confirmed); }
+.st-duration .bc-status { color: var(--duration); }
+.st-equipment .bc-status { color: var(--equipment); }
+.st-review .bc-status { color: var(--review); }
+.st-completed .bc-status { color: var(--completed); }
+
+/* Conflict banner */
+.conflict-banner { background: rgba(229,72,77,0.18); color: #ffd7d8; border-top: 1px solid var(--emergency); padding: 10px 20px; font-size: 14px; font-weight: 600; }
+
+/* Sync table */
+.sync-table { width: 100%; border-collapse: collapse; }
+.sync-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.sync-table .sk { color: var(--muted); width: 240px; }
+
+/* Modal */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.modal { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; width: min(540px, 92vw); max-height: 88vh; overflow: auto; padding: 24px; position: relative; }
+.modal h2 { margin: 0 0 12px; }
+.modal-close { position: absolute; top: 12px; right: 16px; background: none; border: none; color: var(--muted); font-size: 26px; cursor: pointer; }
+.modal-badges { display: flex; gap: 8px; margin-bottom: 16px; }
+.badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); }
+.badge.jt-outage { color: var(--outage); border-color: var(--outage); }
+.badge.jt-emergency { color: var(--emergency); border-color: var(--emergency); }
+.badge.jt-general { color: var(--general); border-color: var(--general); }
+.badge.st-confirmed { color: var(--confirmed); border-color: var(--confirmed); }
+.detail-row { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.detail-row .dk { color: var(--muted); }
+.detail-row .dv { text-align: right; }
+.pipedrive-link { display: inline-block; margin-top: 18px; border-color: var(--accent); color: var(--accent); text-decoration: none; }
+
+.app-footer { padding: 8px 20px; font-size: 12px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line); }
+
+/* ---------- LARGE-SCREEN OFFICE TV MODE ---------- */
+body[data-mode="tv"] { font-size: 20px; }
+body[data-mode="tv"] .toolbar .filters { display: none; }
+body[data-mode="tv"] .brand-mark { font-size: 32px; }
+body[data-mode="tv"] .tab { font-size: 18px; padding: 10px 18px; }
+body[data-mode="tv"] .period-label { font-size: 26px; }
+body[data-mode="tv"] .month-cell { min-height: 150px; }
+body[data-mode="tv"] .month-dow { font-size: 18px; }
+body[data-mode="tv"] .mc-num { font-size: 18px; }
+body[data-mode="tv"] .booking-card.compact { font-size: 15px; padding: 5px 8px; }
+body[data-mode="tv"] .updated { font-size: 18px; color: var(--text); }
+body[data-mode="tv"] .month-cell.today { box-shadow: inset 0 0 0 3px var(--accent); }
+
+@media (max-width: 720px) {
+  .filters input[type="search"] { min-width: 140px; }
+  .month-cell { min-height: 80px; }
+}
