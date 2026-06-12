@@ -60,6 +60,7 @@
   }
   function num(v) { return (v == null || v === "") ? null : Number(v); }
   function dash(v) { return (v == null || v === "") ? "&mdash;" : esc(v); }
+function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Date(v); if (isNaN(d.getTime())) return esc(String(v).slice(0, 10)); var mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return d.getUTCDate() + " " + mo[d.getUTCMonth()] + " " + d.getUTCFullYear(); }
 
   var STATUS_LABELS = {
     available: "Available", allocated: "Allocated", on_hire: "On hire",
@@ -653,7 +654,7 @@
       if (!r.body.ok || !r.body.detail) { d.body.innerHTML = '<p class="fleet-err">' + esc((r.body && r.body.error) || "Not found") + "</p>"; return; }
       var det = r.body.detail, a = det.asset, svc = det.service || {};
       var allocRows = (det.allocations || []).map(function (al) {
-        return "<tr><td>#" + esc(al.pipedrive_deal_id) + "</td><td>" + dash(al.hire_start) + " &rarr; " + dash(al.hire_end) +
+        return "<tr><td>#" + esc(al.pipedrive_deal_id) + "</td><td>" + fmtDate(al.hire_start) + " &rarr; " +fmtDate(al.hire_end) +
           "</td><td>" + esc(al.allocation_status) + "</td></tr>";
       }).join("") || '<tr><td colspan="3" class="subtle">No allocations.</td></tr>';
       var hourRows = (det.engineHours || []).slice(0, 10).map(function (h) {
@@ -661,7 +662,7 @@
           "</td><td>" + (h.pipedrive_deal_id ? "#" + esc(h.pipedrive_deal_id) : "&mdash;") + "</td></tr>";
       }).join("") || '<tr><td colspan="4" class="subtle">No engine-hour records.</td></tr>';
       var svcRows = (det.serviceRecords || []).map(function (sr) {
-        return "<tr><td>" + dash(sr.service_completed_date) + "</td><td>" + dash(sr.service_type) + "</td><td>" +
+        return "<tr><td>" + fmtDate(sr.service_completed_date) + "</td><td>" + dash(sr.service_type) + "</td><td>" +
           dash(sr.service_completed_hours) + "</td><td>" + dash(sr.completed_by) + "</td></tr>";
       }).join("") || '<tr><td colspan="4" class="subtle">No service records.</td></tr>';
       d.body.innerHTML =
@@ -700,7 +701,7 @@
       if (!r.body.ok || !r.body.detail) { d.body.innerHTML = '<p class="fleet-err">' + esc((r.body && r.body.error) || "Not found") + "</p>"; return; }
       var det = r.body.detail, s = det.item;
       var allocRows = (det.allocations || []).map(function (al) {
-        return "<tr><td>#" + esc(al.pipedrive_deal_id) + "</td><td>" + dash(al.hire_start) + " &rarr; " + dash(al.hire_end) +
+        return "<tr><td>#" + esc(al.pipedrive_deal_id) + "</td><td>" + fmtDate(al.hire_start) + " &rarr; " + fmtDate(al.hire_end) +
           "</td><td>" + dash(al.quantity_required) + "</td><td>" + esc(al.allocation_status) + "</td></tr>";
       }).join("") || '<tr><td colspan="4" class="subtle">No allocations.</td></tr>';
       d.body.innerHTML =
@@ -880,8 +881,8 @@
         html += '<div class="rs-hours">' +
           '<div class="rs-hcell"><label>Engine hours OUT</label><input type="number" id="rsHoursOut" value="' + esc(latest.hours_out != null ? latest.hours_out : "") + '" ' + (STATE.writesEnabled ? "" : "disabled") + " /></div>" +
           '<div class="rs-hcell"><label>Engine hours IN</label><input type="number" id="rsHoursIn" value="' + esc(latest.hours_in != null ? latest.hours_in : "") + '" ' + (STATE.writesEnabled ? "" : "disabled") + " /></div>" +
-          '<div class="rs-hcell"><label>Runtime</label><output id="rsRuntime">' + esc(latest.runtime_hours != null ? latest.runtime_hours : "&mdash;") + "</output></div>" +
-          '<div class="rs-hcell"><label>Current (after return)</label><output>' + esc(genAlloc.asset ? genAlloc.asset.current_engine_hours : "&mdash;") + "</output></div>" +
+          '<div class="rs-hcell"><label>Runtime</label><output id="rsRuntime">' + esc(latest.runtime_hours != null ? latest.runtime_hours : "\u2014") + "</output></div>" +
+                    '<div class="rs-hcell"><label>Current (after return)</label><output>' + (genAlloc.asset ? esc(genAlloc.asset.current_engine_hours) : "\u2014") + '</output></div>' +
           (STATE.writesEnabled ? '<button class="fleet-btn sm" id="rsHoursSave">Record hours</button>' : "") + "</div>";
       } else {
         html += '<div class="rs-line">No generator allocated yet.' + (STATE.writesEnabled ? "" : " Configure the admin token and use the Fleet control centre to allocate.") + "</div>";
