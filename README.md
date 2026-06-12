@@ -152,3 +152,82 @@ For richer dispatch data without manual entry, add these on the **Deal** (Lead/d
 - `Cable Protection Required` - **Multiple options** (ramp types), to mirror Cable Set Required.
 
 Until added, the matching jobsheet fields render as printable blank checklist lines.
+
+
+---
+
+## 11. Fleet resourcing (feature/fleet-resourcing)
+
+This branch adds a real **rental equipment & resourcing layer** backed by a Neon Postgres database. It stops double-booking, allocates fleet assets to jobs, flags conflicts and cross-hire, records generator engine hours, and raises service-due alerts. Pipedrive stays the read-only source of truth for bookings; fleet allocation, engine hours and service history are operational records that live in the app database.
+
+It is built so the **calendar and dispatch jobsheet keep working even with no database**. When `DATABASE_URL` is missing, the fleet pages show a clear "database not configured" panel and write endpoints are disabled - no fake state is ever shown.
+
+### Database setup (Neon)
+
+You provision Neon yourself; the code is ready for it. Steps:
+
+1. Create a free project at https://neon.tech and copy the **pooled** connection string (ends with `?sslmode=require`).
+2. In Vercel: Project &rarr; Settings &rarr; Environment Variables, add:
+   - `DATABASE_URL` = your Neon connection string
+   - `FLEET_ADMIN_TOKEN` = a long random string (e.g. `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
+3. Apply the schema, either:
+   - paste `db/migrations/001_init.sql` into the Neon SQL editor, or
+   - run locally: `DATABASE_URL="..." npm run migrate`
+4. Redeploy (or it picks the vars up on the next deploy). The fleet page now loads; write actions ask for the admin token once per browser session.
+
+### Environment variables
+
+| Var | Purpose | If missing |
+| --- | --- | --- |
+| `DATABASE_URL` | Neon Postgres connection (pooled) | Fleet pages show "not configured"; calendar/jobsheet still work |
+| `FLEET_ADMIN_TOKEN` | Protects all write endpoints | All writes disabled (fail closed) |
+| `PIPEDRIVE_API_TOKEN` | Existing Pipedrive read token (unchanged) | Calendar falls back to sample data |
+
+### Fleet import CSV format
+
+Import via the **Import fleet (CSV)** button on the `#/fleet` page (preview, then commit). Template: `db/sample-fleet-import.csv`. One `asset_type` column selects the row kind:
+
+- `serialised` (generators): requires `fleet_number`, `asset_name`; uses `generator_size_kva, make, model, serial_number, registration_number, current_engine_hours, last_service_hours, service_interval_hours, location, status, notes`.
+- `non_serialised` (cable / ramps): requires `item_name`; uses `category, description, total_quantity, unit, location, status, notes`.
+
+Import validates required fields, shows a preview plan (create / update / error), never creates duplicates (assets match on `fleet_number`, stock on `item_name`+`category`), and writes an `import_log` row.
+
+### Serialised vs non-serialised
+
+- **Serialised** (generators) are tracked individually by **fleet number** and allocated as a specific asset. Example: `200kVA Diesel Generator - Trailer Mounted - Fleet #2001`.
+- **Non-serialised** (cable sets, cable ramps) are tracked by **quantity only**. Example: `95mm x 50m CU Cable Set, total quantity 2 sets`. No fleet numbers.
+
+### Availability / conflict logic
+
+Overlap rule (used everywhere): two hires conflict if `A.start <= B.end AND A.end >= B.start` (inclusive of both end days).
+
+- **Generators:** a candidate is suggested if no live allocation overlaps its window; overlapping ones are shown as conflicts with the clashing deal/dates. If none is available, the booking shows **cross-hire required**.
+- **Non-serialised:** available = `total_quantity - peak overlapping committed quantity` across live allocations. If required > available, the shortage is flagged and can be marked cross-hire for the shortfall. (Released/cancelled allocations don't count.)
+
+### Engine hours logic
+
+Record `hours_out` then `hours_in` per hire. `runtime = hours_in - hours_out`; `hours_in` cannot be less than `hours_out` and runtime can't be negative. On `hours_in`, the generator's `current_engine_hours` is updated and service status recomputed.
+
+### Service interval logic
+
+Default interval **300** engine hours. `next_service_due = last_service_hours + service_interval_hours`; `hours_until_due = next_service_due - current_engine_hours`. Within **50** hours &rarr; "service due soon" (warning); at/over due &rarr; "service overdue" (critical). Service-due-soon does **not** block dispatch (strong warning only); service-overdue requires an **override note** to allocate. Adding a service record updates `last_service_hours`, recomputes the next due, and clears open service alerts.
+
+### Write API security
+
+Reads (calendar, availability, alerts) are public. All writes - asset create/update, allocation, engine hours, service records, CSV import - require `FLEET_ADMIN_TOKEN`, sent as `Authorization: Bearer <token>` or `x-fleet-admin-token`. The token is compared in constant time and fails closed if unset. The front-end stores the token only in `sessionStorage`; it is never committed.
+
+### API endpoints
+
+`GET/POST/PATCH /api/assets`, `GET/POST/PATCH /api/stock`, `GET/POST/PATCH /api/allocations`, `GET /api/availability`, `GET /api/jobsheet?dealId=` plus `POST /api/jobsheet?action=engine-hours|service-record`, `GET /api/alerts`, `POST /api/fleet-import?mode=preview|commit`.
+
+### Data model
+
+Tables: `assets` (serialised), `stock_items` (non-serialised), `allocations` (deal &harr; asset/stock), `engine_hour_records`, `service_records`, `alerts`, `import_log`. See `db/migrations/001_init.sql`.
+
+### Known limitations / future work
+
+- Alerts are computed live from current data (the `alerts` table exists for acknowledgement workflows but isn't yet the dashboard source).
+- Calendar booking dots are wired in CSS; richer per-booking allocation badges on the month grid can be expanded.
+- Optional write-back of a Pipedrive note on allocate/return/cross-hire is documented but not enabled by default (kept safe).
+- Excel import is not included; CSV only for v1.
+- Auth is a single shared admin token (suitable for a small ops team), not per-user accounts.
