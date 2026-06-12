@@ -239,22 +239,144 @@ function render() {
 }
 
 function renderMonth(root, bookings) {
-  var grid = el("div", "month-grid");
+  root.innerHTML = "";
   var first = new Date(STATE.cursor.getFullYear(), STATE.cursor.getMonth(), 1);
-  var startCell = startOfWeek(first);
-  ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(function (d) { grid.appendChild(el("div", "month-dow", d)); });
-  for (var i = 0; i < 42; i++) {
-    var day = addDays(startCell, i);
-    var cell = el("div", "month-cell");
-    if (day.getMonth() !== STATE.cursor.getMonth()) cell.classList.add("other-month");
-    if (sameDay(day, new Date())) cell.classList.add("today");
-    cell.appendChild(el("div", "mc-num", String(day.getDate())));
-    var dayBookings = bookings.filter(function (b) { return spansDay(b, day); });
-    dayBookings.slice(0, STATE.tv ? 6 : 4).forEach(function (b) { cell.appendChild(bookingCard(b, true)); });
-    if (dayBookings.length > (STATE.tv ? 6 : 4)) cell.appendChild(el("div", "mc-more", "+" + (dayBookings.length - (STATE.tv ? 6 : 4)) + " more"));
-    grid.appendChild(cell);
-  }
+  var gridStart = startOfWeek(first);
+  var month = STATE.cursor.getMonth();
+  var grid = el("div", "month-grid month-grid-spans");
   root.appendChild(grid);
+
+  var dowRow = el("div", "month-row-days month-dow-row");
+  ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(function (d) { dowRow.appendChild(el("div", "month-dow", d)); });
+  grid.appendChild(dowRow);
+
+  var WEEKS = 6;
+  for (var w = 0; w < WEEKS; w++) {
+    var rowWrap = el("div", "month-row");
+    grid.appendChild(rowWrap);
+    var dayRow = el("div", "month-row-days");
+    var spanLayer = el("div", "month-row-spans");
+    rowWrap.appendChild(dayRow);
+    rowWrap.appendChild(spanLayer);
+    var rowDates = [];
+    for (var d = 0; d < 7; d++) {
+      var date = addDays(gridStart, w * 7 + d);
+      rowDates.push(date);
+      var cell = el("div", "month-cell");
+      if (date.getMonth() !== month) cell.classList.add("other-month");
+      if (sameDay(date, new Date())) cell.classList.add("today");
+      cell.appendChild(el("div", "mc-num", String(date.getDate())));
+      dayRow.appendChild(cell);
+    }
+    var rowStart = startOfDay(addDays(gridStart, w * 7));
+    var rowEnd   = startOfDay(addDays(gridStart, w * 7 + 6));
+    var segments = [];
+    bookings.forEach(function (b) {
+      var s0 = bStart(b);
+      if (!s0) return;
+      var bs = startOfDay(s0);
+      var be = startOfDay(bEnd(b) || s0);          // inclusive last day
+      if (be.getTime() < rowStart.getTime()) return;
+      if (bs.getTime() > rowEnd.getTime()) return;
+      var segStart = bs.getTime() < rowStart.getTime() ? rowStart : bs;
+      var segEnd   = be.getTime() > rowEnd.getTime()   ? rowEnd   : be;
+      var startCol = Math.round((segStart.getTime() - rowStart.getTime()) / 86400000);
+      var endCol   = Math.round((segEnd.getTime()   - rowStart.getTime()) / 86400000);
+      segments.push({
+        b: b, startCol: startCol, endCol: endCol,
+        isTrueStart: sameDay(segStart, bs),
+        isTrueEnd:   sameDay(segEnd, be),
+        continuesLeft:  bs.getTime() < rowStart.getTime(),
+        continuesRight: be.getTime() > rowEnd.getTime()
+      });
+    });
+    segments.sort(function (a, z) {
+      return (a.startCol - z.startCol) ||
+             ((z.endCol - z.startCol) - (a.endCol - a.startCol));
+    });
+    var lanes = [];
+    segments.forEach(function (seg) {
+      var lane = 0;
+      while (lane < lanes.length && lanes[lane] >= seg.startCol) lane++;
+      lanes[lane] = seg.endCol;
+      seg.lane = lane;
+    });
+    var MAX_LANES = 3;
+    var visibleLanes = Math.max(1, Math.min(lanes.length, MAX_LANES));
+    var hasOverflow = lanes.length > MAX_LANES;
+    rowWrap.style.setProperty("--lanes", visibleLanes + (hasOverflow ? 1 : 0));
+    var overflowByCol = {};
+    segments.forEach(function (seg) {
+      if (seg.lane >= MAX_LANES) {
+        for (var c = seg.startCol; c <= seg.endCol; c++) {
+          overflowByCol[c] = (overflowByCol[c] || 0) + 1;
+        }
+        return;
+      }
+      var bar = bookingSpan(seg);
+      bar.style.gridColumn = (seg.startCol + 1) + " / " + (seg.endCol + 2);
+      bar.style.gridRow = String(seg.lane + 1);
+      spanLayer.appendChild(bar);
+    });
+    Object.keys(overflowByCol).forEach(function (col) {
+      var n = overflowByCol[col];
+      var more = el("div", "mc-more", "+" + n + " more");
+      var date = rowDates[Number(col)];
+      more.style.gridColumn = (Number(col) + 1) + " / " + (Number(col) + 2);
+      more.style.gridRow = String(visibleLanes + 1); // row below visible lanes, no overlap
+      more.addEventListener("click", function () {
+        STATE.view = "day";
+        STATE.cursor = date;
+        document.querySelectorAll("#viewTabs .tab").forEach(function (x) {
+          x.classList.toggle("active", x.getAttribute("data-view") === "day");
+        });
+        render();
+      });
+      spanLayer.appendChild(more);
+    });
+  }
+}
+
+function bookingSpan(seg) {
+  var b = seg.b;
+  var sm = statusMeta(b);
+  var tm = typeMeta(b);
+  var bar = el("div", "booking-span " + tm.cls + " " + sm.cls);
+  if (seg.isTrueStart && !seg.continuesLeft)  bar.classList.add("span-start");
+  if (seg.isTrueEnd   && !seg.continuesRight) bar.classList.add("span-end");
+  if (seg.continuesLeft)  bar.classList.add("span-cont-left");
+  if (seg.continuesRight) bar.classList.add("span-cont-right");
+  bar.setAttribute("role", "button");
+  bar.setAttribute("tabindex", "0");
+  bar.setAttribute("data-deal-id", b.pipedriveDealId);
+  bar.setAttribute("aria-label",
+    (b.customer || "Unknown customer") + ", " +
+    (b.suburb || b.site || "") + ", " +
+    fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)));
+  if (seg.isTrueStart && !seg.continuesLeft) {
+    var top = el("div", "bs-top");
+    top.appendChild(el("span", "bs-cust", escapeHtml(b.customer || "Unknown customer")));
+    top.appendChild(el("span", "bs-status", escapeHtml(sm.label)));
+    bar.appendChild(top);
+    if (b.suburb || b.site) {
+      bar.appendChild(el("div", "bs-site", escapeHtml(b.suburb || b.site)));
+    }
+  } else {
+    bar.appendChild(el("div", "bs-cont", "‹ " + escapeHtml(b.customer || "") + " continues"));
+  }
+  var open = function () { openModal(b); };
+  bar.addEventListener("click", open);
+  bar.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+  });
+  bar.addEventListener("mouseenter", function () { highlightDeal(b.pipedriveDealId, true); });
+  bar.addEventListener("mouseleave", function () { highlightDeal(b.pipedriveDealId, false); });
+  return bar;
+}
+
+function highlightDeal(dealId, on) {
+  var nodes = document.querySelectorAll('.booking-span[data-deal-id="' + dealId + '"]');
+  nodes.forEach(function (elm) { elm.classList.toggle("span-hover", on); });
 }
 
 // ---------- 2-WEEK (FORTNIGHT) VIEW: this week + next week ----------

@@ -679,3 +679,52 @@ button:disabled, .btn:disabled, .fleet-btn:disabled { opacity: .5; cursor: not-a
 /* Leaf brand mark in side rail */
 .rail-mark { background: transparent; box-shadow: none; padding: 0; overflow: hidden; }
 .rail-mark-img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 10px; }
+
+/* ---------- month view: multi-day booking spans (lane-stacked) ---------- */
+/* Scoped to .month-grid-spans so the fortnight view keeps the original 7-col .month-grid. */
+.month-grid.month-grid-spans { grid-template-columns: 1fr; }
+.month-grid-spans .month-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.month-row { position: relative; }
+.month-row-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.month-grid-spans .month-cell {
+  position: relative;
+  min-height: calc(34px + var(--lanes, 1) * 30px + 8px);
+  overflow: hidden;
+}
+.month-row-spans {
+  position: absolute; inset: 30px 0 4px 0;
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 28px; gap: 4px 6px; pointer-events: none;
+}
+.booking-span, .month-row-spans .mc-more { pointer-events: auto; }
+.booking-span {
+  display: flex; flex-direction: column; justify-content: center; min-width: 0;
+  padding: 3px 8px; background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--span-accent, var(--accent)); border-radius: 2px;
+  font-size: 11px; line-height: 1.15; cursor: pointer; overflow: hidden;
+}
+.booking-span.span-start { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+.booking-span.span-end   { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+.booking-span.span-cont-left  { border-left-width: 0; }
+.booking-span.span-cont-right { border-right-style: dashed; }
+.booking-span.span-hover, .booking-span:hover, .booking-span:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -1px; box-shadow: 0 1px 4px rgba(0,0,0,.12);
+}
+.bs-top { display: flex; justify-content: space-between; gap: 6px; }
+.bs-cust { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bs-status { color: var(--span-accent, var(--muted)); white-space: nowrap; font-size: 10px; }
+.bs-site { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bs-cont { color: var(--muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.month-row-spans .mc-more { cursor: pointer; font-size: 10px; color: var(--accent); padding: 2px 6px; align-self: center; margin: 0; }
+.booking-span.st-equipment { --span-accent: var(--equipment); }
+.booking-span.st-confirmed { --span-accent: var(--confirmed); }
+.booking-span.st-duration  { --span-accent: var(--duration); }
+.booking-span.st-review    { --span-accent: var(--review); }
+.booking-span.st-completed { --span-accent: var(--completed); }
+.booking-span.st-cancelled { --span-accent: var(--cancelled); }
+.booking-span.jt-emergency { background: var(--danger-bg); }
+@media (max-width: 1024px) { .month-row-spans { grid-auto-rows: 34px; } }
+@media (max-width: 640px) {
+  .bs-status { display: none; }
+  .month-row-spans { grid-auto-rows: 26px; }
+}
