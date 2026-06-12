@@ -1,20 +1,21 @@
 /*
- * fleet.js - Nexus fleet resourcing front-end.
+ * fleet.js - Nexus Fleet control centre + jobsheet resourcing.
  *
- * Adds:
- *   - the #/fleet rental-stock dashboard (status cards, filters, asset + stock
- *     lists that collapse to cards on phone)
- *   - the CSV fleet import modal (preview then commit)
- *   - the resourcing section + engine hours + service controls used by the
- *     dispatch jobsheet (exposed on window.NexusFleet for app.js)
+ * The #/fleet route is the operational source of truth for hire fleet: staff
+ * add / edit / retire / delete assets and stock directly from the screen
+ * (CRUD-first; CSV import is a secondary bulk tool, not the main workflow).
  *
- * Talks to the serverless API in lib/api (/api/assets, /api/stock,
- * /api/allocations, /api/availability, /api/jobsheet, /api/alerts,
- * /api/fleet-import). Reads are public; writes send the admin token the user
- * pastes once (kept in sessionStorage, never committed, never logged).
+ * Provides:
+ *   - Fleet control centre page (dashboard cards, category tabs, search +
+ *     filters, date-range availability, table/card lists, detail drawer,
+ *     add/edit/retire/delete forms, engine-hours + service records)
+ *   - the resourcing section used by the dispatch jobsheet, exposed on
+ *     window.NexusFleet for app.js
  *
- * GRACEFUL DEGRADATION: if the API reports dbConfigured:false the UI shows a
- * clear "database not configured" panel instead of any fake saved state.
+ * Reads are public; writes send the admin token the user pastes once (kept in
+ * sessionStorage, never committed, never logged). If the API reports
+ * dbConfigured:false the UI shows a clear "database not configured" panel
+ * instead of any fake saved state.
  */
 (function () {
   "use strict";
@@ -27,8 +28,6 @@
   function getToken() { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
   function setToken(t) { try { if (t) sessionStorage.setItem(TOKEN_KEY, t); else sessionStorage.removeItem(TOKEN_KEY); } catch (e) {} }
   function hasToken() { return !!getToken(); }
-
-  /* Prompt for the admin token if we don't have one. Returns true if we now do. */
   function ensureToken() {
     if (hasToken()) return true;
     var t = window.prompt("Enter the Fleet admin token to make changes.\n(Stored only in this browser session; never committed.)");
@@ -36,14 +35,13 @@
     return false;
   }
 
-  /* ---------- tiny fetch helpers ---------- */
+  /* ---------- fetch helpers ---------- */
   function authHeaders() {
     var h = { "Content-Type": "application/json" };
     var t = getToken();
     if (t) h["x-fleet-admin-token"] = t;
     return h;
   }
-
   function apiGet(path) {
     return fetch(API + path, { headers: { "Accept": "application/json" } })
       .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); });
@@ -53,7 +51,7 @@
       .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); });
   }
 
-  /* ---------- escaping ---------- */
+  /* ---------- helpers ---------- */
   function esc(s) {
     if (s == null) return "";
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -61,8 +59,8 @@
     });
   }
   function num(v) { return (v == null || v === "") ? null : Number(v); }
+  function dash(v) { return (v == null || v === "") ? "&mdash;" : esc(v); }
 
-  /* ---------- status pill ---------- */
   var STATUS_LABELS = {
     available: "Available", allocated: "Allocated", on_hire: "On hire",
     service_due: "Service due", in_service: "In service", unavailable: "Unavailable", retired: "Retired"
@@ -79,14 +77,28 @@
     return "";
   }
 
-  /* ---------- shared state ---------- */
-  var STATE = { assets: [], stock: [], alerts: [], dbConfigured: null, writesEnabled: false, filters: {}, loading: false };
+  /* ---------- category tabs ---------- */
+  /* Each tab maps to one or more category values; "generators" + "retired" +
+   * "alerts" are special. Non-serialised categories share the stock list. */
+  var TABS = [
+    { key: "generators", label: "Generators", kind: "asset" },
+    { key: "cable", label: "Cable & leads", kind: "stock", cats: ["Cable", "Leads"] },
+    { key: "protection", label: "Cable protection", kind: "stock", cats: ["Cable protection", "Cable Ramp", "Ramp"] },
+    { key: "distribution", label: "Distribution / ATS / switchgear", kind: "stock", cats: ["Distribution", "ATS", "Switchgear"] },
+    { key: "fuel", label: "Fuel tanks", kind: "stock", cats: ["Fuel tank", "Fuel"] },
+    { key: "accessories", label: "Accessories", kind: "stock", cats: ["Accessory", "Accessories"], other: true },
+    { key: "retired", label: "Retired assets", kind: "retired" },
+    { key: "alerts", label: "Alerts", kind: "alerts" }
+  ];
 
+  /* ---------- shared state ---------- */
+  var STATE = { assets: [], stock: [], alerts: [], dbConfigured: null, writesEnabled: false,
+    filters: {}, tab: "generators", range: { start: "", end: "" }, loading: false };
 
   /* ---------- data loading ---------- */
   function loadAll() {
     STATE.loading = true;
-    return Promise.all([apiGet("/assets"), apiGet("/stock"), apiGet("/alerts")]).then(function (res) {
+    return Promise.all([apiGet("/assets?status="), apiGet("/stock"), apiGet("/alerts")]).then(function (res) {
       var a = res[0].body, s = res[1].body, al = res[2].body;
       STATE.dbConfigured = a.dbConfigured !== false;
       STATE.writesEnabled = !!a.writesEnabled;
@@ -101,9 +113,13 @@
     });
   }
 
+  function activeAssets() { return STATE.assets.filter(function (a) { return (a.status || "").toLowerCase() !== "retired"; }); }
+  function retiredAssets() { return STATE.assets.filter(function (a) { return (a.status || "").toLowerCase() === "retired"; }); }
+  function activeStock() { return STATE.stock.filter(function (s) { return (s.status || "").toLowerCase() !== "retired"; }); }
+
   /* ---------- dashboard summary cards ---------- */
   function summarise() {
-    var gens = STATE.assets.filter(function (a) { return (a.category || "").toLowerCase() === "generator" || a.asset_type === "serialised"; });
+    var gens = activeAssets();
     var available = 0, onHire = 0, dueSoon = 0, overdue = 0;
     gens.forEach(function (a) {
       var st = (a.status || "").toLowerCase();
@@ -119,7 +135,6 @@
     return { total: gens.length, available: available, onHire: onHire, dueSoon: dueSoon, overdue: overdue,
       shortages: shortages, crossHire: crossHire, conflicts: conflicts };
   }
-
   function cardsHtml() {
     var s = summarise();
     function card(label, value, cls) {
@@ -137,7 +152,7 @@
       "</div>";
   }
 
-  /* ---------- filters ---------- */
+  /* ---------- filters (generators) ---------- */
   function applyAssetFilters(list) {
     var f = STATE.filters;
     return list.filter(function (a) {
@@ -146,14 +161,24 @@
       if (f.serviceDue && !(a.service && (a.service.state === "due_soon" || a.service.state === "overdue"))) return false;
       if (f.availableOnly && (a.status || "").toLowerCase() !== "available") return false;
       if (f.search) {
-        var hay = [a.fleet_number, a.asset_name, a.make, a.model, a.location].join(" ").toLowerCase();
+        var hay = [a.fleet_number, a.asset_name, a.make, a.model, a.serial_number, a.generator_size_kva, a.location, a.notes].join(" ").toLowerCase();
+        if (hay.indexOf(f.search.toLowerCase()) === -1) return false;
+      }
+      return true;
+    });
+  }
+  function applyStockFilters(list) {
+    var f = STATE.filters;
+    return list.filter(function (s) {
+      if (f.search) {
+        var hay = [s.item_name, s.category, s.description, s.location, s.notes].join(" ").toLowerCase();
         if (hay.indexOf(f.search.toLowerCase()) === -1) return false;
       }
       return true;
     });
   }
 
-  /* ---------- asset table / cards ---------- */
+  /* ---------- generator table ---------- */
   function assetRow(a) {
     var svc = a.service || {};
     var until = svc.hoursUntilDue != null ? svc.hoursUntilDue : "";
@@ -161,68 +186,159 @@
       '<td data-label="Fleet #" class="cell-strong">#' + esc(a.fleet_number) + "</td>" +
       '<td data-label="Asset">' + esc(a.asset_name) + "</td>" +
       '<td data-label="kVA">' + (a.generator_size_kva != null ? esc(a.generator_size_kva) + " kVA" : "&mdash;") + "</td>" +
+      '<td data-label="Make/Model">' + dash(a.make) + (a.model ? " " + esc(a.model) : "") + "</td>" +
       '<td data-label="Status">' + statusPill(a.status) + " " + svcPill(svc) + "</td>" +
-      '<td data-label="Engine hrs">' + esc(a.current_engine_hours != null ? a.current_engine_hours : "&mdash;") + "</td>" +
-      '<td data-label="Last service">' + esc(a.last_service_hours != null ? a.last_service_hours : "&mdash;") + "</td>" +
-      '<td data-label="Next due">' + esc(svc.nextServiceDueHours != null ? svc.nextServiceDueHours : "&mdash;") + "</td>" +
+      '<td data-label="Engine hrs">' + dash(a.current_engine_hours) + "</td>" +
+      '<td data-label="Last service">' + dash(a.last_service_hours) + "</td>" +
+      '<td data-label="Next due">' + dash(svc.nextServiceDueHours) + "</td>" +
       '<td data-label="Hrs to service">' + (until !== "" ? esc(until) : "&mdash;") + "</td>" +
-      '<td data-label="Location">' + esc(a.location || "&mdash;") + "</td>" +
+      '<td data-label="Location">' + dash(a.location) + "</td>" +
       '<td data-label="Actions" class="fleet-actions">' +
-        '<button class="fleet-btn sm" data-act="service" data-asset="' + esc(a.asset_id) + '">Service record</button>' +
+        '<button class="fleet-btn xs" data-act="view" data-asset="' + esc(a.asset_id) + '">View</button>' +
+        '<button class="fleet-btn xs" data-act="edit-asset" data-asset="' + esc(a.asset_id) + '">Edit</button>' +
+        '<button class="fleet-btn xs" data-act="hours" data-asset="' + esc(a.asset_id) + '">Hours</button>' +
+        '<button class="fleet-btn xs" data-act="service" data-asset="' + esc(a.asset_id) + '">Service</button>' +
+        '<button class="fleet-btn xs warn" data-act="retire-asset" data-asset="' + esc(a.asset_id) + '">Retire</button>' +
       "</td></tr>";
   }
-
-  function assetsTableHtml() {
-    var list = applyAssetFilters(STATE.assets.filter(function (a) { return a.asset_type === "serialised" || (a.category || "").toLowerCase() === "generator"; }));
+  function assetsTableHtml(list) {
     if (!list.length) return '<p class="fleet-empty">No generators match the current filters.</p>';
     var head = "<thead><tr>" +
-      ["Fleet #", "Asset", "kVA", "Status", "Engine hrs", "Last service", "Next due", "Hrs to service", "Location", "Actions"]
+      ["Fleet #", "Asset", "kVA", "Make/Model", "Status", "Engine hrs", "Last service", "Next due", "Hrs to service", "Location", "Actions"]
         .map(function (h) { return "<th>" + h + "</th>"; }).join("") + "</tr></thead>";
     return '<table class="fleet-table stackable">' + head + "<tbody>" + list.map(assetRow).join("") + "</tbody></table>";
   }
 
-  /* ---------- stock table / cards ---------- */
+  /* ---------- stock table ---------- */
   function stockRow(s) {
     var allocated = s._allocated != null ? s._allocated : 0;
-    var available = (s.total_quantity || 0) - allocated;
-    return '<tr class="fleet-row">' +
+    var available = (Number(s.total_quantity) || 0) - allocated;
+    var shortCls = available < 0 ? ' class="fleet-short"' : "";
+    return '<tr class="fleet-row" data-stock="' + esc(s.stock_item_id) + '">' +
       '<td data-label="Item" class="cell-strong">' + esc(s.item_name) + "</td>" +
-      '<td data-label="Category">' + esc(s.category) + "</td>" +
+      '<td data-label="Category">' + dash(s.category) + "</td>" +
       '<td data-label="Total">' + esc(s.total_quantity) + " " + esc(s.unit || "") + "</td>" +
       '<td data-label="Allocated">' + esc(allocated) + "</td>" +
-      '<td data-label="Available">' + esc(available) + "</td>" +
-      '<td data-label="Location">' + esc(s.location || "&mdash;") + "</td></tr>";
+      '<td data-label="Available"' + shortCls + ">" + esc(available) + "</td>" +
+      '<td data-label="Status">' + statusPill(s.status) + "</td>" +
+      '<td data-label="Location">' + dash(s.location) + "</td>" +
+      '<td data-label="Actions" class="fleet-actions">' +
+        '<button class="fleet-btn xs" data-act="view-stock" data-stock="' + esc(s.stock_item_id) + '">View</button>' +
+        '<button class="fleet-btn xs" data-act="edit-stock" data-stock="' + esc(s.stock_item_id) + '">Edit</button>' +
+        '<button class="fleet-btn xs warn" data-act="retire-stock" data-stock="' + esc(s.stock_item_id) + '">Retire</button>' +
+      "</td></tr>";
   }
-  function stockTableHtml() {
-    if (!STATE.stock.length) return '<p class="fleet-empty">No non-serialised stock items yet.</p>';
+  function stockTableHtml(list) {
+    if (!list.length) return '<p class="fleet-empty">No stock items in this category yet.</p>';
     var head = "<thead><tr>" +
-      ["Item", "Category", "Total", "Allocated", "Available", "Location"].map(function (h) { return "<th>" + h + "</th>"; }).join("") + "</tr></thead>";
-    return '<table class="fleet-table stackable">' + head + "<tbody>" + STATE.stock.map(stockRow).join("") + "</tbody></table>";
+      ["Item", "Category", "Total", "Allocated", "Available", "Status", "Location", "Actions"].map(function (h) { return "<th>" + h + "</th>"; }).join("") + "</tr></thead>";
+    return '<table class="fleet-table stackable">' + head + "<tbody>" + list.map(stockRow).join("") + "</tbody></table>";
+  }
+
+  /* Which stock items belong to the active tab. "other" tab catches anything
+   * not claimed by a named tab. */
+  function stockForTab(tab) {
+    var named = {};
+    TABS.forEach(function (t) { if (t.cats) t.cats.forEach(function (c) { named[c.toLowerCase()] = true; }); });
+    return activeStock().filter(function (s) {
+      var cat = (s.category || "").toLowerCase();
+      if (tab.other) return !named[cat];
+      return (tab.cats || []).some(function (c) { return c.toLowerCase() === cat; });
+    });
+  }
+
+  /* ---------- retired + alerts tab content ---------- */
+  function retiredHtml() {
+    var list = retiredAssets();
+    if (!list.length) return '<p class="fleet-empty">No retired assets.</p>';
+    var rows = list.map(function (a) {
+      return '<tr class="fleet-row"><td data-label="Fleet #" class="cell-strong">#' + esc(a.fleet_number) + "</td>" +
+        '<td data-label="Asset">' + esc(a.asset_name) + "</td>" +
+        '<td data-label="kVA">' + (a.generator_size_kva != null ? esc(a.generator_size_kva) + " kVA" : "&mdash;") + "</td>" +
+        '<td data-label="Engine hrs">' + dash(a.current_engine_hours) + "</td>" +
+        '<td data-label="Actions" class="fleet-actions">' +
+          '<button class="fleet-btn xs" data-act="view" data-asset="' + esc(a.asset_id) + '">View</button>' +
+          '<button class="fleet-btn xs" data-act="reactivate-asset" data-asset="' + esc(a.asset_id) + '">Reactivate</button>' +
+          '<button class="fleet-btn xs warn" data-act="delete-asset" data-asset="' + esc(a.asset_id) + '">Delete</button>' +
+        "</td></tr>";
+    }).join("");
+    var head = "<thead><tr>" + ["Fleet #", "Asset", "kVA", "Engine hrs", "Actions"].map(function (h) { return "<th>" + h + "</th>"; }).join("") + "</tr></thead>";
+    return '<table class="fleet-table stackable">' + head + "<tbody>" + rows + "</tbody></table>";
+  }
+  function alertsHtml() {
+    if (!STATE.alerts.length) return '<p class="fleet-empty">No open alerts. Fleet is clear.</p>';
+    var rows = STATE.alerts.map(function (al) {
+      var cls = al.severity === "critical" ? "fleet-alert-crit" : "fleet-alert-warn";
+      return '<li class="' + cls + '"><span class="al-type">' + esc((al.alert_type || "").replace(/_/g, " ")) + "</span> " + esc(al.message || "") + "</li>";
+    }).join("");
+    return '<ul class="fleet-alert-list">' + rows + "</ul>";
   }
 
   /* ---------- db-not-configured panel ---------- */
   function notConfiguredHtml() {
     return '<div class="fleet-warning-panel">' +
       "<h3>Fleet database not configured</h3>" +
-      "<p>The fleet resourcing layer needs a Neon Postgres database. Set <code>DATABASE_URL</code> " +
+      "<p>The Fleet control centre needs a Neon Postgres database. Set <code>DATABASE_URL</code> " +
       "(and <code>FLEET_ADMIN_TOKEN</code> for write actions) in the Vercel project, then run the migration. " +
       "See the README &ldquo;Database setup&rdquo; section.</p>" +
       "<p class=\"subtle\">The calendar and dispatch jobsheet keep working without it. No fleet data is shown until the database is connected &mdash; nothing here is faked.</p>" +
       "</div>";
   }
 
+  /* ---------- tabs + filters bars ---------- */
+  function tabsHtml() {
+    return '<div class="fleet-tabs" role="tablist">' + TABS.map(function (t) {
+      var count = "";
+      if (t.kind === "asset") count = " (" + activeAssets().length + ")";
+      else if (t.kind === "retired") count = " (" + retiredAssets().length + ")";
+      else if (t.kind === "alerts") count = STATE.alerts.length ? " (" + STATE.alerts.length + ")" : "";
+      else if (t.kind === "stock") count = " (" + stockForTab(t).length + ")";
+      return '<button class="fleet-tab' + (STATE.tab === t.key ? " active" : "") + '" data-tab="' + t.key + '">' + esc(t.label) + count + "</button>";
+    }).join("") + "</div>";
+  }
+  function generatorFiltersHtml() {
+    var sizes = {};
+    activeAssets().forEach(function (a) { if (a.generator_size_kva != null) sizes[a.generator_size_kva] = true; });
+    var sizeOpts = Object.keys(sizes).sort(function (x, y) { return x - y; })
+      .map(function (s) { return '<option value="' + esc(s) + '">' + esc(s) + " kVA</option>"; }).join("");
+    return '<div class="fleet-filters">' +
+      '<input type="search" id="fleetSearch" placeholder="Search fleet #, name, make, serial&hellip;" value="' + esc(STATE.filters.search || "") + '" />' +
+      '<select id="fleetSize"><option value="">All sizes</option>' + sizeOpts + "</select>" +
+      '<select id="fleetStatus"><option value="">All statuses</option>' +
+        '<option value="available">Available</option><option value="allocated">Allocated</option>' +
+        '<option value="on_hire">On hire</option><option value="service_due">Service due</option>' +
+        '<option value="in_service">In service</option><option value="unavailable">Unavailable</option></select>' +
+      '<label class="fleet-check"><input type="checkbox" id="fleetServiceDue" /> Service due</label>' +
+      '<label class="fleet-check"><input type="checkbox" id="fleetAvailableOnly" /> Available only</label>' +
+      "</div>";
+  }
+  function stockFiltersHtml() {
+    return '<div class="fleet-filters">' +
+      '<input type="search" id="fleetSearch" placeholder="Search item, description, location&hellip;" value="' + esc(STATE.filters.search || "") + '" />' +
+      "</div>";
+  }
+
+  /* ---------- tab content ---------- */
+  function tabContentHtml() {
+    var tab = TABS.filter(function (t) { return t.key === STATE.tab; })[0] || TABS[0];
+    if (tab.kind === "asset") {
+      return generatorFiltersHtml() + '<div class="fleet-table-wrap" id="fleetList">' + assetsTableHtml(applyAssetFilters(activeAssets())) + "</div>";
+    }
+    if (tab.kind === "stock") {
+      return stockFiltersHtml() + '<div class="fleet-table-wrap" id="fleetList">' + stockTableHtml(applyStockFilters(stockForTab(tab))) + "</div>";
+    }
+    if (tab.kind === "retired") return '<div class="fleet-table-wrap">' + retiredHtml() + "</div>";
+    if (tab.kind === "alerts") return '<div class="fleet-table-wrap">' + alertsHtml() + "</div>";
+    return "";
+  }
+
   /* ---------- main page render ---------- */
   function renderFleetPage(root) {
-    root.innerHTML = '<div class="fleet-page"><div class="fleet-loading">Loading fleet&hellip;</div></div>';
+    root.innerHTML = '<div class="fleet-page"><div class="fleet-loading">Loading Fleet control centre&hellip;</div></div>';
     loadAll().then(function () {
       var wrap = root.querySelector(".fleet-page");
       if (!wrap) return;
       if (STATE.dbConfigured === false) { wrap.innerHTML = notConfiguredHtml(); return; }
-
-      var sizes = {};
-      STATE.assets.forEach(function (a) { if (a.generator_size_kva != null) sizes[a.generator_size_kva] = true; });
-      var sizeOpts = Object.keys(sizes).sort(function (x, y) { return x - y; })
-        .map(function (s) { return '<option value="' + esc(s) + '">' + esc(s) + " kVA</option>"; }).join("");
 
       var writeNote = STATE.writesEnabled
         ? '<span class="fleet-write-ok">Write actions enabled</span>'
@@ -230,64 +346,111 @@
 
       wrap.innerHTML =
         '<div class="fleet-head">' +
-          "<h2>Rental Equipment &amp; Resourcing</h2>" +
+          "<h2>Fleet control centre</h2>" +
           '<div class="fleet-head-actions">' + writeNote +
-            '<button class="fleet-btn" id="fleetImportBtn">Import fleet (CSV)</button>' +
+            '<button class="fleet-btn primary" id="addGenBtn">+ Add generator</button>' +
+            '<button class="fleet-btn" id="addStockBtn">+ Add stock item</button>' +
+            '<button class="fleet-btn ghost" id="fleetImportBtn" title="Optional bulk import">Bulk import (CSV)</button>' +
             '<button class="fleet-btn ghost" id="fleetRefreshBtn">Refresh</button>' +
           "</div>" +
         "</div>" +
         cardsHtml() +
-        '<div class="fleet-filters">' +
-          '<input type="search" id="fleetSearch" placeholder="Search fleet #, name, make&hellip;" />' +
-          '<select id="fleetSize"><option value="">All sizes</option>' + sizeOpts + "</select>" +
-          '<select id="fleetStatus"><option value="">All statuses</option>' +
-            '<option value="available">Available</option><option value="allocated">Allocated</option>' +
-            '<option value="on_hire">On hire</option><option value="service_due">Service due</option>' +
-            '<option value="in_service">In service</option><option value="unavailable">Unavailable</option>' +
-            '<option value="retired">Retired</option></select>' +
-          '<label class="fleet-check"><input type="checkbox" id="fleetServiceDue" /> Service due</label>' +
-          '<label class="fleet-check"><input type="checkbox" id="fleetAvailableOnly" /> Available only</label>' +
+        '<div class="fleet-range">' +
+          '<span class="fr-label">Check availability for dates:</span>' +
+          '<input type="date" id="fleetRangeStart" value="' + esc(STATE.range.start) + '" />' +
+          '<span>&rarr;</span>' +
+          '<input type="date" id="fleetRangeEnd" value="' + esc(STATE.range.end) + '" />' +
+          '<button class="fleet-btn sm" id="fleetRangeBtn">Check</button>' +
+          (STATE.range.start || STATE.range.end ? '<button class="fleet-btn sm ghost" id="fleetRangeClear">Clear</button>' : "") +
+          '<span class="fr-result" id="fleetRangeResult"></span>' +
         "</div>" +
-        '<h3 class="fleet-subhead">Generators (serialised)</h3>' +
-        '<div class="fleet-table-wrap" id="fleetAssets">' + assetsTableHtml() + "</div>" +
-        '<h3 class="fleet-subhead">Non-serialised stock</h3>' +
-        '<div class="fleet-table-wrap" id="fleetStock">' + stockTableHtml() + "</div>";
+        tabsHtml() +
+        '<div class="fleet-tab-content" id="fleetTabContent">' + tabContentHtml() + "</div>";
 
       wireFleetPage(wrap, root);
     });
   }
 
-  function refreshTables(wrap) {
-    var a = wrap.querySelector("#fleetAssets"); if (a) a.innerHTML = assetsTableHtml();
+  function refreshTabContent(wrap) {
+    var c = wrap.querySelector("#fleetTabContent");
+    if (c) c.innerHTML = tabContentHtml();
+    var tabsEl = wrap.querySelector(".fleet-tabs");
+    if (tabsEl) tabsEl.outerHTML = tabsHtml();
+  }
+  function refreshList(wrap) {
+    var l = wrap.querySelector("#fleetList");
+    var tab = TABS.filter(function (t) { return t.key === STATE.tab; })[0] || TABS[0];
+    if (!l) return;
+    if (tab.kind === "asset") l.innerHTML = assetsTableHtml(applyAssetFilters(activeAssets()));
+    else if (tab.kind === "stock") l.innerHTML = stockTableHtml(applyStockFilters(stockForTab(tab)));
   }
 
   function wireFleetPage(wrap, root) {
+    var addGen = wrap.querySelector("#addGenBtn");
+    if (addGen) addGen.addEventListener("click", function () { openAssetForm(root, null); });
+    var addStock = wrap.querySelector("#addStockBtn");
+    if (addStock) addStock.addEventListener("click", function () { openStockForm(root, null); });
     var imp = wrap.querySelector("#fleetImportBtn");
     if (imp) imp.addEventListener("click", function () { openImportModal(root); });
     var ref = wrap.querySelector("#fleetRefreshBtn");
     if (ref) ref.addEventListener("click", function () { renderFleetPage(root); });
 
-    function bindFilter(id, key, isCheck) {
+    // date-range availability
+    var rb = wrap.querySelector("#fleetRangeBtn");
+    if (rb) rb.addEventListener("click", function () {
+      STATE.range.start = (wrap.querySelector("#fleetRangeStart") || {}).value || "";
+      STATE.range.end = (wrap.querySelector("#fleetRangeEnd") || {}).value || "";
+      checkRangeAvailability(wrap);
+    });
+    var rc = wrap.querySelector("#fleetRangeClear");
+    if (rc) rc.addEventListener("click", function () { STATE.range = { start: "", end: "" }; renderFleetPage(root); });
+
+    // tabs (event-delegated so they survive re-render)
+    wrap.addEventListener("click", function (e) {
+      var t = e.target.closest && e.target.closest("[data-tab]");
+      if (t) { STATE.tab = t.getAttribute("data-tab"); refreshTabContent(wrap); rebindFilters(wrap); return; }
+      var act = e.target.closest && e.target.closest("[data-act]");
+      if (act) handleAction(act, root, wrap);
+    });
+
+    rebindFilters(wrap);
+  }
+
+  function rebindFilters(wrap) {
+    function bind(id, key, isCheck) {
       var el = wrap.querySelector("#" + id);
       if (!el) return;
       el.addEventListener(isCheck ? "change" : "input", function () {
         STATE.filters[key] = isCheck ? el.checked : el.value;
-        refreshTables(wrap);
+        refreshList(wrap);
       });
     }
-    bindFilter("fleetSearch", "search", false);
-    bindFilter("fleetSize", "size", false);
-    bindFilter("fleetStatus", "status", false);
-    bindFilter("fleetServiceDue", "serviceDue", true);
-    bindFilter("fleetAvailableOnly", "availableOnly", true);
-
-    wrap.addEventListener("click", function (e) {
-      var btn = e.target.closest && e.target.closest("[data-act='service']");
-      if (btn) { openServiceModal(btn.getAttribute("data-asset")); }
-    });
+    bind("fleetSearch", "search", false);
+    bind("fleetSize", "size", false);
+    bind("fleetStatus", "status", false);
+    bind("fleetServiceDue", "serviceDue", true);
+    bind("fleetAvailableOnly", "availableOnly", true);
   }
 
-  /* ---------- generic modal helper ---------- */
+  /* Route data-act buttons to the right handler. */
+  function handleAction(btn, root, wrap) {
+    var act = btn.getAttribute("data-act");
+    var assetId = btn.getAttribute("data-asset");
+    var stockId = btn.getAttribute("data-stock");
+    if (act === "view") openAssetDetail(root, assetId);
+    else if (act === "edit-asset") openAssetForm(root, assetId);
+    else if (act === "hours") openHoursModal(root, assetId);
+    else if (act === "service") openServiceModal(root, assetId);
+    else if (act === "retire-asset") confirmRetireAsset(root, assetId);
+    else if (act === "reactivate-asset") reactivateAsset(root, assetId);
+    else if (act === "delete-asset") confirmDeleteAsset(root, assetId);
+    else if (act === "view-stock") openStockDetail(root, stockId);
+    else if (act === "edit-stock") openStockForm(root, stockId);
+    else if (act === "retire-stock") confirmRetireStock(root, stockId);
+    else if (act === "delete-stock") confirmDeleteStock(root, stockId);
+  }
+
+  /* ---------- generic modal + drawer helpers ---------- */
   function openModal(title, bodyHtml) {
     var back = document.createElement("div");
     back.className = "fleet-modal-back";
@@ -299,61 +462,307 @@
     back.querySelector(".fm-close").addEventListener("click", close);
     return { el: back, close: close, body: back.querySelector(".fm-body") };
   }
+  function openDrawer(title, bodyHtml) {
+    var back = document.createElement("div");
+    back.className = "fleet-drawer-back";
+    back.innerHTML = '<div class="fleet-drawer"><div class="fm-head"><h3>' + esc(title) +
+      '</h3><button class="fm-close" type="button">&times;</button></div><div class="fm-body">' + bodyHtml + "</div></div>";
+    document.body.appendChild(back);
+    function close() { if (back.parentNode) back.parentNode.removeChild(back); }
+    back.addEventListener("click", function (e) { if (e.target === back) close(); });
+    back.querySelector(".fm-close").addEventListener("click", close);
+    return { el: back, close: close, body: back.querySelector(".fm-body") };
+  }
+  function guardWrite() {
+    if (!STATE.writesEnabled) { alert("Write actions are disabled: the server has no FLEET_ADMIN_TOKEN configured."); return false; }
+    return ensureToken();
+  }
 
-  /* ---------- CSV import modal (preview then commit) ---------- */
-  function openImportModal(root) {
-    if (!STATE.writesEnabled) { alert("Import is disabled: the server has no FLEET_ADMIN_TOKEN configured."); return; }
-    if (!ensureToken()) return;
-    var m = openModal("Import fleet (CSV)",
-      '<p class="subtle">Paste CSV using the template (see db/sample-fleet-import.csv). Columns: asset_type, fleet_number, ' +
-      "asset_name, item_name, category, generator_size_kva, make, model, serial_number, registration_number, " +
-      "current_engine_hours, last_service_hours, service_interval_hours, total_quantity, unit, location, status, description, notes.</p>" +
-      '<textarea id="fleetCsv" class="fleet-textarea" placeholder="Paste CSV here&hellip;"></textarea>' +
-      '<div class="fm-actions"><button class="fleet-btn" id="fleetPreviewBtn">Preview</button>' +
-      '<button class="fleet-btn primary" id="fleetCommitBtn" disabled>Import</button></div>' +
-      '<div id="fleetImportResult" class="fleet-import-result"></div>');
+  /* ---------- Add / Edit generator form ---------- */
+  function openAssetForm(root, assetId) {
+    if (!guardWrite()) return;
+    var a = assetId ? STATE.assets.filter(function (x) { return String(x.asset_id) === String(assetId); })[0] : null;
+    var isEdit = !!a;
+    a = a || {};
+    var m = openModal((isEdit ? "Edit generator - Fleet #" + a.fleet_number : "Add generator"),
+      '<div class="fm-grid">' +
+        '<label>Fleet number *<input id="afFleet" type="text" value="' + esc(a.fleet_number || "") + '" ' + (isEdit ? "" : "") + ' /></label>' +
+        '<label>Asset name *<input id="afName" type="text" value="' + esc(a.asset_name || "") + '" placeholder="e.g. 200kVA Diesel Generator - Trailer Mounted" /></label>' +
+        '<label>Category<input id="afCat" type="text" value="' + esc(a.category || "Generator") + '" /></label>' +
+        '<label>Generator size (kVA) *<input id="afKva" type="number" value="' + esc(a.generator_size_kva != null ? a.generator_size_kva : "") + '" /></label>' +
+        '<label>Make<input id="afMake" type="text" value="' + esc(a.make || "") + '" /></label>' +
+        '<label>Model<input id="afModel" type="text" value="' + esc(a.model || "") + '" /></label>' +
+        '<label>Serial number<input id="afSerial" type="text" value="' + esc(a.serial_number || "") + '" /></label>' +
+        '<label>Registration number<input id="afReg" type="text" value="' + esc(a.registration_number || "") + '" /></label>' +
+        '<label>Current engine hours<input id="afHours" type="number" value="' + esc(a.current_engine_hours != null ? a.current_engine_hours : 0) + '" /></label>' +
+        '<label>Last service hours<input id="afLast" type="number" value="' + esc(a.last_service_hours != null ? a.last_service_hours : 0) + '" /></label>' +
+        '<label>Service interval hours<input id="afInterval" type="number" value="' + esc(a.service_interval_hours != null ? a.service_interval_hours : 300) + '" /></label>' +
+        '<label>Location<input id="afLoc" type="text" value="' + esc(a.location || "Carrum Downs") + '" /></label>' +
+        '<label>Status<select id="afStatus">' +
+          ["available","allocated","on_hire","in_service","unavailable"].map(function (st) {
+            return '<option value="' + st + '"' + ((a.status || "available") === st ? " selected" : "") + ">" + (STATUS_LABELS[st] || st) + "</option>";
+          }).join("") + "</select></label>" +
+        '<label class="full">Notes<textarea id="afNotes">' + esc(a.notes || "") + "</textarea></label>" +
+      "</div>" +
+      '<div class="fm-actions"><button class="fleet-btn primary" id="afSave">' + (isEdit ? "Save changes" : "Add generator") + "</button></div>" +
+      '<div id="afResult"></div>');
 
-    var commitBtn = m.body.querySelector("#fleetCommitBtn");
-    var resultEl = m.body.querySelector("#fleetImportResult");
-
-    m.body.querySelector("#fleetPreviewBtn").addEventListener("click", function () {
-      var csv = m.body.querySelector("#fleetCsv").value;
-      if (!csv.trim()) { resultEl.innerHTML = '<p class="fleet-err">Paste some CSV first.</p>'; return; }
-      resultEl.innerHTML = "Validating&hellip;";
-      apiSend("POST", "/fleet-import?mode=preview", { csv: csv }).then(function (r) {
-        if (!r.body.ok) { resultEl.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Preview failed") + "</p>"; return; }
-        var s = r.body.summary;
-        var rows = r.body.plan.map(function (p) {
-          var cls = p.action === "error" ? "fleet-err" : (p.action === "create" ? "fleet-ok" : "");
-          var name = p.record ? (p.record.fleet_number ? "#" + p.record.fleet_number + " " + p.record.asset_name : p.record.item_name) : (p.raw && (p.raw.fleet_number || p.raw.item_name) || "");
-          return '<tr class="' + cls + '"><td>L' + p.line + "</td><td>" + esc(p.action) + "</td><td>" + esc(name) + "</td><td>" + esc(p.error || "") + "</td></tr>";
-        }).join("");
-        resultEl.innerHTML = '<p>Preview: <strong>' + s.create + "</strong> to create, <strong>" + s.update +
-          "</strong> to update, <strong>" + (s.error || 0) + "</strong> error(s).</p>" +
-          '<table class="fleet-mini"><thead><tr><th>Line</th><th>Action</th><th>Item</th><th>Note</th></tr></thead><tbody>' + rows + "</tbody></table>";
-        commitBtn.disabled = (s.create + s.update) === 0;
-      }).catch(function (e) { resultEl.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
+    m.body.querySelector("#afSave").addEventListener("click", function () {
+      var out = m.body.querySelector("#afResult");
+      var fleet = m.body.querySelector("#afFleet").value.trim();
+      var name = m.body.querySelector("#afName").value.trim();
+      var kva = m.body.querySelector("#afKva").value;
+      var hours = num(m.body.querySelector("#afHours").value);
+      var last = num(m.body.querySelector("#afLast").value);
+      if (!fleet || !name) { out.innerHTML = '<p class="fleet-err">Fleet number and asset name are required.</p>'; return; }
+      if (kva === "" || isNaN(Number(kva))) { out.innerHTML = '<p class="fleet-err">kVA must be a number.</p>'; return; }
+      if (hours != null && hours < 0) { out.innerHTML = '<p class="fleet-err">Engine hours cannot be negative.</p>'; return; }
+      if (last != null && hours != null && last > hours) {
+        if (!window.confirm("Last service hours (" + last + ") is greater than current engine hours (" + hours + "). Save anyway?")) return;
+      }
+      var payload = {
+        fleet_number: fleet, asset_name: name, category: m.body.querySelector("#afCat").value || "Generator",
+        generator_size_kva: num(kva), make: m.body.querySelector("#afMake").value || null,
+        model: m.body.querySelector("#afModel").value || null, serial_number: m.body.querySelector("#afSerial").value || null,
+        registration_number: m.body.querySelector("#afReg").value || null, current_engine_hours: hours,
+        last_service_hours: last, service_interval_hours: num(m.body.querySelector("#afInterval").value),
+        location: m.body.querySelector("#afLoc").value || null, status: m.body.querySelector("#afStatus").value,
+        notes: m.body.querySelector("#afNotes").value || null
+      };
+      out.innerHTML = "Saving&hellip;";
+      var req = isEdit ? apiSend("PATCH", "/assets?id=" + encodeURIComponent(assetId), payload) : apiSend("POST", "/assets", payload);
+      req.then(function (r) {
+        if (!r.body.ok) { out.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Save failed") + "</p>"; return; }
+        out.innerHTML = '<p class="fleet-ok">Saved.</p>';
+        setTimeout(function () { m.close(); renderFleetPage(root); }, 600);
+      }).catch(function (e) { out.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
     });
+  }
 
-    commitBtn.addEventListener("click", function () {
-      var csv = m.body.querySelector("#fleetCsv").value;
-      resultEl.innerHTML = "Importing&hellip;";
-      apiSend("POST", "/fleet-import?mode=commit", { csv: csv }).then(function (r) {
-        if (!r.body.ok) { resultEl.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Import failed") + "</p>"; return; }
-        var s = r.body.summary;
-        resultEl.innerHTML = '<p class="fleet-ok">Imported: ' + s.created + " created, " + s.updated + " updated, " + s.skipped + " skipped.</p>";
-        commitBtn.disabled = true;
-        setTimeout(function () { m.close(); renderFleetPage(root); }, 900);
-      }).catch(function (e) { resultEl.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
+  /* ---------- Add / Edit stock form ---------- */
+  function openStockForm(root, stockId) {
+    if (!guardWrite()) return;
+    var s = stockId ? STATE.stock.filter(function (x) { return String(x.stock_item_id) === String(stockId); })[0] : null;
+    var isEdit = !!s;
+    s = s || {};
+    var m = openModal((isEdit ? "Edit stock item" : "Add non-serialised stock item"),
+      '<div class="fm-grid">' +
+        '<label>Item name *<input id="sfName" type="text" value="' + esc(s.item_name || "") + '" placeholder="e.g. 95mm x 50m CU Cable Set" /></label>' +
+        '<label>Category *<input id="sfCat" type="text" value="' + esc(s.category || "Cable") + '" placeholder="Cable / Cable protection / Distribution&hellip;" /></label>' +
+        '<label class="full">Description<input id="sfDesc" type="text" value="' + esc(s.description || "") + '" /></label>' +
+        '<label>Total quantity *<input id="sfQty" type="number" value="' + esc(s.total_quantity != null ? s.total_quantity : "") + '" /></label>' +
+        '<label>Unit *<input id="sfUnit" type="text" value="' + esc(s.unit || "set") + '" placeholder="set / item / metre" /></label>' +
+        '<label>Location<input id="sfLoc" type="text" value="' + esc(s.location || "Carrum Downs") + '" /></label>' +
+        '<label>Status<select id="sfStatus">' +
+          ["available","unavailable"].map(function (st) {
+            return '<option value="' + st + '"' + ((s.status || "available") === st ? " selected" : "") + ">" + (STATUS_LABELS[st] || st) + "</option>";
+          }).join("") + "</select></label>" +
+        '<label class="full">Notes<textarea id="sfNotes">' + esc(s.notes || "") + "</textarea></label>" +
+      "</div>" +
+      '<div class="fm-actions"><button class="fleet-btn primary" id="sfSave">' + (isEdit ? "Save changes" : "Add stock item") + "</button></div>" +
+      '<div id="sfResult"></div>');
+
+    m.body.querySelector("#sfSave").addEventListener("click", function () {
+      var out = m.body.querySelector("#sfResult");
+      var name = m.body.querySelector("#sfName").value.trim();
+      var cat = m.body.querySelector("#sfCat").value.trim();
+      var qty = m.body.querySelector("#sfQty").value;
+      var unit = m.body.querySelector("#sfUnit").value.trim();
+      if (!name || !cat || !unit) { out.innerHTML = '<p class="fleet-err">Item name, category and unit are required.</p>'; return; }
+      if (qty === "" || isNaN(Number(qty)) || Number(qty) < 0) { out.innerHTML = '<p class="fleet-err">Quantity must be a non-negative number.</p>'; return; }
+      var payload = {
+        item_name: name, category: cat, description: m.body.querySelector("#sfDesc").value || null,
+        total_quantity: num(qty), unit: unit, location: m.body.querySelector("#sfLoc").value || null,
+        status: m.body.querySelector("#sfStatus").value, notes: m.body.querySelector("#sfNotes").value || null
+      };
+      out.innerHTML = "Saving&hellip;";
+      var req = isEdit ? apiSend("PATCH", "/stock?id=" + encodeURIComponent(stockId), payload) : apiSend("POST", "/stock", payload);
+      req.then(function (r) {
+        if (!r.body.ok) { out.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Save failed") + "</p>"; return; }
+        out.innerHTML = '<p class="fleet-ok">Saved.</p>';
+        setTimeout(function () { m.close(); renderFleetPage(root); }, 600);
+      }).catch(function (e) { out.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
+    });
+  }
+
+  /* ---------- retire / reactivate / delete ---------- */
+  function confirmRetireAsset(root, assetId) {
+    if (!guardWrite()) return;
+    var a = STATE.assets.filter(function (x) { return String(x.asset_id) === String(assetId); })[0] || {};
+    if (!window.confirm("Retire Fleet #" + a.fleet_number + "? It will be hidden from active lists but its history is kept. You can reactivate it later.")) return;
+    apiSend("PATCH", "/assets?id=" + encodeURIComponent(assetId) + "&action=retire").then(function (r) {
+      if (!r.body.ok) { alert(r.body.error || "Retire failed"); return; }
+      renderFleetPage(root);
+    }).catch(function (e) { alert(e.message); });
+  }
+  function reactivateAsset(root, assetId) {
+    if (!guardWrite()) return;
+    apiSend("PATCH", "/assets?id=" + encodeURIComponent(assetId) + "&action=reactivate").then(function (r) {
+      if (!r.body.ok) { alert(r.body.error || "Reactivate failed"); return; }
+      renderFleetPage(root);
+    }).catch(function (e) { alert(e.message); });
+  }
+  function confirmDeleteAsset(root, assetId) {
+    if (!guardWrite()) return;
+    var a = STATE.assets.filter(function (x) { return String(x.asset_id) === String(assetId); })[0] || {};
+    if (!window.confirm("PERMANENTLY DELETE Fleet #" + a.fleet_number + "? This is only allowed if it has no allocation, engine-hour or service history. This cannot be undone.")) return;
+    apiSend("DELETE", "/assets?id=" + encodeURIComponent(assetId)).then(function (r) {
+      if (!r.body.ok) { alert(r.body.error || "Delete failed"); return; }
+      renderFleetPage(root);
+    }).catch(function (e) { alert(e.message); });
+  }
+  function confirmRetireStock(root, stockId) {
+    if (!guardWrite()) return;
+    var s = STATE.stock.filter(function (x) { return String(x.stock_item_id) === String(stockId); })[0] || {};
+    if (!window.confirm("Retire " + s.item_name + "? It will be hidden from active lists but history is kept.")) return;
+    apiSend("PATCH", "/stock?id=" + encodeURIComponent(stockId) + "&action=retire").then(function (r) {
+      if (!r.body.ok) { alert(r.body.error || "Retire failed"); return; }
+      renderFleetPage(root);
+    }).catch(function (e) { alert(e.message); });
+  }
+  function confirmDeleteStock(root, stockId) {
+    if (!guardWrite()) return;
+    var s = STATE.stock.filter(function (x) { return String(x.stock_item_id) === String(stockId); })[0] || {};
+    if (!window.confirm("PERMANENTLY DELETE " + s.item_name + "? Only allowed if no allocation history. This cannot be undone.")) return;
+    apiSend("DELETE", "/stock?id=" + encodeURIComponent(stockId)).then(function (r) {
+      if (!r.body.ok) { alert(r.body.error || "Delete failed"); return; }
+      renderFleetPage(root);
+    }).catch(function (e) { alert(e.message); });
+  }
+
+  /* ---------- date-range availability ---------- */
+  function checkRangeAvailability(wrap) {
+    var out = wrap.querySelector("#fleetRangeResult");
+    if (!out) return;
+    if (!STATE.range.start || !STATE.range.end) { out.innerHTML = '<span class="fleet-err">Pick both dates.</span>'; return; }
+    out.innerHTML = "Checking&hellip;";
+    apiGet("/availability?start=" + encodeURIComponent(STATE.range.start) + "&end=" + encodeURIComponent(STATE.range.end)).then(function (r) {
+      if (r.body.dbConfigured === false) { out.innerHTML = "Database not configured."; return; }
+      var avail = (r.body.available || []).length;
+      var conf = (r.body.conflicted || []).length;
+      out.innerHTML = '<span class="fleet-ok">' + avail + " generator(s) available</span>" +
+        (conf ? ' &middot; <span class="fleet-err">' + conf + " conflicted</span>" : "") +
+        ' for ' + esc(STATE.range.start) + " &rarr; " + esc(STATE.range.end);
+    }).catch(function (e) { out.innerHTML = '<span class="fleet-err">' + esc(e.message) + "</span>"; });
+  }
+
+  /* ---------- asset detail drawer ---------- */
+  function openAssetDetail(root, assetId) {
+    var d = openDrawer("Generator detail", '<div class="rs-loading">Loading&hellip;</div>');
+    apiGet("/assets?id=" + encodeURIComponent(assetId) + "&detail=1").then(function (r) {
+      if (!r.body.ok || !r.body.detail) { d.body.innerHTML = '<p class="fleet-err">' + esc((r.body && r.body.error) || "Not found") + "</p>"; return; }
+      var det = r.body.detail, a = det.asset, svc = det.service || {};
+      var allocRows = (det.allocations || []).map(function (al) {
+        return "<tr><td>#" + esc(al.pipedrive_deal_id) + "</td><td>" + dash(al.hire_start) + " &rarr; " + dash(al.hire_end) +
+          "</td><td>" + esc(al.allocation_status) + "</td></tr>";
+      }).join("") || '<tr><td colspan="3" class="subtle">No allocations.</td></tr>';
+      var hourRows = (det.engineHours || []).slice(0, 10).map(function (h) {
+        return "<tr><td>" + dash(h.hours_out) + "</td><td>" + dash(h.hours_in) + "</td><td>" + dash(h.runtime_hours) +
+          "</td><td>" + (h.pipedrive_deal_id ? "#" + esc(h.pipedrive_deal_id) : "&mdash;") + "</td></tr>";
+      }).join("") || '<tr><td colspan="4" class="subtle">No engine-hour records.</td></tr>';
+      var svcRows = (det.serviceRecords || []).map(function (sr) {
+        return "<tr><td>" + dash(sr.service_completed_date) + "</td><td>" + dash(sr.service_type) + "</td><td>" +
+          dash(sr.service_completed_hours) + "</td><td>" + dash(sr.completed_by) + "</td></tr>";
+      }).join("") || '<tr><td colspan="4" class="subtle">No service records.</td></tr>';
+      d.body.innerHTML =
+        '<div class="rs-detail-head"><h4>#' + esc(a.fleet_number) + " " + esc(a.asset_name) + "</h4>" +
+          statusPill(a.status) + " " + svcPill(svc) + "</div>" +
+        '<div class="rs-grid">' +
+          "<div><label>kVA</label>" + dash(a.generator_size_kva) + "</div>" +
+          "<div><label>Make/Model</label>" + dash(a.make) + " " + esc(a.model || "") + "</div>" +
+          "<div><label>Serial</label>" + dash(a.serial_number) + "</div>" +
+          "<div><label>Registration</label>" + dash(a.registration_number) + "</div>" +
+          "<div><label>Current hours</label>" + dash(a.current_engine_hours) + "</div>" +
+          "<div><label>Last service</label>" + dash(a.last_service_hours) + "</div>" +
+          "<div><label>Next due</label>" + dash(svc.nextServiceDueHours) + "</div>" +
+          "<div><label>Hrs to service</label>" + dash(svc.hoursUntilDue) + "</div>" +
+          "<div><label>Location</label>" + dash(a.location) + "</div>" +
+        "</div>" +
+        (a.notes ? '<p class="rs-notes">' + esc(a.notes) + "</p>" : "") +
+        "<h5>Allocations</h5><table class=\"fleet-mini\"><thead><tr><th>Deal</th><th>Dates</th><th>Status</th></tr></thead><tbody>" + allocRows + "</tbody></table>" +
+        "<h5>Engine hour history</h5><table class=\"fleet-mini\"><thead><tr><th>Out</th><th>In</th><th>Runtime</th><th>Deal</th></tr></thead><tbody>" + hourRows + "</tbody></table>" +
+        "<h5>Service history</h5><table class=\"fleet-mini\"><thead><tr><th>Date</th><th>Type</th><th>Hours</th><th>By</th></tr></thead><tbody>" + svcRows + "</tbody></table>" +
+        '<div class="fm-actions">' +
+          '<button class="fleet-btn" id="ddEdit">Edit</button>' +
+          '<button class="fleet-btn" id="ddHours">Add engine hours</button>' +
+          '<button class="fleet-btn" id="ddService">Add service record</button>' +
+        "</div>";
+      var e1 = d.body.querySelector("#ddEdit"); if (e1) e1.addEventListener("click", function () { d.close(); openAssetForm(root, assetId); });
+      var e2 = d.body.querySelector("#ddHours"); if (e2) e2.addEventListener("click", function () { d.close(); openHoursModal(root, assetId); });
+      var e3 = d.body.querySelector("#ddService"); if (e3) e3.addEventListener("click", function () { d.close(); openServiceModal(root, assetId); });
+    }).catch(function (e) { d.body.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
+  }
+
+  /* ---------- stock detail drawer ---------- */
+  function openStockDetail(root, stockId) {
+    var d = openDrawer("Stock item detail", '<div class="rs-loading">Loading&hellip;</div>');
+    apiGet("/stock?id=" + encodeURIComponent(stockId) + "&detail=1").then(function (r) {
+      if (!r.body.ok || !r.body.detail) { d.body.innerHTML = '<p class="fleet-err">' + esc((r.body && r.body.error) || "Not found") + "</p>"; return; }
+      var det = r.body.detail, s = det.item;
+      var allocRows = (det.allocations || []).map(function (al) {
+        return "<tr><td>#" + esc(al.pipedrive_deal_id) + "</td><td>" + dash(al.hire_start) + " &rarr; " + dash(al.hire_end) +
+          "</td><td>" + dash(al.quantity_required) + "</td><td>" + esc(al.allocation_status) + "</td></tr>";
+      }).join("") || '<tr><td colspan="4" class="subtle">No allocations.</td></tr>';
+      d.body.innerHTML =
+        '<div class="rs-detail-head"><h4>' + esc(s.item_name) + "</h4>" + statusPill(s.status) + "</div>" +
+        '<div class="rs-grid">' +
+          "<div><label>Category</label>" + dash(s.category) + "</div>" +
+          "<div><label>Total qty</label>" + dash(s.total_quantity) + " " + esc(s.unit || "") + "</div>" +
+          "<div><label>Location</label>" + dash(s.location) + "</div>" +
+        "</div>" +
+        (s.description ? '<p class="rs-notes">' + esc(s.description) + "</p>" : "") +
+        (s.notes ? '<p class="rs-notes">' + esc(s.notes) + "</p>" : "") +
+        "<h5>Allocations</h5><table class=\"fleet-mini\"><thead><tr><th>Deal</th><th>Dates</th><th>Qty</th><th>Status</th></tr></thead><tbody>" + allocRows + "</tbody></table>" +
+        '<div class="fm-actions"><button class="fleet-btn" id="sdEdit">Edit</button></div>';
+      var e1 = d.body.querySelector("#sdEdit"); if (e1) e1.addEventListener("click", function () { d.close(); openStockForm(root, stockId); });
+    }).catch(function (e) { d.body.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
+  }
+
+  /* ---------- engine-hours modal (control centre) ---------- */
+  function openHoursModal(root, assetId) {
+    if (!guardWrite()) return;
+    var asset = STATE.assets.filter(function (a) { return String(a.asset_id) === String(assetId); })[0];
+    if (!asset) return;
+    var m = openModal("Engine hours - Fleet #" + asset.fleet_number,
+      '<p class="subtle">Current engine hours: <strong>' + esc(asset.current_engine_hours != null ? asset.current_engine_hours : 0) + "</strong>. " +
+        "Record hours out/in for a job, or a corrected reading with a note. Runtime = in - out (never negative).</p>" +
+      '<div class="fm-grid">' +
+        '<label>Pipedrive deal # (optional)<input id="ehDeal" type="number" /></label>' +
+        '<label>Hours OUT<input id="ehOut" type="number" /></label>' +
+        '<label>Hours IN<input id="ehIn" type="number" /></label>' +
+        '<label>Runtime<output id="ehRuntime">&mdash;</output></label>' +
+        '<label>Recorded by<input id="ehBy" type="text" /></label>' +
+        '<label class="full">Note<textarea id="ehNotes" placeholder="e.g. corrected reading after meter swap"></textarea></label>' +
+      "</div>" +
+      '<div class="fm-actions"><button class="fleet-btn primary" id="ehSave">Record hours</button></div>' +
+      '<div id="ehResult"></div>');
+    var outEl = m.body.querySelector("#ehOut"), inEl = m.body.querySelector("#ehIn"), rt = m.body.querySelector("#ehRuntime");
+    function recalc() {
+      var o = parseFloat(outEl.value), i = parseFloat(inEl.value);
+      if (!isNaN(o) && !isNaN(i)) rt.textContent = (i >= o) ? (i - o) : "invalid (in < out)";
+      else rt.textContent = "\u2014";
+    }
+    outEl.addEventListener("input", recalc); inEl.addEventListener("input", recalc);
+    m.body.querySelector("#ehSave").addEventListener("click", function () {
+      var out = m.body.querySelector("#ehResult");
+      var hOut = num(outEl.value), hIn = num(inEl.value);
+      if (hOut != null && hIn != null && hIn < hOut) { out.innerHTML = '<p class="fleet-err">Hours IN cannot be less than hours OUT.</p>'; return; }
+      var payload = { asset_id: assetId, pipedrive_deal_id: num(m.body.querySelector("#ehDeal").value),
+        hours_out: hOut, hours_in: hIn, recorded_by: m.body.querySelector("#ehBy").value || null, notes: m.body.querySelector("#ehNotes").value || null };
+      out.innerHTML = "Saving&hellip;";
+      apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
+        if (!r.body.ok) { out.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Failed") + "</p>"; return; }
+        out.innerHTML = '<p class="fleet-ok">Recorded. Current engine hours updated.</p>';
+        setTimeout(function () { m.close(); renderFleetPage(root); }, 700);
+      }).catch(function (e) { out.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
     });
   }
 
   /* ---------- service-record modal ---------- */
-  function openServiceModal(assetId) {
+  function openServiceModal(root, assetId) {
+    if (!guardWrite()) return;
     var asset = STATE.assets.filter(function (a) { return String(a.asset_id) === String(assetId); })[0];
     if (!asset) return;
-    if (!STATE.writesEnabled) { alert("Service records disabled: server has no FLEET_ADMIN_TOKEN configured."); return; }
-    if (!ensureToken()) return;
     var today = new Date().toISOString().slice(0, 10);
     var m = openModal("Service record - Fleet #" + asset.fleet_number,
       '<div class="fm-grid">' +
@@ -368,12 +777,10 @@
       '<div id="svcResult"></div>');
     m.body.querySelector("#svcSave").addEventListener("click", function () {
       var payload = {
-        asset_id: assetId,
-        service_type: m.body.querySelector("#svcType").value,
+        asset_id: assetId, service_type: m.body.querySelector("#svcType").value,
         service_completed_hours: num(m.body.querySelector("#svcHours").value),
         service_completed_date: m.body.querySelector("#svcDate").value || null,
-        completed_by: m.body.querySelector("#svcBy").value,
-        service_form_url: m.body.querySelector("#svcUrl").value,
+        completed_by: m.body.querySelector("#svcBy").value, service_form_url: m.body.querySelector("#svcUrl").value,
         notes: m.body.querySelector("#svcNotes").value
       };
       var out = m.body.querySelector("#svcResult");
@@ -381,22 +788,57 @@
       apiSend("POST", "/jobsheet?action=service-record", payload).then(function (r) {
         if (!r.body.ok) { out.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Failed") + "</p>"; return; }
         out.innerHTML = '<p class="fleet-ok">Service recorded. Next due now ' + esc(r.body.service ? r.body.service.nextServiceDueHours : "") + " hrs.</p>";
-        setTimeout(function () { m.close(); var root = document.getElementById("calendarRoot"); if (root && location.hash.indexOf("fleet") !== -1) renderFleetPage(root); }, 900);
+        setTimeout(function () { m.close(); renderFleetPage(root); }, 800);
       }).catch(function (e) { out.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
+    });
+  }
+
+  /* ---------- CSV bulk import (secondary tool) ---------- */
+  function openImportModal(root) {
+    if (!guardWrite()) return;
+    var m = openModal("Bulk import fleet (CSV)",
+      '<p class="subtle">Optional bulk tool. The normal workflow is &ldquo;+ Add generator&rdquo; / &ldquo;+ Add stock item&rdquo;. ' +
+        "Columns: asset_type, fleet_number, asset_name, item_name, category, generator_size_kva, make, model, serial_number, " +
+        "registration_number, current_engine_hours, last_service_hours, service_interval_hours, total_quantity, unit, location, status, description, notes.</p>" +
+      '<textarea id="fleetCsv" class="fleet-textarea" placeholder="Paste CSV here&hellip;"></textarea>' +
+      '<div class="fm-actions"><button class="fleet-btn" id="fleetPreviewBtn">Preview</button>' +
+        '<button class="fleet-btn primary" id="fleetCommitBtn" disabled>Import</button></div>' +
+      '<div id="fleetImportResult" class="fleet-import-result"></div>');
+    var commitBtn = m.body.querySelector("#fleetCommitBtn");
+    var resultEl = m.body.querySelector("#fleetImportResult");
+    m.body.querySelector("#fleetPreviewBtn").addEventListener("click", function () {
+      var csv = m.body.querySelector("#fleetCsv").value;
+      if (!csv.trim()) { resultEl.innerHTML = '<p class="fleet-err">Paste some CSV first.</p>'; return; }
+      resultEl.innerHTML = "Validating&hellip;";
+      apiSend("POST", "/fleet-import?mode=preview", { csv: csv }).then(function (r) {
+        if (!r.body.ok) { resultEl.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Preview failed") + "</p>"; return; }
+        var s = r.body.summary;
+        resultEl.innerHTML = '<p>Preview: <strong>' + s.create + "</strong> to create, <strong>" + s.update +
+          "</strong> to update, <strong>" + (s.error || 0) + "</strong> error(s).</p>";
+        commitBtn.disabled = (s.create + s.update) === 0;
+      }).catch(function (e) { resultEl.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
+    });
+    commitBtn.addEventListener("click", function () {
+      var csv = m.body.querySelector("#fleetCsv").value;
+      resultEl.innerHTML = "Importing&hellip;";
+      apiSend("POST", "/fleet-import?mode=commit", { csv: csv }).then(function (r) {
+        if (!r.body.ok) { resultEl.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Import failed") + "</p>"; return; }
+        var s = r.body.summary;
+        resultEl.innerHTML = '<p class="fleet-ok">Imported: ' + s.created + " created, " + s.updated + " updated, " + s.skipped + " skipped.</p>";
+        commitBtn.disabled = true;
+        setTimeout(function () { m.close(); renderFleetPage(root); }, 900);
+      }).catch(function (e) { resultEl.innerHTML = '<p class="fleet-err">' + esc(e.message) + "</p>"; });
     });
   }
 
   /* ====================================================================
      RESOURCING SECTION for the dispatch jobsheet.
      app.js calls NexusFleet.renderResourcing(container, booking) after it
-     paints the generator section. This fetches allocations + availability for
-     the deal and renders allocation status, conflicts, cross-hire, cable
-     shortages and the engine-hours controls.
+     paints the generator section.
      ==================================================================== */
   function fmtConflict(c) {
     return "deal #" + esc(c.pipedrive_deal_id) + " (" + esc(c.hire_start || "?") + " &rarr; " + esc(c.hire_end || "?") + ")";
   }
-
   function allocBadge(status) {
     var map = {
       allocated: ["Allocated", "ab-ok"], proposed: ["Proposed", "ab-prop"],
@@ -407,73 +849,52 @@
     return '<span class="alloc-badge ' + m[1] + '">' + esc(m[0]) + "</span>";
   }
 
-  /* Render the resourcing block into `container` for a given booking. */
   function renderResourcing(container, booking) {
     if (!container) return;
     var dealId = booking.pipedriveDealId;
     container.innerHTML = '<div class="js-resourcing"><div class="rs-loading">Loading resourcing&hellip;</div></div>';
-
     apiGet("/jobsheet?dealId=" + encodeURIComponent(dealId)).then(function (r) {
       var box = container.querySelector(".js-resourcing");
       if (!box) return;
       if (r.body.dbConfigured === false) {
         box.innerHTML = '<div class="rs-note">Fleet resourcing is not connected (no database). Allocate generators on the ' +
-          '<a href="#/fleet">rental stock page</a> once the database is configured. This jobsheet still prints.</div>';
+          '<a href="#/fleet">Fleet control centre</a> once the database is configured. This jobsheet still prints.</div>';
         return;
       }
       STATE.writesEnabled = !!r.body.writesEnabled;
       var allocations = r.body.allocations || [];
       var engineHours = r.body.engineHours || [];
       var genAlloc = allocations.filter(function (a) { return a.asset_id; })[0];
-
       var html = "";
       html += '<div class="rs-head"><strong>Resourcing</strong>' +
-        (STATE.writesEnabled ? '<button class="fleet-btn sm" id="rsAllocBtn">Allocate generator</button>' : '<span class="fleet-write-off sm">read-only</span>') +
-        "</div>";
-
-      // Generator allocation state
+        (STATE.writesEnabled ? '<button class="fleet-btn sm" id="rsAllocBtn">Allocate generator</button>' : '<span class="fleet-write-off sm">read-only</span>') + "</div>";
       if (genAlloc) {
         var svc = genAlloc.service || {};
-        html += '<div class="rs-line">' +
-          "<span>Allocated generator:</span> " + allocBadge(genAlloc.allocation_status) +
-          (genAlloc.asset ? ' <strong>#' + esc(genAlloc.asset.fleet_number) + "</strong> " + esc(genAlloc.asset.asset_name) : "") +
-          " " + svcPill(svc) + "</div>";
-        if (genAlloc.allocation_status === "conflict") {
-          html += '<div class="rs-alert crit">Conflict: this generator overlaps another booking. Choose another fleet # or cross-hire.</div>';
-        }
-        if (genAlloc.allocation_status === "cross_hire_required") {
-          html += '<div class="rs-alert warn">Cross-hire required &mdash; no suitable Nexus generator available for these dates.</div>';
-        }
+        html += '<div class="rs-line"><span>Allocated generator:</span> ' + allocBadge(genAlloc.allocation_status) +
+          (genAlloc.asset ? ' <strong>#' + esc(genAlloc.asset.fleet_number) + "</strong> " + esc(genAlloc.asset.asset_name) : "") + " " + svcPill(svc) + "</div>";
+        if (genAlloc.allocation_status === "conflict") html += '<div class="rs-alert crit">Conflict: this generator overlaps another booking. Choose another fleet # or cross-hire.</div>';
+        if (genAlloc.allocation_status === "cross_hire_required") html += '<div class="rs-alert warn">Cross-hire required &mdash; no suitable Nexus generator available for these dates.</div>';
         if (svc.state === "overdue") html += '<div class="rs-alert crit">Generator service OVERDUE &mdash; override note required to dispatch.</div>';
         else if (svc.state === "due_soon") html += '<div class="rs-alert warn">Generator service due soon (' + esc(svc.hoursUntilDue) + " hrs).</div>";
-
-        // Engine hours
         var latest = engineHours[0] || {};
         html += '<div class="rs-hours">' +
           '<div class="rs-hcell"><label>Engine hours OUT</label><input type="number" id="rsHoursOut" value="' + esc(latest.hours_out != null ? latest.hours_out : "") + '" ' + (STATE.writesEnabled ? "" : "disabled") + " /></div>" +
           '<div class="rs-hcell"><label>Engine hours IN</label><input type="number" id="rsHoursIn" value="' + esc(latest.hours_in != null ? latest.hours_in : "") + '" ' + (STATE.writesEnabled ? "" : "disabled") + " /></div>" +
           '<div class="rs-hcell"><label>Runtime</label><output id="rsRuntime">' + esc(latest.runtime_hours != null ? latest.runtime_hours : "&mdash;") + "</output></div>" +
           '<div class="rs-hcell"><label>Current (after return)</label><output>' + esc(genAlloc.asset ? genAlloc.asset.current_engine_hours : "&mdash;") + "</output></div>" +
-          (STATE.writesEnabled ? '<button class="fleet-btn sm" id="rsHoursSave">Record hours</button>' : "") +
-          "</div>";
+          (STATE.writesEnabled ? '<button class="fleet-btn sm" id="rsHoursSave">Record hours</button>' : "") + "</div>";
       } else {
-        html += '<div class="rs-line">No generator allocated yet.' +
-          (STATE.writesEnabled ? "" : " Configure the admin token and use the rental stock page to allocate.") + "</div>";
+        html += '<div class="rs-line">No generator allocated yet.' + (STATE.writesEnabled ? "" : " Configure the admin token and use the Fleet control centre to allocate.") + "</div>";
       }
-
-      // Non-serialised (cable etc.) allocations
       var stockAllocs = allocations.filter(function (a) { return a.stock_item_id; });
       if (stockAllocs.length) {
-        html += '<div class="rs-stock"><strong>Cable / stock</strong><table class="fleet-mini"><thead><tr>' +
-          "<th>Item</th><th>Required</th><th>Allocated</th><th>Status</th></tr></thead><tbody>";
+                html += '<div class="rs-stock"><strong>Cable / stock</strong><table class="fleet-mini"><thead><tr><th>Item</th><th>Required</th><th>Allocated</th><th>Status</th></tr></thead><tbody>';
         stockAllocs.forEach(function (a) {
-          html += "<tr><td>" + esc(a.booking_title || a.stock_item_id) + "</td><td>" + esc(a.quantity_required) +
-            "</td><td>" + esc(a.quantity_allocated) + "</td><td>" + allocBadge(a.allocation_status) +
-            (a.allocation_status === "cross_hire_required" ? ' shortage ' + esc(a.cross_hire_qty) : "") + "</td></tr>";
+          html += "<tr><td>" + esc(a.booking_title || a.stock_item_id) + "</td><td>" + esc(a.quantity_required) + "</td><td>" + esc(a.quantity_allocated) + "</td><td>" + allocBadge(a.allocation_status) +
+            (a.allocation_status === "cross_hire_required" ? " shortage " + esc(a.cross_hire_qty) : "") + "</td></tr>";
         });
         html += "</tbody></table></div>";
       }
-
       box.innerHTML = html;
       wireResourcing(box, booking, genAlloc);
     }).catch(function (e) {
@@ -485,24 +906,17 @@
   function wireResourcing(box, booking, genAlloc) {
     var allocBtn = box.querySelector("#rsAllocBtn");
     if (allocBtn) allocBtn.addEventListener("click", function () { openAllocateModal(booking); });
-
-    var outEl = box.querySelector("#rsHoursOut");
-    var inEl = box.querySelector("#rsHoursIn");
-    var rt = box.querySelector("#rsRuntime");
+    var outEl = box.querySelector("#rsHoursOut"), inEl = box.querySelector("#rsHoursIn"), rt = box.querySelector("#rsRuntime");
     function recalc() {
       var o = parseFloat(outEl && outEl.value), i = parseFloat(inEl && inEl.value);
-      if (!isNaN(o) && !isNaN(i)) { rt.textContent = (i >= o) ? (i - o) : "invalid"; }
+      if (!isNaN(o) && !isNaN(i)) rt.textContent = (i >= o) ? (i - o) : "invalid";
     }
     if (outEl) outEl.addEventListener("input", recalc);
     if (inEl) inEl.addEventListener("input", recalc);
-
     var saveBtn = box.querySelector("#rsHoursSave");
     if (saveBtn && genAlloc) saveBtn.addEventListener("click", function () {
       if (!ensureToken()) return;
-      var payload = {
-        asset_id: genAlloc.asset_id, pipedrive_deal_id: booking.pipedriveDealId,
-        hours_out: num(outEl.value), hours_in: num(inEl.value)
-      };
+      var payload = { asset_id: genAlloc.asset_id, pipedrive_deal_id: booking.pipedriveDealId, hours_out: num(outEl.value), hours_in: num(inEl.value) };
       saveBtn.disabled = true; saveBtn.textContent = "Saving\u2026";
       apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
         saveBtn.disabled = false; saveBtn.textContent = "Record hours";
@@ -512,24 +926,19 @@
     });
   }
 
-  /* Allocate-generator modal: suggests available + conflicted assets. */
   function openAllocateModal(booking) {
     if (!ensureToken()) return;
     var size = parseGenSize(booking.generatorSize);
-    var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") +
-      "&end=" + encodeURIComponent(booking.endDate || "") + (size ? "&sizeKva=" + size : "");
+    var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") + "&end=" + encodeURIComponent(booking.endDate || "") + (size ? "&sizeKva=" + size : "");
     var m = openModal("Allocate generator - deal #" + booking.pipedriveDealId,
-      '<p class="subtle">Required size: <strong>' + esc(booking.generatorSize || "TBC") + "</strong> &middot; " +
-      esc(booking.startDate || "?") + " &rarr; " + esc(booking.endDate || "?") + "</p>" +
+      '<p class="subtle">Required size: <strong>' + esc(booking.generatorSize || "TBC") + "</strong> &middot; " + esc(booking.startDate || "?") + " &rarr; " + esc(booking.endDate || "?") + "</p>" +
       '<div id="allocList">Loading available generators&hellip;</div>');
     apiGet(qs).then(function (r) {
       var listEl = m.body.querySelector("#allocList");
       if (r.body.dbConfigured === false) { listEl.innerHTML = "Database not configured."; return; }
       var avail = r.body.available || [], conf = r.body.conflicted || [];
       var html = "";
-      if (!avail.length) {
-        html += '<div class="rs-alert warn">No matching generator available &mdash; cross-hire required.</div>';
-      }
+      if (!avail.length) html += '<div class="rs-alert warn">No matching generator available &mdash; cross-hire required.</div>';
       avail.forEach(function (a) {
         html += '<div class="alloc-opt"><span>#' + esc(a.fleet_number) + " " + esc(a.asset_name) + " (" + esc(a.generator_size_kva) + " kVA)</span>" +
           '<button class="fleet-btn sm" data-alloc="' + esc(a.asset_id) + '">Allocate</button></div>';
@@ -537,40 +946,27 @@
       if (conf.length) {
         html += '<div class="alloc-conf"><strong>Conflicted (overlapping):</strong>';
         conf.forEach(function (c) {
-          html += '<div class="alloc-opt conf"><span>#' + esc(c.asset.fleet_number) + " " + esc(c.asset.asset_name) +
-            " &mdash; " + (c.conflicts || []).map(fmtConflict).join(", ") + "</span></div>";
+          html += '<div class="alloc-opt conf"><span>#' + esc(c.asset.fleet_number) + " " + esc(c.asset.asset_name) + " &mdash; " + (c.conflicts || []).map(fmtConflict).join(", ") + "</span></div>";
         });
         html += "</div>";
       }
-      html += '<div class="alloc-opt xhire"><span>No suitable Nexus generator?</span>' +
-        '<button class="fleet-btn sm warn" data-xhire="1">Mark cross-hire required</button></div>';
+      html += '<div class="alloc-opt xhire"><span>No suitable Nexus generator?</span><button class="fleet-btn sm warn" data-xhire="1">Mark cross-hire required</button></div>';
       listEl.innerHTML = html;
-
       listEl.addEventListener("click", function (e) {
         var b = e.target.closest && e.target.closest("[data-alloc]");
         var x = e.target.closest && e.target.closest("[data-xhire]");
         if (b) doAllocate(booking, b.getAttribute("data-alloc"), null, m);
-        else if (x) {
-          var note = window.prompt("Cross-hire note (why no Nexus stock / supplier):", "");
-          doAllocate(booking, null, note || "Cross-hire required", m, true);
-        }
+        else if (x) { var note = window.prompt("Cross-hire note (why no Nexus stock / supplier):", ""); doAllocate(booking, null, note || "Cross-hire required", m, true); }
       });
     });
   }
 
   function doAllocate(booking, assetId, overrideNote, modal, crossHire) {
-    var payload = {
-      pipedrive_deal_id: booking.pipedriveDealId,
-      booking_title: booking.customer || "",
-      asset_id: assetId || null,
-      hire_start: booking.startDate || null,
-      hire_end: booking.endDate || null,
-      override_note: overrideNote || null
-    };
+    var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "", asset_id: assetId || null,
+      hire_start: booking.startDate || null, hire_end: booking.endDate || null, override_note: overrideNote || null };
     if (crossHire) payload.allocation_status = "cross_hire_required";
     apiSend("POST", "/allocations", payload).then(function (r) {
       if (!r.body.ok) {
-        // Service-overdue gate or conflict: offer override.
         if (/overdue/i.test(r.body.error || "")) {
           var note = window.prompt(r.body.error + "\nEnter an override note to proceed:", "");
           if (note && note.trim()) { payload.override_note = note.trim(); return apiSend("POST", "/allocations", payload).then(function (r2) { if (r2.body.ok) { modal.close(); reopenJobsheet(booking); } else alert(r2.body.error); }); }
@@ -584,13 +980,10 @@
     }).catch(function (e) { alert(e.message); });
   }
 
-  /* After an allocation/hours change, re-render the jobsheet resourcing if open. */
   function reopenJobsheet(booking) {
     var holder = document.getElementById("jsResourcingHolder");
     if (holder) renderResourcing(holder, booking);
   }
-
-  /* Parse "200 kVA" -> 200 */
   function parseGenSize(s) {
     if (!s) return null;
     var m = String(s).match(/(\d+(\.\d+)?)/);
@@ -601,7 +994,7 @@
   window.NexusFleet = {
     renderFleetPage: renderFleetPage,
     renderResourcing: renderResourcing,
-    isFleetRoute: function () { return /#\/(fleet|rental-stock)/.test(location.hash); },
+    isFleetRoute: function () { return /#\/(fleet|rental-stock|fleet-control)/.test(location.hash); },
     hasToken: hasToken, setToken: setToken
   };
 
