@@ -82,7 +82,7 @@
    * "alerts" are special. Non-serialised categories share the stock list. */
   var TABS = [
     { key: "generators", label: "Generators", kind: "asset" },
-    { key: "cable", label: "Cable & leads", kind: "stock", cats: ["Cable", "Leads"] },
+        { key: "cable", label: "Cable & leads", kind: "stock", cats: ["Cable", "Leads", "Cable & leads"] },
     { key: "protection", label: "Cable protection", kind: "stock", cats: ["Cable protection", "Cable Ramp", "Ramp"] },
     { key: "distribution", label: "Distribution / ATS / switchgear", kind: "stock", cats: ["Distribution", "ATS", "Switchgear"] },
     { key: "fuel", label: "Fuel tanks", kind: "stock", cats: ["Fuel tank", "Fuel"] },
