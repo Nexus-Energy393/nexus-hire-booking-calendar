@@ -929,3 +929,101 @@ window.addEventListener("hashchange", jsRouteFromHash);
 window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); });
 
 })();
+
+
+/* ============================================================
+   PIPEDRIVE-UI SHELL ENHANCEMENTS (feature/pipedrive-ui)
+   Decoupled, DOM-only helpers for the new app shell:
+   - per-view header subtitle
+   - live/sample/read-only database indicator in the header
+   - jobsheet top summary strip
+   No app state is touched; everything is defensive (try/catch).
+   ============================================================ */
+(function () {
+  "use strict";
+  var SUBTITLES = {
+    month: "Generator hire bookings", fortnight: "Two-week dispatch view",
+    week: "Weekly hire schedule", day: "Daily run sheet",
+    list: "All current & upcoming hires", fleet: "Fleet control centre \u2014 assets, stock & service",
+    missing: "Alerts & jobs needing attention", sync: "Pipedrive sync status"
+  };
+  function setSubtitle(view) {
+    try {
+      var el = document.getElementById("appSubtitle");
+      if (el && SUBTITLES[view]) el.textContent = SUBTITLES[view];
+    } catch (e) {}
+  }
+  function currentView() {
+    var a = document.querySelector("#viewTabs .tab.active");
+    return a ? a.getAttribute("data-view") : "month";
+  }
+  function syncDbIndicator() {
+    try {
+      var ind = document.getElementById("dbIndicator");
+      var txt = document.getElementById("dbIndicatorText");
+      var note = document.getElementById("dataSourceNote");
+      if (!ind || !txt || !note) return;
+      var n = (note.textContent || "").toLowerCase();
+      if (n.indexOf("live data") > -1) { ind.classList.remove("off"); txt.textContent = "Live data"; }
+      else if (n.indexOf("loading") > -1) { ind.classList.remove("off"); txt.textContent = "Connecting\u2026"; }
+      else { ind.classList.add("off"); txt.textContent = "Sample data"; }
+    } catch (e) {}
+  }
+  /* Inject a compact summary strip at the top of the jobsheet body. */
+  function enhanceJobsheet() {
+    try {
+      var body = document.querySelector("#bookingModal .jobsheet .js-body");
+      if (!body || body.querySelector(".js-summary-strip")) return;
+      var statusline = body.querySelector(".js-statusline");
+      var grid = body.querySelector(".js-section .js-grid");
+      if (!grid) return;
+      function pick(label) {
+        var fields = grid.querySelectorAll(".js-field");
+        for (var i = 0; i < fields.length; i++) {
+          var k = fields[i].querySelector(".k");
+          if (k && k.textContent.trim().toLowerCase().indexOf(label) === 0) {
+            var v = fields[i].querySelector(".v");
+            return v ? v.textContent.trim() : "";
+          }
+        }
+        return "";
+      }
+      var cust = pick("customer");
+      var hp = document.querySelectorAll("#bookingModal .js-section");
+      var size = "", start = "", end = "";
+      var allFields = body.querySelectorAll(".js-field");
+      for (var i = 0; i < allFields.length; i++) {
+        var k = (allFields[i].querySelector(".k") || {}).textContent || "";
+        var v = (allFields[i].querySelector(".v") || {}).textContent || "";
+        k = k.trim().toLowerCase();
+        if (k.indexOf("hire start") === 0 && !start) start = v.trim();
+        if (k.indexOf("hire end") === 0 && !end) end = v.trim();
+        if (k.indexOf("required size") === 0 && !size) size = v.trim();
+      }
+      var strip = document.createElement("div");
+      strip.className = "js-summary-strip";
+      function cell(k, v) { return v ? '<div class="ss-cell"><span class="ss-k">' + k + '</span><span class="ss-v">' + v + '</span></div>' : ""; }
+      strip.innerHTML = cell("Customer", cust) + cell("Generator", size) + cell("Hire start", start) + cell("Hire end", end);
+      if (strip.children.length && statusline && statusline.parentNode) {
+        statusline.parentNode.insertBefore(strip, statusline.nextSibling);
+      }
+    } catch (e) {}
+  }
+  function init() {
+    setSubtitle(currentView());
+    syncDbIndicator();
+    var tabs = document.getElementById("viewTabs");
+    if (tabs) tabs.addEventListener("click", function (e) {
+      var t = e.target.closest && e.target.closest(".tab");
+      if (t) setSubtitle(t.getAttribute("data-view"));
+    });
+    setInterval(syncDbIndicator, 1500);
+    var mb = document.getElementById("modalBackdrop");
+    if (mb) {
+      var obs = new MutationObserver(function () { if (!mb.hidden) setTimeout(enhanceJobsheet, 60); });
+      obs.observe(mb, { attributes: true, childList: true, subtree: true });
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+})();
