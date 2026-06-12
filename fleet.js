@@ -25,12 +25,12 @@
   var TOKEN_KEY = "nexusFleetAdminToken";
 
   /* ---------- admin token (write auth) ---------- */
-  function getToken() { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
-  function setToken(t) { try { if (t) sessionStorage.setItem(TOKEN_KEY, t); else sessionStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+  function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
+  function setToken(t) { try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
   function hasToken() { return !!getToken(); }
   function ensureToken() {
     if (hasToken()) return true;
-    var t = window.prompt("Enter the Fleet admin token to make changes.\n(Stored only in this browser session; never committed.)");
+    var t = window.prompt("Enter the Fleet admin token to make changes.\n(Stored only in this browser; never committed.)");
     if (t && t.trim()) { setToken(t.trim()); return true; }
     return false;
   }
