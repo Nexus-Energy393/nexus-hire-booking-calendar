@@ -675,3 +675,7 @@ button:disabled, .btn:disabled, .fleet-btn:disabled { opacity: .5; cursor: not-a
   .js-summary-strip { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 1px solid #999 !important; }
   .js-section > h3 { background: #111 !important; }
 }
+
+/* Leaf brand mark in side rail */
+.rail-mark { background: transparent; box-shadow: none; padding: 0; overflow: hidden; }
+.rail-mark-img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 10px; }
