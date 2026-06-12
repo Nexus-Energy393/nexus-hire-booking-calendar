@@ -243,3 +243,151 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
   .js-warning { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   a[href]:after { content: ""; }
 }
+
+/* ============================================================
+   FLEET RESOURCING (feature/fleet-resourcing)
+   Rental stock dashboard, status pills, resourcing section,
+   import/service modals. Reuses the app's CSS variables.
+   ============================================================ */
+
+/* ---- fleet page ---- */
+.fleet-page { padding: 16px 20px 40px; }
+.fleet-loading, .fleet-empty { color: var(--muted); padding: 16px 0; }
+.fleet-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+.fleet-head h2 { margin: 0; font-size: 22px; }
+.fleet-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fleet-subhead { margin: 22px 0 8px; font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.fleet-write-ok { color: #2e7d32; font-size: 12px; font-weight: 600; }
+.fleet-write-off { color: #b71c1c; font-size: 12px; font-weight: 600; }
+.fleet-write-off.sm { font-size: 11px; }
+
+/* ---- status cards ---- */
+.fleet-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.fleet-stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.fleet-stat .fs-num { font-size: 28px; font-weight: 800; line-height: 1; }
+.fleet-stat .fs-lbl { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.fleet-stat.ok { border-color: #2e7d32; }
+.fleet-stat.warn { border-color: #fb8c00; }
+.fleet-stat.warn .fs-num { color: #fb8c00; }
+.fleet-stat.crit { border-color: #b71c1c; }
+.fleet-stat.crit .fs-num { color: #b71c1c; }
+
+/* ---- filters ---- */
+.fleet-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.fleet-filters input[type="search"], .fleet-filters select {
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px; }
+.fleet-filters input[type="search"] { min-width: 220px; }
+.fleet-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+
+/* ---- tables ---- */
+.fleet-table-wrap { overflow-x: auto; }
+.fleet-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.fleet-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.fleet-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; vertical-align: middle; }
+.fleet-table tr:last-child td { border-bottom: none; }
+.fleet-table .cell-strong { font-weight: 700; }
+.fleet-row:hover { background: var(--panel-2); }
+.fleet-actions { white-space: nowrap; }
+
+/* ---- status pills ---- */
+.fleet-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; }
+.fp-available { background: #2e7d32; }
+.fp-allocated { background: #1565c0; }
+.fp-on_hire { background: #0277bd; }
+.fp-service_due { background: #fb8c00; }
+.fp-overdue { background: #b71c1c; }
+.fp-in_service { background: #6a1b9a; }
+.fp-unavailable { background: #757575; }
+.fp-retired { background: #424242; }
+
+/* ---- buttons ---- */
+.fleet-btn { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+.fleet-btn:hover { border-color: var(--accent); }
+.fleet-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fleet-btn.ghost { background: transparent; }
+.fleet-btn.warn { background: #fb8c00; color: #fff; border-color: #fb8c00; }
+.fleet-btn.sm { padding: 4px 9px; font-size: 12px; }
+
+/* ---- db-not-configured panel ---- */
+.fleet-warning-panel { background: var(--panel); border: 1px solid #fb8c00; border-left: 4px solid #fb8c00; border-radius: 10px; padding: 18px 20px; margin: 16px 20px; }
+.fleet-warning-panel h3 { margin: 0 0 8px; color: #fb8c00; }
+.fleet-warning-panel code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+.fleet-warning-panel .subtle { color: var(--muted); font-size: 13px; }
+
+/* ---- modals (import / service / allocate) ---- */
+.fleet-modal-back { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 1000; overflow-y: auto; }
+.fleet-modal { background: var(--panel); color: var(--text); border-radius: 12px; width: 100%; max-width: 680px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+.fm-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.fm-head h3 { margin: 0; font-size: 17px; }
+.fm-close { background: none; border: none; color: var(--muted); font-size: 24px; line-height: 1; cursor: pointer; }
+.fm-body { padding: 16px 18px; }
+.fm-body .subtle { color: var(--muted); font-size: 12.5px; }
+.fm-actions { display: flex; gap: 10px; margin-top: 14px; }
+.fm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fm-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.fm-grid label.full { grid-column: 1 / -1; }
+.fm-grid input, .fm-grid textarea, .fleet-textarea {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13.5px; font-family: inherit; }
+.fleet-textarea { width: 100%; min-height: 160px; resize: vertical; }
+.fleet-import-result { margin-top: 12px; }
+.fleet-mini { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+.fleet-mini th, .fleet-mini td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.fleet-ok { color: #2e7d32; }
+.fleet-err { color: #b71c1c; }
+.alloc-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; }
+.alloc-opt.conf { opacity: 0.8; border-color: #b71c1c; }
+.alloc-opt.xhire { margin-top: 12px; border-style: dashed; }
+.alloc-conf { margin-top: 12px; }
+
+/* ---- resourcing section inside the jobsheet ---- */
+.js-resourcing { font-size: 13.5px; }
+.rs-loading, .rs-note { color: var(--muted); padding: 6px 0; }
+.rs-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.rs-line { margin: 6px 0; }
+.alloc-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; background: #757575; }
+.ab-ok { background: #2e7d32; }
+.ab-prop { background: #1565c0; }
+.ab-conflict { background: #b71c1c; }
+.ab-xhire { background: #fb8c00; }
+.ab-rel { background: #9e9e9e; }
+.rs-alert { border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-weight: 600; }
+.rs-alert.warn { background: rgba(251,140,0,0.14); color: #e65100; border: 1px solid #fb8c00; }
+.rs-alert.crit { background: rgba(183,28,28,0.14); color: #b71c1c; border: 1px solid #b71c1c; }
+.rs-hours { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 10px; }
+.rs-hcell { display: flex; flex-direction: column; gap: 4px; }
+.rs-hcell label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.rs-hcell input, .rs-hcell output { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 14px; min-width: 90px; }
+.rs-hcell output { display: inline-block; font-weight: 700; }
+.rs-stock { margin-top: 12px; }
+
+/* ---- calendar booking indicators ---- */
+.booking-card.bc-alloc::after { content: ""; }
+.bc-flag-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 4px; vertical-align: middle; }
+.bc-dot-conflict { background: #b71c1c; }
+.bc-dot-xhire { background: #fb8c00; }
+.bc-dot-service { background: #fb8c00; }
+.bc-dot-allocated { background: #2e7d32; }
+.bc-dot-missing { background: #9e9e9e; }
+
+/* ---- phone: tables become cards ---- */
+@media (max-width: 640px) {
+  .fleet-page { padding: 12px; }
+  .fleet-table.stackable thead { display: none; }
+  .fleet-table.stackable, .fleet-table.stackable tbody, .fleet-table.stackable tr, .fleet-table.stackable td { display: block; width: 100%; }
+  .fleet-table.stackable tr { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; padding: 6px 10px; background: var(--panel); }
+  .fleet-table.stackable td { border: none; border-bottom: 1px dashed var(--line); display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 2px; }
+  .fleet-table.stackable td:last-child { border-bottom: none; }
+  .fleet-table.stackable td::before { content: attr(data-label); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+  .fm-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- A4 print: keep the resourcing SUMMARY, hide its controls ---- */
+@media print {
+  .fleet-modal-back { display: none !important; }
+  .js-section-resourcing { page-break-inside: avoid; break-inside: avoid; }
+  .rs-head .fleet-btn, .rs-head .fleet-write-off, #rsHoursSave, #rsAllocBtn { display: none !important; }
+  /* show engine-hour values as plain boxes; inputs print their values */
+  .rs-hcell input, .rs-hcell output { border: 1px solid #999 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .alloc-badge, .fleet-pill { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 1px solid #999; }
+  .rs-alert { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 1px solid #999 !important; }
+}

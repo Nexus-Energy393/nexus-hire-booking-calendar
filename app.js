@@ -226,6 +226,12 @@ function render() {
   else if (STATE.view === "list") renderList(root, visible);
   else if (STATE.view === "missing") renderMissing(root, visible);
   else if (STATE.view === "sync") renderSync(root);
+  else if (STATE.view === "fleet") {
+    if (window.NexusFleet) window.NexusFleet.renderFleetPage(root);
+    else root.innerHTML = "<p class='empty'>Fleet module not loaded.</p>";
+    updatePeriodLabel();
+    return;
+  }
 
   updatePeriodLabel();
   var lu = document.getElementById("lastUpdated");
@@ -700,6 +706,10 @@ function renderJobSheet(b) {
   html += '<div style="margin-top:6px"><strong>Generator notes:</strong>' + jsTextLine(dealId, "gen_notes") + '</div>';
   html += '</div></div>';
 
+  /* RESOURCING (fleet allocation, engine hours, service) - screen + print summary */
+  html += '<div class="js-section js-section-resourcing"><h3>Resourcing &amp; Engine Hours</h3>';
+  html += '<div class="js-section-body"><div id="jsResourcingHolder"></div></div></div>';
+
   /* CABLE (not serialised - qty only) */
   html += '<div class="js-section"><h3>Cable</h3><div class="js-section-body">';
   html += '<table class="js-table stackable"><thead><tr>' +
@@ -775,6 +785,10 @@ function renderJobSheet(b) {
   m.innerHTML = html;
   document.getElementById("modalBackdrop").hidden = false;
   jsWire(m, b);
+  if (window.NexusFleet) {
+    var rsHolder = document.getElementById("jsResourcingHolder");
+    if (rsHolder) window.NexusFleet.renderResourcing(rsHolder, b);
+  }
 }
 
 /* A full-width editable note line that restores local state. */
@@ -898,6 +912,15 @@ function jsOpenByDealId(dealId) {
   }, 300);
 }
 function jsRouteFromHash() {
+    if (/#\/(fleet|rental-stock)/.test(window.location.hash || "")) {
+      STATE.view = "fleet";
+      var tabs = document.querySelectorAll(".tab");
+      for (var ti = 0; ti < tabs.length; ti++) {
+        tabs[ti].classList.toggle("active", tabs[ti].getAttribute("data-view") === "fleet");
+      }
+      render();
+      return;
+    }
   var h = window.location.hash || "";
   var match = h.match(/#\/jobsheet\/(\d+)/);
   if (match) jsOpenByDealId(match[1]);
