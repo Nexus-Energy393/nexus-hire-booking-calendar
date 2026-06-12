@@ -30,8 +30,7 @@ module.exports = async function handler(req, res) {
       return;
     }
     const result = await store.generatorAvailability(candidate);
-if (q.debug) { const dbg = []; const flt = {}; if (candidate.sizeKva) flt.sizeKva = candidate.sizeKva; const as = await store.listAssets(flt); for (const a of as) { const al = await store.liveAllocationsForAsset(a.asset_id); dbg.push({ fleet: a.fleet_number, asset_id: a.asset_id, allocs: al }); } res.status(200).json({ ok: true, candidate: candidate, debug: dbg }); return; }
-    res.status(200).json({ ok: true, dbConfigured: true, kind: "generator",
+res.status(200).json({ ok: true, dbConfigured: true, kind: "generator",
       available: result.available, conflicted: result.conflicted, crossHireRequired: result.crossHireRequired });
   } catch (e) {
     console.error("[api/availability]", e.message);
