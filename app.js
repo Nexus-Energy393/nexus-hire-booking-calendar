@@ -241,17 +241,39 @@ function render() {
 function renderMonth(root, bookings) {
   root.innerHTML = "";
   var first = new Date(STATE.cursor.getFullYear(), STATE.cursor.getMonth(), 1);
-  var gridStart = startOfWeek(first);
-  var month = STATE.cursor.getMonth();
   var grid = el("div", "month-grid month-grid-spans");
   root.appendChild(grid);
+  appendDowHeader(grid);
+  renderSpanWeeks(grid, bookings, startOfWeek(first), 6, {
+    month: STATE.cursor.getMonth(),
+    maxLanes: STATE.tv ? 4 : 3
+  });
+}
 
+// ---------- 2-WEEK (FORTNIGHT) VIEW: this week + next week ----------
+function renderFortnight(root, bookings) {
+  root.innerHTML = "";
+  var grid = el("div", "month-grid month-grid-spans fortnight-spans");
+  root.appendChild(grid);
+  appendDowHeader(grid);
+  renderSpanWeeks(grid, bookings, startOfWeek(STATE.cursor), 2, {
+    maxLanes: STATE.tv ? 10 : 8,
+    cellCls: "fortnight-cell",
+    monthInLabel: true
+  });
+}
+
+function appendDowHeader(grid) {
   var dowRow = el("div", "month-row-days month-dow-row");
   ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(function (d) { dowRow.appendChild(el("div", "month-dow", d)); });
   grid.appendChild(dowRow);
+}
 
-  var WEEKS = 6;
-  for (var w = 0; w < WEEKS; w++) {
+// Shared week-row renderer: one connected bar per booking per week row, lane-stacked.
+function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
+  opts = opts || {};
+  var maxLanes = opts.maxLanes || 3;
+  for (var w = 0; w < weeks; w++) {
     var rowWrap = el("div", "month-row");
     grid.appendChild(rowWrap);
     var dayRow = el("div", "month-row-days");
@@ -262,10 +284,14 @@ function renderMonth(root, bookings) {
     for (var d = 0; d < 7; d++) {
       var date = addDays(gridStart, w * 7 + d);
       rowDates.push(date);
-      var cell = el("div", "month-cell");
-      if (date.getMonth() !== month) cell.classList.add("other-month");
+      var cell = el("div", "month-cell" + (opts.cellCls ? " " + opts.cellCls : ""));
+      if (opts.month != null && date.getMonth() !== opts.month) cell.classList.add("other-month");
       if (sameDay(date, new Date())) cell.classList.add("today");
-      cell.appendChild(el("div", "mc-num", String(date.getDate())));
+      var label = String(date.getDate());
+      if (opts.monthInLabel && (date.getDate() === 1 || (w === 0 && d === 0))) {
+        label = date.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+      }
+      cell.appendChild(el("div", "mc-num", label));
       dayRow.appendChild(cell);
     }
     var rowStart = startOfDay(addDays(gridStart, w * 7));
@@ -301,13 +327,12 @@ function renderMonth(root, bookings) {
       lanes[lane] = seg.endCol;
       seg.lane = lane;
     });
-    var MAX_LANES = 3;
-    var visibleLanes = Math.max(1, Math.min(lanes.length, MAX_LANES));
-    var hasOverflow = lanes.length > MAX_LANES;
+    var visibleLanes = Math.max(1, Math.min(lanes.length, maxLanes));
+    var hasOverflow = lanes.length > maxLanes;
     rowWrap.style.setProperty("--lanes", visibleLanes + (hasOverflow ? 1 : 0));
     var overflowByCol = {};
     segments.forEach(function (seg) {
-      if (seg.lane >= MAX_LANES) {
+      if (seg.lane >= maxLanes) {
         for (var c = seg.startCol; c <= seg.endCol; c++) {
           overflowByCol[c] = (overflowByCol[c] || 0) + 1;
         }
@@ -380,24 +405,6 @@ function highlightDeal(dealId, on) {
 }
 
 // ---------- 2-WEEK (FORTNIGHT) VIEW: this week + next week ----------
-function renderFortnight(root, bookings) {
-  var startCell = startOfWeek(STATE.cursor);
-  var grid = el("div", "month-grid fortnight-grid");
-  ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].forEach(function (d) { grid.appendChild(el("div", "month-dow", d)); });
-  for (var i = 0; i < 14; i++) {
-    var day = addDays(startCell, i);
-    var cell = el("div", "month-cell fortnight-cell");
-    if (sameDay(day, new Date())) cell.classList.add("today");
-    var label = String(day.getDate());
-    if (day.getDate() === 1 || i === 0) label = day.toLocaleDateString("en-AU", {day:"numeric", month:"short"});
-    cell.appendChild(el("div", "mc-num", label));
-    var dayBookings = bookings.filter(function (b) { return spansDay(b, day); });
-    dayBookings.slice(0, STATE.tv ? 8 : 6).forEach(function (b) { cell.appendChild(bookingCard(b, true)); });
-    if (dayBookings.length > (STATE.tv ? 8 : 6)) cell.appendChild(el("div", "mc-more", "+" + (dayBookings.length - (STATE.tv ? 8 : 6)) + " more"));
-    grid.appendChild(cell);
-  }
-  root.appendChild(grid);
-}
 
 function renderWeek(root, bookings) {
   var wk = startOfWeek(STATE.cursor);
