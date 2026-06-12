@@ -110,3 +110,124 @@ A one-way visibility mirror to a Google "Nexus Generator Hire Bookings" calendar
 ---
 
 *Built for Nexus Energy operations. Pipedrive = source of truth (read-only). This app = operational booking board.*
+
+
+## 10. Dispatch jobsheet (feature/dispatch-jobsheet)
+
+Clicking any booking now opens a full **generator-hire dispatch jobsheet** instead of the old basic popup. The calendar, filters and all views are unchanged - only the booking detail view was upgraded.
+
+The jobsheet works three ways:
+- **On screen** as a wide modal (desktop), responsive field sheet (iPad), and stacked cards (phone).
+- **A4 print**: "Print jobsheet" uses `@media print` + `@page { size: A4 }` to produce a clean warehouse document - app chrome, buttons and shadows are stripped; section rows avoid breaking across pages.
+- **Deep link**: `/#/jobsheet/:dealId` (e.g. `.../#/jobsheet/458`) opens a specific job directly for printing/sharing. Hash-based so it works on the static host with no server rewrites.
+
+Buttons: **Print jobsheet**, **Open Pipedrive deal** (unchanged deep link), **Mark ready for dispatch** (local toggle - see below).
+
+Sections: Customer & Site, Hire Period, Generator (serialised - fleet # confirmation + picked/fuel/tested), Cable and Cable Protection (non-serialised - quantity picked only, no fleet #), Other Hire Items, Electrical Works, Transport & Dispatch, Fuel, Internal Notes. Missing critical dispatch data is highlighted (e.g. "Missing dispatch information: site contact phone, fleet number"). Printing is never blocked by missing data.
+
+### Newly mapped Pipedrive fields (already existed, now surfaced)
+These existing fields were not previously shown and are now mapped in `lib/transform.js` / `api/bookings.js`:
+- Site contact **Phone** and **Email** (from the linked Person record).
+- **Cable Set Required** (`b927099a44c0a0eb9727cf61a10451ec82c8b1f3`, enum) - pre-fills the first cable row.
+- **Time Off - Time On** (`c4918a9b1abfdee0ffc20b052d40f68e7371d27b`, timerange) - shown as the outage window.
+- **State** - derived from the formatted Site Address.
+- **Generator model** - shown alongside the required size.
+
+### Dispatch state: LOCAL ONLY (no fake saving)
+The app is **read-only against Pipedrive and has no write backend** (`api/bookings.js` is computed per request; `lib/store.js` is a JSON-file store that is not wired to a persistent disk on Vercel). So the pick/dispatch checkboxes, quantities, fleet numbers, notes and the "ready for dispatch" flag are saved **only in the current browser** via `localStorage` (key `nexusJobSheetLocal`). They are clearly labelled as local on the sheet and are **never** written back to Pipedrive. No dummy "saved" state is presented as real.
+
+To persist dispatch status across devices/users, add ONE of:
+- A small datastore (e.g. Vercel KV / Postgres / Upstash Redis) plus `GET/POST /api/jobsheet/:dealId` to read/write a dispatch record keyed by deal id. Store: picked flags + quantities, confirmed fleet #, dispatch notes, checked-by and timestamp. Front-end already structures state per deal id, so wiring is straightforward.
+- OR write a summary back to Pipedrive as a **deal Note / Activity** (not deal fields) once dispatch is confirmed - keeps Pipedrive as source of truth and avoids overwriting deal data.
+
+### Recommended NEW Pipedrive fields (currently missing)
+For richer dispatch data without manual entry, add these on the **Deal** (Lead/deal) unless noted:
+- `Site Access Notes` - **Large text**.
+- `Delivery Instructions` - **Large text**.
+- `Required Delivery Date/Time` - **Date/Time**.
+- `Delivery Required` - **Single option** Yes/No (then map `PD_FIELD_DELIVERY_REQUIRED`).
+- `Electrical Connection Required` - **Single option** Yes/No (then map `PD_FIELD_ELECTRICAL_CONNECTION_REQUIRED`).
+- `Electrician Required` - **Single option** Yes/No.
+- `Supplied Fuel Level` - **Single option** (e.g. Full/Three-quarter/Half).
+- `Cable Protection Required` - **Multiple options** (ramp types), to mirror Cable Set Required.
+
+Until added, the matching jobsheet fields render as printable blank checklist lines.
+
+
+---
+
+## 11. Fleet resourcing (feature/fleet-resourcing)
+
+This branch adds a real **rental equipment & resourcing layer** backed by a Neon Postgres database. It stops double-booking, allocates fleet assets to jobs, flags conflicts and cross-hire, records generator engine hours, and raises service-due alerts. Pipedrive stays the read-only source of truth for bookings; fleet allocation, engine hours and service history are operational records that live in the app database.
+
+It is built so the **calendar and dispatch jobsheet keep working even with no database**. When `DATABASE_URL` is missing, the fleet pages show a clear "database not configured" panel and write endpoints are disabled - no fake state is ever shown.
+
+### Database setup (Neon)
+
+You provision Neon yourself; the code is ready for it. Steps:
+
+1. Create a free project at https://neon.tech and copy the **pooled** connection string (ends with `?sslmode=require`).
+2. In Vercel: Project &rarr; Settings &rarr; Environment Variables, add:
+   - `DATABASE_URL` = your Neon connection string
+   - `FLEET_ADMIN_TOKEN` = a long random string (e.g. `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
+3. Apply the schema, either:
+   - paste `db/migrations/001_init.sql` into the Neon SQL editor, or
+   - run locally: `DATABASE_URL="..." npm run migrate`
+4. Redeploy (or it picks the vars up on the next deploy). The fleet page now loads; write actions ask for the admin token once per browser session.
+
+### Environment variables
+
+| Var | Purpose | If missing |
+| --- | --- | --- |
+| `DATABASE_URL` | Neon Postgres connection (pooled) | Fleet pages show "not configured"; calendar/jobsheet still work |
+| `FLEET_ADMIN_TOKEN` | Protects all write endpoints | All writes disabled (fail closed) |
+| `PIPEDRIVE_API_TOKEN` | Existing Pipedrive read token (unchanged) | Calendar falls back to sample data |
+
+### Fleet import CSV format
+
+Import via the **Import fleet (CSV)** button on the `#/fleet` page (preview, then commit). Template: `db/sample-fleet-import.csv`. One `asset_type` column selects the row kind:
+
+- `serialised` (generators): requires `fleet_number`, `asset_name`; uses `generator_size_kva, make, model, serial_number, registration_number, current_engine_hours, last_service_hours, service_interval_hours, location, status, notes`.
+- `non_serialised` (cable / ramps): requires `item_name`; uses `category, description, total_quantity, unit, location, status, notes`.
+
+Import validates required fields, shows a preview plan (create / update / error), never creates duplicates (assets match on `fleet_number`, stock on `item_name`+`category`), and writes an `import_log` row.
+
+### Serialised vs non-serialised
+
+- **Serialised** (generators) are tracked individually by **fleet number** and allocated as a specific asset. Example: `200kVA Diesel Generator - Trailer Mounted - Fleet #2001`.
+- **Non-serialised** (cable sets, cable ramps) are tracked by **quantity only**. Example: `95mm x 50m CU Cable Set, total quantity 2 sets`. No fleet numbers.
+
+### Availability / conflict logic
+
+Overlap rule (used everywhere): two hires conflict if `A.start <= B.end AND A.end >= B.start` (inclusive of both end days).
+
+- **Generators:** a candidate is suggested if no live allocation overlaps its window; overlapping ones are shown as conflicts with the clashing deal/dates. If none is available, the booking shows **cross-hire required**.
+- **Non-serialised:** available = `total_quantity - peak overlapping committed quantity` across live allocations. If required > available, the shortage is flagged and can be marked cross-hire for the shortfall. (Released/cancelled allocations don't count.)
+
+### Engine hours logic
+
+Record `hours_out` then `hours_in` per hire. `runtime = hours_in - hours_out`; `hours_in` cannot be less than `hours_out` and runtime can't be negative. On `hours_in`, the generator's `current_engine_hours` is updated and service status recomputed.
+
+### Service interval logic
+
+Default interval **300** engine hours. `next_service_due = last_service_hours + service_interval_hours`; `hours_until_due = next_service_due - current_engine_hours`. Within **50** hours &rarr; "service due soon" (warning); at/over due &rarr; "service overdue" (critical). Service-due-soon does **not** block dispatch (strong warning only); service-overdue requires an **override note** to allocate. Adding a service record updates `last_service_hours`, recomputes the next due, and clears open service alerts.
+
+### Write API security
+
+Reads (calendar, availability, alerts) are public. All writes - asset create/update, allocation, engine hours, service records, CSV import - require `FLEET_ADMIN_TOKEN`, sent as `Authorization: Bearer <token>` or `x-fleet-admin-token`. The token is compared in constant time and fails closed if unset. The front-end stores the token only in `sessionStorage`; it is never committed.
+
+### API endpoints
+
+`GET/POST/PATCH /api/assets`, `GET/POST/PATCH /api/stock`, `GET/POST/PATCH /api/allocations`, `GET /api/availability`, `GET /api/jobsheet?dealId=` plus `POST /api/jobsheet?action=engine-hours|service-record`, `GET /api/alerts`, `POST /api/fleet-import?mode=preview|commit`.
+
+### Data model
+
+Tables: `assets` (serialised), `stock_items` (non-serialised), `allocations` (deal &harr; asset/stock), `engine_hour_records`, `service_records`, `alerts`, `import_log`. See `db/migrations/001_init.sql`.
+
+### Known limitations / future work
+
+- Alerts are computed live from current data (the `alerts` table exists for acknowledgement workflows but isn't yet the dashboard source).
+- Calendar booking dots are wired in CSS; richer per-booking allocation badges on the month grid can be expanded.
+- Optional write-back of a Pipedrive note on allocate/return/cross-hire is documented but not enabled by default (kept safe).
+- Excel import is not included; CSV only for v1.
+- Auth is a single shared admin token (suitable for a small ops team), not per-user accounts.

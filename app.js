@@ -226,6 +226,12 @@ function render() {
   else if (STATE.view === "list") renderList(root, visible);
   else if (STATE.view === "missing") renderMissing(root, visible);
   else if (STATE.view === "sync") renderSync(root);
+  else if (STATE.view === "fleet") {
+    if (window.NexusFleet) window.NexusFleet.renderFleetPage(root);
+    else root.innerHTML = "<p class='empty'>Fleet module not loaded.</p>";
+    updatePeriodLabel();
+    return;
+  }
 
   updatePeriodLabel();
   var lu = document.getElementById("lastUpdated");
@@ -422,7 +428,7 @@ function renderConflicts(conflicts) {
 }
 
 // ---------- modal ----------
-function openModal(b) {
+function openModal(b) { renderJobSheet(b); return; } function openModal_legacy(b) {
   var sm = statusMeta(b), tm = typeMeta(b);
   var m = document.getElementById("bookingModal");
   m.innerHTML =
@@ -536,4 +542,488 @@ function init() {
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
 else init();
+/* ============================================================
+   DISPATCH JOBSHEET (feature/dispatch-jobsheet)
+   Upgrades the booking popup into a generator-hire dispatch jobsheet.
+   Works as: on-screen modal, responsive field sheet, and A4 print.
+   IMPORTANT: this app reads Pipedrive READ-ONLY and has no write backend,
+   so pick/dispatch checkboxes are saved LOCALLY in this browser only
+   (localStorage). They are NOT written back to Pipedrive. See README /
+   "Persisting dispatch state" for the backend required to make this real.
+   ============================================================ */
+
+var JS_LOCAL_KEY = "nexusJobSheetLocal";
+
+function jsLoadLocal(dealId) {
+  try {
+    var all = JSON.parse(localStorage.getItem(JS_LOCAL_KEY) || "{}");
+    return all["d" + dealId] || {};
+  } catch (e) { return {}; }
+}
+function jsSaveLocalField(dealId, key, value) {
+  try {
+    var all = JSON.parse(localStorage.getItem(JS_LOCAL_KEY) || "{}");
+    var rec = all["d" + dealId] || {};
+    rec[key] = value;
+    rec._updatedAt = new Date().toISOString();
+    all["d" + dealId] = rec;
+    localStorage.setItem(JS_LOCAL_KEY, JSON.stringify(all));
+  } catch (e) { /* storage unavailable: stays session-only in the DOM */ }
+}
+
+function jsYesNo(v) { return v ? "Yes" : "No"; }
+function jsVal(v) { return (v == null || v === "") ? null : v; }
+
+/* A field row. If value is missing it shows a printable blank line (for the
+   checklist) but does not fabricate data. */
+function jsField(label, value, opts) {
+  opts = opts || {};
+  var has = jsVal(value) != null;
+  var cls = "js-field" + (opts.full ? " full" : "");
+  var v;
+  if (has) v = '<span class="v">' + escapeHtml(String(value)) + '</span>';
+  else if (opts.required) v = '<span class="v missing">MISSING</span>';
+  else v = '<span class="v"><span class="js-blank"></span></span>';
+  return '<div class="' + cls + '"><span class="k">' + escapeHtml(label) + '</span>' + v + '</div>';
+}
+
+/* Build the list of missing critical dispatch data. */
+function jsMissingWarnings(b) {
+  var miss = [];
+  if (!jsVal(b.site)) miss.push("site address");
+  if (!jsVal(b.contact)) miss.push("site contact");
+  if (!jsVal(b.sitePhone) && !jsVal(b.contactPhone)) miss.push("site contact phone");
+  if (!bStart(b)) miss.push("hire start date");
+  if (!jsVal(b.generatorSize)) miss.push("generator size");
+  if (b.deliveryRequired == null) miss.push("delivery requirement");
+  if (b.electricalConnectionRequired == null) miss.push("electrical connection requirement");
+  if (!jsVal(b.equipmentId)) miss.push("fleet/equipment allocation");
+  return miss;
+}
+
+/* A pickable equipment-table checkbox cell, restoring any local state. */
+function jsCheckCell(dealId, key, label) {
+  var local = jsLoadLocal(dealId);
+  var on = local[key] ? " checked" : "";
+  return '<td class="chk" data-label="' + escapeHtml(label || "Picked") + '">' +
+    '<input type="checkbox" class="js-chk" data-deal="' + dealId + '" data-key="' + escapeHtml(key) + '"' + on + ' aria-label="' + escapeHtml(label || "Picked") + '" /></td>';
+}
+function jsQtyCell(dealId, key, label, placeholder) {
+  var local = jsLoadLocal(dealId);
+  var val = local[key] != null ? escapeHtml(String(local[key])) : "";
+  return '<td class="num" data-label="' + escapeHtml(label || "Qty") + '">' +
+    '<input type="number" min="0" class="qty js-input" data-deal="' + dealId + '" data-key="' + escapeHtml(key) + '" value="' + val + '" placeholder="' + (placeholder || "") + '" /></td>';
+}
+function jsTextCell(dealId, key, label) {
+  var local = jsLoadLocal(dealId);
+  var val = local[key] != null ? escapeHtml(String(local[key])) : "";
+  return '<td data-label="' + escapeHtml(label || "") + '"><input type="text" class="js-input" data-deal="' + dealId + '" data-key="' + escapeHtml(key) + '" value="' + val + '" /></td>';
+}
+
+/* ---------- main jobsheet renderer ---------- */
+function renderJobSheet(b) {
+  var sm = statusMeta(b), tm = typeMeta(b);
+  var dealId = b.pipedriveDealId;
+  var local = jsLoadLocal(dealId);
+  var m = document.getElementById("bookingModal");
+  m.classList.add("jobsheet-modal");
+  var now = new Date();
+  var printStamp = now.toLocaleDateString("en-AU", {day:"numeric", month:"short", year:"numeric"}) + " " + now.toLocaleTimeString("en-AU", {hour:"2-digit", minute:"2-digit"});
+  var miss = jsMissingWarnings(b);
+  var ready = local.readyForDispatch ? "1" : "0";
+
+  var html = "";
+  html += '<div class="jobsheet">';
+
+  /* toolbar (hidden on print) */
+  html += '<div class="js-toolbar">';
+  html += '<span class="js-title-min">Dispatch jobsheet \u2014 ' + escapeHtml(b.customer || "Unknown customer") + '</span>';
+  html += '<button class="js-btn primary" id="jsPrintBtn" type="button">\u2399 Print jobsheet</button>';
+  html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Open Pipedrive deal #' + dealId + ' \u2192</a>';
+  html += '<button class="js-btn ready" id="jsReadyBtn" type="button" data-ready="' + ready + '">' + (ready === "1" ? "\u2713 Ready for dispatch" : "Mark ready for dispatch") + '</button>';
+  html += '<button class="modal-close" id="modalClose" type="button">&times;</button>';
+  html += '</div>';
+
+  html += '<div class="js-body">';
+
+  /* A4 print header */
+  html += '<div class="js-sheet-head">';
+  html += '<div class="js-brand"><h1>Nexus Generators &amp; Electrical</h1><div class="js-sub">Generator Hire Jobsheet</div></div>';
+  html += '<div class="js-headmeta"><div class="job-no">JOB #' + dealId + '</div>' +
+          '<div>Pipedrive deal #' + dealId + '</div>' +
+          '<div>Printed: ' + printStamp + '</div></div>';
+  html += '</div>';
+
+  /* status line */
+  html += '<div class="js-statusline">';
+  html += '<span class="js-tag ' + tm.cls + '">' + tm.label + '</span>';
+  html += '<span class="js-tag">Status: ' + sm.label + '</span>';
+  if (ready === "1") html += '<span class="js-tag jt-general">Marked ready (local)</span>';
+  html += '</div>';
+
+  /* missing-data warning */
+  if (miss.length) {
+    html += '<div class="js-warning"><strong>Missing dispatch information:</strong> ' + escapeHtml(miss.join(", ")) + '. Confirm before dispatch (printing is still allowed).</div>';
+  }
+
+  /* customer & site details */
+  html += '<div class="js-section"><h3>Customer &amp; Site</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Customer / company", b.customer, {required:true});
+  html += jsField("Site contact", b.contact, {required:true});
+  html += jsField("Contact phone", b.contactPhone || b.sitePhone, {required:true});
+  html += jsField("Contact email", b.contactEmail || b.email);
+  html += jsField("Deal owner", b.dealOwner);
+  html += jsField("Suburb", b.suburb);
+  html += jsField("State", b.state);
+  html += jsField("Site address", b.site, {full:true, required:true});
+  html += jsField("Site access notes", b.siteAccessNotes, {full:true});
+  html += jsField("Delivery instructions", b.deliveryInstructions, {full:true});
+  html += '</div></div></div>';
+
+  /* hire period */
+  html += '<div class="js-section"><h3>Hire Period</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Hire type", b.jobTypeLabel || tm.label);
+  html += jsField("Required delivery date/time", b.requiredDeliveryAt || b.deliveryDateTime);
+  html += jsField("Hire start", bStart(b) ? fmt(bStart(b)) : null, {required:true});
+  html += jsField("Hire end", bEnd(b) ? fmt(bEnd(b)) : null);
+  html += jsField("Estimated duration", b.durationDays ? (b.durationDays + " day(s)") : null);
+  html += jsField("Outage window", b.outageWindow);
+  html += '</div></div></div>';
+
+  /* GENERATOR (serialised - fleet number confirmation) */
+  html += '<div class="js-section"><h3>Generator</h3><div class="js-section-body">';
+  html += '<table class="js-table stackable"><thead><tr>' +
+          '<th>Required size</th><th>Fleet # (confirm)</th><th class="chk">Picked</th><th class="chk">Fuel OK</th><th class="chk">Tested</th></tr></thead><tbody>';
+  html += '<tr>';
+  html += '<td data-label="Required size">' + escapeHtml(b.generatorSize || "Size TBC") +
+          (b.generatorModel ? ' <span style="color:#666">(' + escapeHtml(b.generatorModel) + ')</span>' : '') + '</td>';
+  html += jsTextCell(dealId, "gen_fleet", "Fleet #");
+  html += jsCheckCell(dealId, "gen_picked", "Picked");
+  html += jsCheckCell(dealId, "gen_fuel", "Fuel OK");
+  html += jsCheckCell(dealId, "gen_tested", "Tested");
+  html += '</tr></tbody></table>';
+  html += '<div class="js-field full" style="margin-top:8px"><span class="k">Pipedrive SERIAL/FLEET #</span><span class="v">' + (jsVal(b.equipmentId) ? escapeHtml(b.equipmentId) : '<span class="js-blank"></span> <em style="color:#b71c1c">(not allocated in Pipedrive)</em>') + '</span></div>';
+  html += '<div style="margin-top:6px"><strong>Generator notes:</strong>' + jsTextLine(dealId, "gen_notes") + '</div>';
+  html += '</div></div>';
+
+  /* RESOURCING (fleet allocation, engine hours, service) - screen + print summary */
+  html += '<div class="js-section js-section-resourcing"><h3>Resourcing &amp; Engine Hours</h3>';
+  html += '<div class="js-section-body"><div id="jsResourcingHolder"></div></div></div>';
+
+  /* CABLE (not serialised - qty only) */
+  html += '<div class="js-section"><h3>Cable</h3><div class="js-section-body">';
+  html += '<table class="js-table stackable"><thead><tr>' +
+          '<th>Cable type / size</th><th class="num">Req</th><th class="num">Picked</th><th class="chk">OK</th><th>Notes</th></tr></thead><tbody>';
+  html += jsCableRows(dealId, b);
+  html += '</tbody></table>';
+  html += '</div></div>';
+
+  /* CABLE PROTECTION (not serialised - qty only) */
+  html += '<div class="js-section"><h3>Cable Protection</h3><div class="js-section-body">';
+  html += '<table class="js-table stackable"><thead><tr>' +
+          '<th>Ramp / protector type</th><th class="num">Req</th><th class="num">Picked</th><th class="chk">OK</th><th>Notes</th></tr></thead><tbody>';
+  html += jsBlankItemRows(dealId, "prot", 3);
+  html += '</tbody></table>';
+  html += '</div></div>';
+
+  /* OTHER HIRE ITEMS */
+  html += '<div class="js-section"><h3>Other Hire Items</h3><div class="js-section-body">';
+  html += '<table class="js-table stackable"><thead><tr>' +
+          '<th>Item</th><th class="num">Req</th><th class="num">Picked</th><th class="chk">OK</th><th>Notes</th></tr></thead><tbody>';
+  html += jsOtherItemRows(dealId, b);
+  html += '</tbody></table>';
+  html += '</div></div>';
+
+  /* ELECTRICAL WORKS */
+  html += '<div class="js-section"><h3>Electrical Works</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Electrical connection required", b.electricalConnectionRequired == null ? null : jsYesNo(b.electricalConnectionRequired));
+  html += jsField("Electrician required", b.electricianRequired == null ? null : jsYesNo(b.electricianRequired));
+  html += jsField("Connection notes", b.connectionNotes, {full:true});
+  html += jsField("Switchboard access notes", b.switchboardNotes, {full:true});
+  html += jsField("Isolation / shutdown notes", b.isolationNotes, {full:true});
+  html += jsField("Special safety requirements", b.safetyNotes, {full:true});
+  html += '</div></div></div>';
+
+  /* TRANSPORT & DISPATCH */
+  html += '<div class="js-section"><h3>Transport &amp; Dispatch</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Delivery required", b.deliveryRequired == null ? null : jsYesNo(b.deliveryRequired));
+  html += jsField("Delivery address", b.deliveryAddress || b.site);
+  html += jsField("Delivery date/time", b.deliveryDateTime || b.requiredDeliveryAt);
+  html += jsField("Collection required", b.collectionRequired == null ? null : jsYesNo(b.collectionRequired));
+  html += jsField("Collection date/time", b.collectionDateTime);
+  html += jsField("Driver / transport", b.driverAssigned);
+  html += jsField("Vehicle / truck", b.vehicleAssigned);
+  html += jsField("Loading notes", b.loadingNotes, {full:true});
+  html += jsField("Customer handover notes", b.handoverNotes, {full:true});
+  html += '</div>';
+  html += '<div class="js-footer-sign">';
+  html += '<div class="js-sign"><span class="lbl">Dispatch checked by</span><div class="rule"></div></div>';
+  html += '<div class="js-sign"><span class="lbl">Dispatch date / time</span><div class="rule"></div></div>';
+  html += '</div></div></div>';
+
+  /* FUEL */
+  html += '<div class="js-section"><h3>Fuel</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Supplied fuel level", b.fuelLevel);
+  html += jsField("External fuel tank required", b.fuelTankRequired == null ? null : jsYesNo(b.fuelTankRequired));
+  html += jsField("Fuel tank size", b.fuelTankSize);
+  html += jsField("Refuelling required", b.refuellingRequired == null ? null : jsYesNo(b.refuellingRequired));
+  html += jsField("Fuel management notes", b.fuelNotes, {full:true});
+  html += '</div></div></div>';
+
+  /* INTERNAL NOTES */
+  html += '<div class="js-section"><h3>Internal Notes</h3><div class="js-section-body">';
+  html += jsField("Notes from Pipedrive", b.notes, {full:true});
+  html += jsField("Webform notes", b.webformNotes, {full:true});
+  html += '<div style="margin-top:8px"><strong>Internal dispatch notes:</strong>' + jsTextLine(dealId, "internal_notes") + jsTextLine(dealId, "internal_notes2") + '</div>';
+  html += '</div></div>';
+
+  html += '<p class="local-note">Pick / dispatch ticks &amp; typed fields above are saved in THIS browser only (local) and are not written back to Pipedrive. A backend is required to persist them across devices \u2014 see README.</p>';
+
+  html += '</div>'; /* js-body */
+  html += '</div>'; /* jobsheet */
+
+  m.innerHTML = html;
+  document.getElementById("modalBackdrop").hidden = false;
+  jsWire(m, b);
+  if (window.NexusFleet) {
+    var rsHolder = document.getElementById("jsResourcingHolder");
+    if (rsHolder) window.NexusFleet.renderResourcing(rsHolder, b);
+  }
+}
+
+/* A full-width editable note line that restores local state. */
+function jsTextLine(dealId, key) {
+  var local = jsLoadLocal(dealId);
+  var val = local[key] != null ? escapeHtml(String(local[key])) : "";
+  return '<input type="text" class="js-input" style="width:100%;margin-top:6px;border:none;border-bottom:1px solid #ccc;padding:6px 2px;font-size:13.5px" data-deal="' + dealId + '" data-key="' + escapeHtml(key) + '" value="' + val + '" />';
+}
+
+/* Build cable rows. If Pipedrive supplied a "Cable Set Required" value, pre-fill
+   the first row's type; otherwise leave editable blank rows for the picker. */
+function jsCableRows(dealId, b) {
+  var rows = "";
+  var preset = jsVal(b.cableSet) ? String(b.cableSet) : "";
+  var n = 4;
+  for (var i = 0; i < n; i++) {
+    var typeCell;
+    if (i === 0 && preset) typeCell = '<td data-label="Cable type / size">' + escapeHtml(preset) + '</td>';
+    else typeCell = jsTextCell(dealId, "cable" + i + "_type", "Cable type / size");
+    rows += '<tr>' + typeCell +
+      jsQtyCell(dealId, "cable" + i + "_req", "Req") +
+      jsQtyCell(dealId, "cable" + i + "_pick", "Picked") +
+      jsCheckCell(dealId, "cable" + i + "_ok", "OK") +
+      jsTextCell(dealId, "cable" + i + "_notes", "Notes") + '</tr>';
+  }
+  return rows;
+}
+
+/* Generic blank pickable rows (cable protection etc.) - qty only, no fleet #. */
+function jsBlankItemRows(dealId, prefix, n) {
+  var rows = "";
+  for (var i = 0; i < n; i++) {
+    rows += '<tr>' + jsTextCell(dealId, prefix + i + "_name", "Type") +
+      jsQtyCell(dealId, prefix + i + "_req", "Req") +
+      jsQtyCell(dealId, prefix + i + "_pick", "Picked") +
+      jsCheckCell(dealId, prefix + i + "_ok", "OK") +
+      jsTextCell(dealId, prefix + i + "_notes", "Notes") + '</tr>';
+  }
+  return rows;
+}
+
+/* Common other-hire items as labelled rows plus spare blanks. */
+function jsOtherItemRows(dealId, b) {
+  var names = ["Distribution board", "ATS / MTS", "Fuel tank", "Leads", "Earth stake", "Fire extinguisher", "Spill kit", "Signage", "Temporary fencing"];
+  var rows = "";
+  for (var i = 0; i < names.length; i++) {
+    rows += '<tr><td data-label="Item">' + escapeHtml(names[i]) + '</td>' +
+      jsQtyCell(dealId, "other" + i + "_req", "Req") +
+      jsQtyCell(dealId, "other" + i + "_pick", "Picked") +
+      jsCheckCell(dealId, "other" + i + "_ok", "OK") +
+      jsTextCell(dealId, "other" + i + "_notes", "Notes") + '</tr>';
+  }
+  /* spare editable rows for anything from booking notes */
+  for (var j = 0; j < 2; j++) {
+    rows += '<tr>' + jsTextCell(dealId, "otherx" + j + "_name", "Item") +
+      jsQtyCell(dealId, "otherx" + j + "_req", "Req") +
+      jsQtyCell(dealId, "otherx" + j + "_pick", "Picked") +
+      jsCheckCell(dealId, "otherx" + j + "_ok", "OK") +
+      jsTextCell(dealId, "otherx" + j + "_notes", "Notes") + '</tr>';
+  }
+  return rows;
+}
+
+/* Wire up jobsheet interactions: close, print, mark-ready, local saving. */
+function jsWire(m, b) {
+  var dealId = b.pipedriveDealId;
+  var closeBtn = document.getElementById("modalClose");
+  if (closeBtn) closeBtn.addEventListener("click", function () { m.classList.remove("jobsheet-modal"); closeModal(); });
+
+  var printBtn = document.getElementById("jsPrintBtn");
+  if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
+
+  var readyBtn = document.getElementById("jsReadyBtn");
+  if (readyBtn) readyBtn.addEventListener("click", function () {
+    var on = readyBtn.getAttribute("data-ready") === "1";
+    var next = on ? "0" : "1";
+    readyBtn.setAttribute("data-ready", next);
+    readyBtn.textContent = next === "1" ? "\u2713 Ready for dispatch" : "Mark ready for dispatch";
+    jsSaveLocalField(dealId, "readyForDispatch", next === "1");
+  });
+
+  /* Persist checkbox + input changes locally (this browser only). */
+  m.addEventListener("change", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute) return;
+    var key = t.getAttribute("data-key");
+    if (!key) return;
+    var d = t.getAttribute("data-deal");
+    if (t.type === "checkbox") jsSaveLocalField(d, key, t.checked);
+    else jsSaveLocalField(d, key, t.value);
+  });
+  m.addEventListener("input", function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute) return;
+    if (t.type === "checkbox") return;
+    var key = t.getAttribute("data-key");
+    if (!key) return;
+    jsSaveLocalField(t.getAttribute("data-deal"), key, t.value);
+  });
+}
+
+/* ---------- /jobsheet/:dealId direct route (fast follow) ----------
+   Supports a print/share deep link. Uses the hash so it works on the static
+   host without server rewrites: e.g. .../#/jobsheet/458 . On load (and on hash
+   change) it finds the loaded booking by deal id and opens its jobsheet. */
+function jsOpenByDealId(dealId) {
+  function tryOpen() {
+    var list = (STATE && STATE.bookings) || [];
+    var hit = null;
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].pipedriveDealId) === String(dealId)) { hit = list[i]; break; }
+    }
+    if (hit) { renderJobSheet(hit); return true; }
+    return false;
+  }
+  if (tryOpen()) return;
+  var tries = 0;
+  var iv = setInterval(function () {
+    tries++;
+    if (tryOpen() || tries > 30) clearInterval(iv);
+  }, 300);
+}
+function jsRouteFromHash() {
+    if (/#\/(fleet|rental-stock)/.test(window.location.hash || "")) {
+      STATE.view = "fleet";
+      var tabs = document.querySelectorAll(".tab");
+      for (var ti = 0; ti < tabs.length; ti++) {
+        tabs[ti].classList.toggle("active", tabs[ti].getAttribute("data-view") === "fleet");
+      }
+      render();
+      return;
+    }
+  var h = window.location.hash || "";
+  var match = h.match(/#\/jobsheet\/(\d+)/);
+  if (match) jsOpenByDealId(match[1]);
+}
+window.addEventListener("hashchange", jsRouteFromHash);
+window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); });
+
+})();
+
+
+/* ============================================================
+   PIPEDRIVE-UI SHELL ENHANCEMENTS (feature/pipedrive-ui)
+   Decoupled, DOM-only helpers for the new app shell:
+   - per-view header subtitle
+   - live/sample/read-only database indicator in the header
+   - jobsheet top summary strip
+   No app state is touched; everything is defensive (try/catch).
+   ============================================================ */
+(function () {
+  "use strict";
+  var SUBTITLES = {
+    month: "Generator hire bookings", fortnight: "Two-week dispatch view",
+    week: "Weekly hire schedule", day: "Daily run sheet",
+    list: "All current & upcoming hires", fleet: "Fleet control centre \u2014 assets, stock & service",
+    missing: "Alerts & jobs needing attention", sync: "Pipedrive sync status"
+  };
+  function setSubtitle(view) {
+    try {
+      var el = document.getElementById("appSubtitle");
+      if (el && SUBTITLES[view]) el.textContent = SUBTITLES[view];
+    } catch (e) {}
+  }
+  function currentView() {
+    var a = document.querySelector("#viewTabs .tab.active");
+    return a ? a.getAttribute("data-view") : "month";
+  }
+  function syncDbIndicator() {
+    try {
+      var ind = document.getElementById("dbIndicator");
+      var txt = document.getElementById("dbIndicatorText");
+      var note = document.getElementById("dataSourceNote");
+      if (!ind || !txt || !note) return;
+      var n = (note.textContent || "").toLowerCase();
+      if (n.indexOf("live data") > -1) { ind.classList.remove("off"); txt.textContent = "Live data"; }
+      else if (n.indexOf("loading") > -1) { ind.classList.remove("off"); txt.textContent = "Connecting\u2026"; }
+      else { ind.classList.add("off"); txt.textContent = "Sample data"; }
+    } catch (e) {}
+  }
+  /* Inject a compact summary strip at the top of the jobsheet body. */
+  function enhanceJobsheet() {
+    try {
+      var body = document.querySelector("#bookingModal .jobsheet .js-body");
+      if (!body || body.querySelector(".js-summary-strip")) return;
+      var statusline = body.querySelector(".js-statusline");
+      var grid = body.querySelector(".js-section .js-grid");
+      if (!grid) return;
+      function pick(label) {
+        var fields = grid.querySelectorAll(".js-field");
+        for (var i = 0; i < fields.length; i++) {
+          var k = fields[i].querySelector(".k");
+          if (k && k.textContent.trim().toLowerCase().indexOf(label) === 0) {
+            var v = fields[i].querySelector(".v");
+            return v ? v.textContent.trim() : "";
+          }
+        }
+        return "";
+      }
+      var cust = pick("customer");
+      var hp = document.querySelectorAll("#bookingModal .js-section");
+      var size = "", start = "", end = "";
+      var allFields = body.querySelectorAll(".js-field");
+      for (var i = 0; i < allFields.length; i++) {
+        var k = (allFields[i].querySelector(".k") || {}).textContent || "";
+        var v = (allFields[i].querySelector(".v") || {}).textContent || "";
+        k = k.trim().toLowerCase();
+        if (k.indexOf("hire start") === 0 && !start) start = v.trim();
+        if (k.indexOf("hire end") === 0 && !end) end = v.trim();
+        if (k.indexOf("required size") === 0 && !size) size = v.trim();
+      }
+      var strip = document.createElement("div");
+      strip.className = "js-summary-strip";
+      function cell(k, v) { return v ? '<div class="ss-cell"><span class="ss-k">' + k + '</span><span class="ss-v">' + v + '</span></div>' : ""; }
+      strip.innerHTML = cell("Customer", cust) + cell("Generator", size) + cell("Hire start", start) + cell("Hire end", end);
+      if (strip.children.length && statusline && statusline.parentNode) {
+        statusline.parentNode.insertBefore(strip, statusline.nextSibling);
+      }
+    } catch (e) {}
+  }
+  function init() {
+    setSubtitle(currentView());
+    syncDbIndicator();
+    var tabs = document.getElementById("viewTabs");
+    if (tabs) tabs.addEventListener("click", function (e) {
+      var t = e.target.closest && e.target.closest(".tab");
+      if (t) setSubtitle(t.getAttribute("data-view"));
+    });
+    setInterval(syncDbIndicator, 1500);
+    var mb = document.getElementById("modalBackdrop");
+    if (mb) {
+      var obs = new MutationObserver(function () { if (!mb.hidden) setTimeout(enhanceJobsheet, 60); });
+      obs.observe(mb, { attributes: true, childList: true, subtree: true });
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
 })();

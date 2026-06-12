@@ -4,9 +4,14 @@
   "private": true,
   "description": "Operational booking board for Nexus Energy generator hire and planned outage jobs. Static front-end plus Vercel serverless API that reads won deals from the Pipedrive hire pipeline (read-only).",
   "scripts": {
-    "list-fields": "node scripts/list-fields.js"
+    "list-fields": "node scripts/list-fields.js",
+    "migrate": "node scripts/migrate.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.9.4",
+    "ws": "^8.18.0"
   }
 }
