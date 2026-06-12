@@ -391,3 +391,6 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
   .alloc-badge, .fleet-pill { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 1px solid #999; }
   .rs-alert { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 1px solid #999 !important; }
 }
+
+/* ---- Fleet detail drawer: separate labels from their values ---- */
+.rs-grid label { font-weight: 600; color: var(--muted); margin-right: 6px; }
