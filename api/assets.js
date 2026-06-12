@@ -1,10 +1,13 @@
 /*
- * api/assets.js  (Vercel serverless)
+ * api/assets.js (Vercel serverless)
  * Serialised fleet assets (generators).
- *   GET    /api/assets            -> list (filters: ?sizeKva= &status= &category=)
- *   GET    /api/assets?id=UUID    -> single asset (with service status)
- *   POST   /api/assets            -> create (admin)
- *   PATCH  /api/assets?id=UUID    -> update (admin)
+ *   GET    /api/assets                  -> list (filters: ?sizeKva= &status= &category=)
+ *   GET    /api/assets?id=UUID          -> single asset (with service status)
+ *   GET    /api/assets?id=UUID&detail=1 -> full detail bundle (allocations, hours, services, history)
+ *   POST   /api/assets                  -> create (admin)
+ *   PATCH  /api/assets?id=UUID          -> update (admin)
+ *   PATCH  /api/assets?id=UUID&action=retire|reactivate -> soft retire / reactivate (admin)
+ *   DELETE /api/assets?id=UUID          -> hard delete, only if no history (admin)
  *
  * Reads are public; writes require FLEET_ADMIN_TOKEN. Degrades gracefully when
  * DATABASE_URL is missing (returns dbConfigured:false instead of crashing).
@@ -26,7 +29,7 @@ async function readBody(req) {
 
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-fleet-admin-token");
 }
 
@@ -45,6 +48,12 @@ module.exports = async function handler(req, res) {
     if (req.method === "GET") {
       const id = req.query && req.query.id;
       if (id) {
+        if (req.query.detail) {
+          const detail = await store.assetDetail(id);
+          if (!detail) { res.status(404).json({ ok: false, error: "Asset not found" }); return; }
+          res.status(200).json({ ok: true, dbConfigured: true, writesEnabled: auth.configured(), detail: detail });
+          return;
+        }
         const asset = await store.getAsset(id);
         if (!asset) { res.status(404).json({ ok: false, error: "Asset not found" }); return; }
         res.status(200).json({ ok: true, dbConfigured: true, asset: asset, service: R.serviceStatus(asset) });
@@ -68,6 +77,12 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ ok: false, error: "fleet_number and asset_name are required." });
         return;
       }
+      if (body.generator_size_kva != null && body.generator_size_kva !== "" && isNaN(Number(body.generator_size_kva))) {
+        res.status(400).json({ ok: false, error: "generator_size_kva must be numeric." }); return;
+      }
+      if (body.current_engine_hours != null && (isNaN(Number(body.current_engine_hours)) || Number(body.current_engine_hours) < 0)) {
+        res.status(400).json({ ok: false, error: "current_engine_hours must be a non-negative number." }); return;
+      }
       const existing = await store.getAssetByFleet(body.fleet_number);
       if (existing) { res.status(409).json({ ok: false, error: "An asset with that fleet number already exists." }); return; }
       const asset = await store.createAsset(body);
@@ -79,13 +94,39 @@ module.exports = async function handler(req, res) {
       if (!auth.requireAdmin(req, res)) return;
       const id = req.query && req.query.id;
       if (!id) { res.status(400).json({ ok: false, error: "?id= is required for PATCH." }); return; }
+      const action = req.query && req.query.action;
+      if (action === "retire") {
+        const asset = await store.retireAsset(id);
+        res.status(200).json({ ok: true, asset: asset });
+        return;
+      }
+      if (action === "reactivate") {
+        const asset = await store.reactivateAsset(id);
+        res.status(200).json({ ok: true, asset: asset });
+        return;
+      }
       const body = await readBody(req);
+      if (body.generator_size_kva != null && body.generator_size_kva !== "" && isNaN(Number(body.generator_size_kva))) {
+        res.status(400).json({ ok: false, error: "generator_size_kva must be numeric." }); return;
+      }
+      if (body.current_engine_hours != null && (isNaN(Number(body.current_engine_hours)) || Number(body.current_engine_hours) < 0)) {
+        res.status(400).json({ ok: false, error: "current_engine_hours must be a non-negative number." }); return;
+      }
       const asset = await store.updateAsset(id, body);
       res.status(200).json({ ok: true, asset: asset });
       return;
     }
 
-    res.setHeader("Allow", "GET, POST, PATCH, OPTIONS");
+    if (req.method === "DELETE") {
+      if (!auth.requireAdmin(req, res)) return;
+      const id = req.query && req.query.id;
+      if (!id) { res.status(400).json({ ok: false, error: "?id= is required for DELETE." }); return; }
+      const deleted = await store.deleteAsset(id);
+      res.status(200).json({ ok: true, deleted: deleted });
+      return;
+    }
+
+    res.setHeader("Allow", "GET, POST, PATCH, DELETE, OPTIONS");
     res.status(405).json({ ok: false, error: "Method not allowed" });
   } catch (e) {
     const code = e.code === "VALIDATION" ? 400 : 500;
