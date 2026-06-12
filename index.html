@@ -3,39 +3,55 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Nexus Generator Hire Booking Calendar</title>
+<title>Nexus Hire Operations</title>
 <meta name="description" content="Operational booking board for Nexus Energy generator hire and planned outage jobs." />
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body data-mode="desktop">
-<header class="app-header">
-<nav class="view-tabs" id="viewTabs">
-<button class="tab active" data-view="month">Calendar</button>
-<button class="tab" data-view="list">List</button>
-<button class="tab" data-view="fortnight">2 Week</button>
-<button class="tab" data-view="week">Week</button>
-<button class="tab" data-view="day">Day</button>
-<button class="tab" data-view="missing">Missing Info</button>
-<button class="tab" data-view="sync">Sync Status</button>
-            <button class="tab" data-view="fleet">Fleet</button>
+<div class="app-shell">
+
+<aside class="side-rail" id="sideRail" aria-label="Primary">
+<div class="rail-brand" title="Nexus hire operations"><span class="rail-mark">N</span></div>
+<nav class="view-tabs rail-nav" id="viewTabs" aria-label="Views">
+<button class="tab active" data-view="month" data-icon="calendar"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Calendar</span></button>
+<button class="tab" data-view="list" data-icon="list"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">List</span></button>
+<button class="tab" data-view="fortnight" data-icon="fortnight"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">2 Week</span></button>
+<button class="tab" data-view="week" data-icon="week"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Week</span></button>
+<button class="tab" data-view="day" data-icon="day"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Day</span></button>
+<button class="tab" data-view="fleet" data-icon="fleet"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Fleet</span></button>
+<button class="tab" data-view="missing" data-icon="alerts"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Alerts</span></button>
+<button class="tab" data-view="sync" data-icon="settings"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Sync</span></button>
 </nav>
-<div class="header-actions">
-<span class="updated" id="lastUpdated">Last updated: --</span>
-<button class="btn" id="refreshBtn" title="Refresh now">&#x21bb; Refresh now</button>
-<button class="btn btn-tv" id="tvBtn" title="Large-screen office display mode">Office screen</button>
+</aside>
+
+<div class="app-main">
+
+<header class="app-header">
+<div class="app-titlewrap">
+<span class="app-title">Nexus hire operations</span>
+<span class="app-subtitle" id="appSubtitle">Generator hire bookings &amp; fleet</span>
 </div>
-<img class="brand-logo" src="nexus-logo.png" alt="Nexus Generator Hire & Electrical" />
+<div class="app-search">
+<span class="app-search-ico" aria-hidden="true"></span>
+<input type="search" id="searchInput" placeholder="Search customer, site, deal owner&hellip;" aria-label="Search bookings" />
+</div>
+<div class="header-actions">
+<span class="db-indicator" id="dbIndicator" title="Data source"><span class="db-dot"></span><span id="dbIndicatorText">Live data</span></span>
+<span class="updated" id="lastUpdated">Last updated: --</span>
+<button class="btn btn-icon" id="refreshBtn" title="Refresh now" aria-label="Refresh now"><span class="ico-refresh" aria-hidden="true">&#x21bb;</span></button>
+<button class="btn btn-tv" id="tvBtn" title="Large-screen office display mode">Office screen</button>
+<img class="brand-logo" src="nexus-logo.png" alt="Nexus Generator Hire &amp; Electrical" />
+</div>
 </header>
 
 <section class="toolbar" id="toolbar">
 <div class="nav-group">
-<button class="btn ghost" id="prevBtn">&#8592;</button>
+<button class="btn ghost btn-icon" id="prevBtn" aria-label="Previous">&#8592;</button>
 <button class="btn ghost" id="todayBtn">Today</button>
-<button class="btn ghost" id="nextBtn">&#8594;</button>
+<button class="btn ghost btn-icon" id="nextBtn" aria-label="Next">&#8594;</button>
 <span class="period-label" id="periodLabel"></span>
 </div>
 <div class="filters" id="filters">
-<input type="search" id="searchInput" placeholder="Search customer, site, deal owner..." />
 <select id="filterType"><option value="">All job types</option><option value="planned-outage">Planned outage</option><option value="emergency">Emergency hire</option><option value="general">General hire</option></select>
 <select id="filterStatus"><option value="">All statuses</option><option value="confirmed">Confirmed</option><option value="needs-duration">Needs duration</option><option value="needs-equipment">Needs equipment</option><option value="needs-review">Needs review</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>
 <select id="filterSize"><option value="">All generator sizes</option></select>
@@ -43,21 +59,24 @@
 </div>
 </section>
 
-<main id="calendarRoot" class="calendar-root"></main>
-
 <div class="conflict-banner" id="conflictBanner" hidden></div>
 
-<div class="modal-backdrop" id="modalBackdrop" hidden>
-<div class="modal" id="bookingModal" role="dialog" aria-modal="true"></div>
-</div>
+<main id="calendarRoot" class="calendar-root"></main>
 
 <footer class="app-footer">
 <span id="dataSourceNote">Sample data mode &mdash; connect Pipedrive credentials to go live. See README.</span>
 </footer>
 
+</div>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+<div class="modal" id="bookingModal" role="dialog" aria-modal="true"></div>
+</div>
+
 <script src="config.js"></script>
 <script src="sample-data.js"></script>
-    <script src="fleet.js"></script>
+<script src="fleet.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
