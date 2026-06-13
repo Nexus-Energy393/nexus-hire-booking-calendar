@@ -1082,7 +1082,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       }).join("");
       body.innerHTML = '<div class="fm-row"><label>Stock item</label><select id="saItem">' + opts + "</select></div>" +
         '<div class="fm-row"><label>Quantity</label><input type="number" id="saQty" min="1" value="' + esc(existing ? existing.quantity_required : (req ? req.qtyRequired : 1)) + '" /></div>' +
-        '<button class="fleet-btn" id="saGo">Allocate</button>';
+        '<button class="fleet-btn primary" id="saGo">Allocate quantity</button>';
       body.querySelector("#saGo").addEventListener("click", function () {
         var qty = Number(body.querySelector("#saQty").value) || 1;
         var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "",

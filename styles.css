@@ -942,3 +942,52 @@ details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: v
   .js-line-note, .js-write-line .lbl { font-size: 8.5px; }
   .booking-span, .month-grid { display: none !important; } /* never bleed calendar into the sheet */
 }
+
+/* ===================== fleet modal polish (allocate / stock popups) ===================== */
+.fleet-modal-back { background: rgba(23, 18, 52, .48); backdrop-filter: blur(2px); animation: fmFade .12s ease-out; }
+.fleet-modal { max-width: 560px; border-radius: var(--radius-md); border: 1px solid var(--border);
+  box-shadow: 0 18px 50px rgba(16, 24, 40, .28); overflow: hidden; animation: fmPop .15s ease-out; }
+@keyframes fmFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fmPop { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+.fleet-modal .fm-head { background: var(--brand-purple); color: #fff; padding: 12px 18px; border-bottom: none; }
+.fleet-modal .fm-head h3 { font-size: 14px; font-weight: 700; letter-spacing: .3px; color: #fff; }
+.fleet-modal .fm-close { background: transparent; border: none; color: rgba(255,255,255,.75); font-size: 20px;
+  line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.fleet-modal .fm-close:hover { color: #fff; background: rgba(255,255,255,.12); }
+.fleet-modal .fm-body { padding: 18px; }
+.fleet-modal .fm-body .subtle { font-size: 12.5px; color: var(--muted); margin: 0 0 14px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+
+/* form rows inside modals: stacked label + full-width control */
+.fm-row { display: flex; flex-direction: column; gap: 5px; margin: 0 0 14px; }
+.fm-row label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.fm-row select, .fm-row input[type="number"], .fm-row input[type="text"] {
+  width: 100%; min-height: 38px; padding: 8px 11px; font-size: 13px; color: var(--text);
+  background: var(--panel-bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+}
+.fm-row select:focus, .fm-row input:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(47,111,237,.12); }
+.fm-row input[type="number"] { max-width: 140px; }
+
+/* primary action button in modals */
+.fleet-btn.primary { background: var(--brand-green); border-color: var(--brand-green); color: #fff; font-weight: 700; }
+.fleet-btn.primary:hover { background: var(--brand-green-dark); border-color: var(--brand-green-dark); }
+.fm-body > .fleet-btn { min-height: 38px; padding: 8px 18px; margin-top: 2px; }
+
+/* generator availability options */
+.alloc-opt { background: var(--panel-bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 12px; font-size: 13px; transition: border-color .12s, box-shadow .12s, background .12s; }
+.alloc-opt:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.alloc-opt span strong, .alloc-opt span { color: var(--text); }
+.alloc-opt.conf { background: var(--danger-bg); border-color: #efc3c3; opacity: 1; font-size: 12px; }
+.alloc-opt.xhire { border-style: dashed; background: var(--warning-bg); border-color: #f0d9ab; }
+.alloc-conf > strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--danger); margin: 12px 0 6px; }
+.rs-alert { border-radius: var(--radius-sm); }
+.fm-body .rs-alert.warn { background: var(--warning-bg); border: 1px solid #f0d9ab; color: var(--status-needs-text);
+  padding: 9px 12px; font-size: 12.5px; font-weight: 600; margin-bottom: 12px; }
+
+@media (max-width: 640px) {
+  .fleet-modal-back { padding: 16px 8px; }
+  .fleet-modal .fm-body { padding: 14px; }
+  .alloc-opt { flex-wrap: wrap; }
+}
