@@ -852,3 +852,93 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 44px; }
   .month-row-spans { grid-auto-rows: 42px; }
   .booking-span { font-size: 12px; }
 }
+
+/* ===================== Jobsheet v2: compact interactive dispatch sheet ===================== */
+.jobsheet .js-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 18px; }
+.jobsheet .js-field { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; border-bottom: 1px dotted #e7e9ee; font-size: 12.5px; min-width: 0; }
+.jobsheet .js-field.full { grid-column: 1 / -1; }
+.jobsheet .js-field .k { color: var(--muted); flex: 0 0 auto; min-width: 96px; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; }
+.jobsheet .js-field .v { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.jobsheet .js-field .v.missing { color: var(--danger); font-weight: 700; }
+.jobsheet .js-section { margin: 10px 0; }
+.jobsheet .js-section > h3 { font-size: 12px; letter-spacing: .6px; padding: 5px 10px; margin: 0 0 6px; }
+.jobsheet .js-warning ul { margin: 4px 0 0 18px; padding: 0; }
+.jobsheet .js-warning li { margin: 1px 0; }
+.js-status-pill { font-weight: 700; }
+.js-tag.st-equipment { background: var(--status-needs-bg); color: var(--status-needs-text); border-color: #f0d9ab; }
+.js-tag.st-duration  { background: var(--status-needs-bg); color: var(--status-needs-text); border-color: #f0d9ab; }
+.js-tag.st-confirmed { background: var(--status-allocated-bg); color: var(--status-allocated-text); border-color: #bfe3cd; }
+.js-tag.st-review    { background: var(--status-conflict-bg); color: var(--status-conflict-text); border-color: #efc3c3; }
+.js-tag.st-completed { background: var(--status-done-bg); color: var(--status-done-text); }
+
+/* equipment checklist */
+.js-equip th, .js-equip td { padding: 6px 8px; font-size: 12.5px; }
+.js-equip .num { width: 52px; text-align: center; }
+.js-equip .chk { width: 64px; text-align: center; }
+.js-equip .js-chk { width: 18px; height: 18px; accent-color: var(--brand-green); cursor: pointer; }
+.js-equip .js-actions-col { white-space: nowrap; text-align: right; }
+.js-equip .js-actions-col .fleet-btn { margin-left: 6px; }
+.js-box { display: inline-block; width: 14px; height: 14px; border: 1.5px solid #9aa1a9; border-radius: 3px; vertical-align: middle; }
+.alloc-badge.none { background: var(--status-needs-bg); color: var(--status-needs-text); border-radius: 999px; padding: 1px 8px; font-size: 10.5px; font-weight: 700; }
+.js-add-item { margin-top: 6px; }
+.rs-herr { color: var(--danger); font-size: 12px; font-weight: 600; grid-column: 1 / -1; }
+.js-line-note { color: var(--muted); font-size: 12px; margin: 4px 0; }
+.js-write-line { display: flex; gap: 10px; align-items: flex-end; margin: 10px 0 2px; }
+.js-write-line .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.js-write-line .rule { flex: 1; border-bottom: 1px solid #c9ced6; height: 18px; }
+
+/* notes */
+details.js-notes summary { cursor: pointer; font-weight: 700; font-size: 12px; letter-spacing: .6px; text-transform: uppercase; padding: 5px 10px; background: var(--brand-purple); color: #fff; border-radius: 4px; }
+details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: var(--text); }
+
+/* gated ready button */
+.js-btn.ready.on { background: var(--brand-green); border-color: var(--brand-green); color: #fff; }
+.js-btn.ready.blocked { opacity: .75; border-style: dashed; }
+
+/* phone: equipment rows to cards */
+@media (max-width: 640px) {
+  .jobsheet .js-grid { grid-template-columns: 1fr; }
+  .js-equip thead { display: none; }
+  .js-equip tr { display: block; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; padding: 6px 8px; }
+  .js-equip td { display: flex; justify-content: space-between; gap: 10px; border: none; padding: 4px 2px; }
+  .js-equip td::before { content: attr(data-label); color: var(--muted); font-size: 11px; text-transform: uppercase; }
+  .js-equip .js-actions-col { justify-content: flex-end; }
+}
+
+/* ---------- ONE-PAGE A4 PRINT ---------- */
+@media print {
+  @page { size: A4 portrait; margin: 10mm; }
+  .jobsheet { font-size: 10.5px; }
+  .jobsheet .js-body { padding: 0 !important; }
+  .jobsheet .js-sheet-head { margin-bottom: 4mm; }
+  .jobsheet .js-brand h1 { font-size: 16px; margin: 0; }
+  .jobsheet .js-sub, .jobsheet .js-headmeta { font-size: 9.5px; }
+  .jobsheet .js-grid { grid-template-columns: repeat(3, 1fr); gap: 1px 14px; }
+  .jobsheet .js-field { font-size: 9.5px; padding: 1.5px 0; }
+  .jobsheet .js-field .k { font-size: 8px; min-width: 70px; }
+  .jobsheet .js-section { margin: 3mm 0; page-break-inside: avoid; }
+  .jobsheet .js-section > h3 { font-size: 9px; padding: 2px 6px; margin-bottom: 2mm;
+    background: #111 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .jobsheet .js-statusline { margin: 2mm 0; }
+  .jobsheet .js-tag { font-size: 9px; padding: 1px 7px; border: 1px solid #999 !important; box-shadow: none !important; }
+  .jobsheet .js-warning { font-size: 9.5px; padding: 2mm; border: 1px solid #c90 !important; background: #fff8e8 !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; page-break-inside: avoid; }
+  .js-equip th, .js-equip td { padding: 2px 5px; font-size: 9.5px; border: 1px solid #bbb !important; }
+  .js-equip tr { page-break-inside: avoid; }
+  .js-equip .js-actions-col, .js-add-item, .fleet-btn, .fleet-write-off, .rs-hours button, #rsHoursSave { display: none !important; }
+  .js-equip .js-chk { width: 12px; height: 12px; }
+  .rs-hours { display: grid !important; grid-template-columns: repeat(4, 1fr); gap: 2mm; font-size: 9.5px; }
+  .rs-hours input, .rs-hours output { border: none !important; border-bottom: 1px solid #999 !important; font-size: 10px; background: none !important; }
+  .rs-alert { font-size: 9.5px; padding: 1.5mm 2mm; page-break-inside: avoid; }
+  .rs-loading, .rs-note a { display: none !important; }
+  details.js-notes { display: block; }
+  details.js-notes summary { background: #111 !important; color: #fff !important; font-size: 9px; padding: 2px 6px; list-style: none; }
+  details.js-notes:not([open]) .js-notes-body { display: block; } /* force notes visible on paper */
+  details.js-notes .js-notes-body { font-size: 9px; padding: 1.5mm 2mm; max-height: 30mm; overflow: hidden; }
+  .js-footer-sign { display: flex; gap: 8mm; margin-top: 4mm; page-break-inside: avoid; }
+  .js-footer-sign .js-sign { flex: 1; }
+  .js-footer-sign .lbl { font-size: 8px; text-transform: uppercase; color: #555; }
+  .js-footer-sign .rule { border-bottom: 1px solid #555; height: 8mm; }
+  .js-line-note, .js-write-line .lbl { font-size: 8.5px; }
+  .booking-span, .month-grid { display: none !important; } /* never bleed calendar into the sheet */
+}

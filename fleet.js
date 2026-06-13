@@ -832,14 +832,164 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     });
   }
 
-  /* ====================================================================
-     RESOURCING SECTION for the dispatch jobsheet.
-     app.js calls NexusFleet.renderResourcing(container, booking) after it
-     paints the generator section.
-     ==================================================================== */
-  function fmtConflict(c) {
-    return "deal #" + esc(c.pipedrive_deal_id) + " (" + esc(c.hire_start || "?") + " &rarr; " + esc(c.hire_end || "?") + ")";
+  /* ---------- jobsheet equipment & allocation checklist ----------
+     app.js calls NexusFleet.renderResourcing(container, booking).
+     Renders the requirement table from REAL allocation rows, wires the
+     allocate / cross-hire / picked / engine-hours actions, and pushes every
+     change back through window.NexusJobsheetSync so the calendar pill and
+     jobsheet status stay in lockstep with the database. */
+  function renderResourcing(container, booking) {
+    if (!container) return;
+    var dealId = booking.pipedriveDealId;
+    container.innerHTML = '<div class="js-resourcing"><div class="rs-loading">Loading equipment &amp; allocation&hellip;</div></div>';
+    apiGet("/jobsheet?dealId=" + encodeURIComponent(dealId)).then(function (r) {
+      var box = container.querySelector(".js-resourcing");
+      if (!box) return;
+      if (r.body.dbConfigured === false) {
+        box.innerHTML = '<div class="rs-note">Fleet resourcing is not connected (no database). The printed checklist above remains manual. ' +
+          'Configure the database, then allocate from here or the <a href="#/fleet">Fleet control centre</a>.</div>';
+        return;
+      }
+      STATE.writesEnabled = !!r.body.writesEnabled;
+      var allocations = r.body.allocations || [];
+      var engineHours = r.body.engineHours || [];
+      STATE.jobsheet = STATE.jobsheet || {};
+      STATE.jobsheet[dealId] = { allocations: allocations, engineHours: engineHours };
+
+      var bk = null;
+      if (window.NexusJobsheetSync) bk = window.NexusJobsheetSync(dealId, allocations, engineHours);
+      var st = window.NexusResourcing
+        ? window.NexusResourcing.computeJobStatus(bk || booking, allocations, engineHours)
+        : { requirements: [], missing: [] };
+
+      var can = STATE.writesEnabled;
+      var html = "";
+
+      /* requirement rows */
+      html += '<table class="js-table js-equip stackable"><thead><tr>' +
+              '<th>Item</th><th class="num">Req</th><th>Allocated</th><th>Status</th><th class="chk">Picked</th>' +
+              '<th class="js-actions-col">Actions</th></tr></thead><tbody>';
+      (st.requirements || []).forEach(function (req, idx) {
+        var a = req.alloc;
+        var allocatedCell, statusCell, pickedCell, actions = "";
+        if (req.kind === "generator") {
+          if (a && a.asset) {
+            var svc = a.service || {};
+            allocatedCell = "<strong>#" + esc(a.asset.fleet_number) + "</strong> " + esc(a.asset.asset_name || "") + " " + svcPill(svc);
+          } else if (a && a.allocation_status === "cross_hire_required") {
+            allocatedCell = "Cross-hire" + (a.override_note ? " — " + esc(a.override_note) : "");
+          } else allocatedCell = "&mdash;";
+          actions = can
+            ? '<button class="fleet-btn sm" data-act="alloc-gen">' + (a ? "Change" : "Allocate generator") + "</button>" +
+              (a && a.allocation_status !== "cross_hire_required" ? "" : "") +
+              (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen">Cross-hire</button>')
+            : '<span class="fleet-write-off sm">read-only</span>';
+        } else {
+          allocatedCell = a ? esc(a.quantity_allocated || 0) : "&mdash;";
+          actions = can
+            ? '<button class="fleet-btn sm" data-act="alloc-stock" data-req="' + idx + '">' + (a ? "Change qty" : "Allocate") + "</button>"
+            : "";
+        }
+        statusCell = a ? allocBadge(a.allocation_status) : '<span class="alloc-badge none">not allocated</span>';
+        var picked = a && /^(picked|ready)$/i.test(a.dispatch_status || "");
+        pickedCell = a
+          ? '<input type="checkbox" class="js-chk" data-act="pick" data-alloc="' + esc(a.allocation_id) + '"' +
+            (picked ? " checked" : "") + (can ? "" : " disabled") + ' aria-label="Picked" />'
+          : '<span class="js-box"></span>';
+        html += '<tr><td data-label="Item">' + esc(req.label) + '</td>' +
+                '<td class="num" data-label="Req">' + esc(req.qtyRequired) + "</td>" +
+                '<td data-label="Allocated">' + allocatedCell + "</td>" +
+                '<td data-label="Status">' + statusCell + "</td>" +
+                '<td class="chk" data-label="Picked">' + pickedCell + "</td>" +
+                '<td class="js-actions-col" data-label="">' + actions + "</td></tr>";
+      });
+      html += "</tbody></table>";
+      if (can) html += '<button class="fleet-btn sm ghost js-add-item" data-act="alloc-stock" data-req="-1">+ Add stock item</button>';
+
+      /* alerts */
+      var genAlloc = st.genAlloc;
+      if (genAlloc && genAlloc.allocation_status === "conflict")
+        html += '<div class="rs-alert crit">Conflict: this generator overlaps another booking. Choose another fleet # or cross-hire.</div>';
+      if (allocations.some(function (a) { return a.allocation_status === "cross_hire_required"; }))
+        html += '<div class="rs-alert warn">Cross-hire required &mdash; confirm supplier, then update the allocation.</div>';
+      if (genAlloc && genAlloc.service) {
+        if (genAlloc.service.state === "overdue") html += '<div class="rs-alert crit">Generator service OVERDUE &mdash; an override note is required before dispatch.</div>';
+        else if (genAlloc.service.state === "due_soon") html += '<div class="rs-alert warn">Generator service due soon (' + esc(genAlloc.service.hoursUntilDue) + ' hrs remaining).</div>';
+      }
+
+      /* engine hours */
+      var latest = engineHours[0] || {};
+      html += '<div class="rs-hours"' + (genAlloc && genAlloc.asset ? "" : ' data-noasset="1"') + '>' +
+        '<div class="rs-hcell"><label>Engine hours OUT</label><input type="number" min="0" id="rsHoursOut" value="' + esc(latest.hours_out != null ? latest.hours_out : "") + '"' + (can && genAlloc ? "" : " disabled") + ' /></div>' +
+        '<div class="rs-hcell"><label>Engine hours IN</label><input type="number" min="0" id="rsHoursIn" value="' + esc(latest.hours_in != null ? latest.hours_in : "") + '"' + (can && genAlloc ? "" : " disabled") + ' /></div>' +
+        '<div class="rs-hcell"><label>Runtime</label><output id="rsRuntime">' + esc(latest.runtime_hours != null ? latest.runtime_hours : "—") + '</output></div>' +
+        '<div class="rs-hcell"><label>Asset hours (current)</label><output>' + (genAlloc && genAlloc.asset ? esc(genAlloc.asset.current_engine_hours) : "—") + '</output></div>' +
+        '<div class="rs-herr" id="rsHoursErr" hidden></div>' +
+        (can && genAlloc ? '<button class="fleet-btn sm" id="rsHoursSave">Record hours</button>' : "") + "</div>";
+
+      box.innerHTML = html;
+      wireResourcing(box, bk || booking, genAlloc, st);
+    }).catch(function (e) {
+      var box = container.querySelector(".js-resourcing");
+      if (box) box.innerHTML = '<div class="rs-note">Couldn’t load resourcing: ' + esc(e.message) + "</div>";
+    });
   }
+
+  function wireResourcing(box, booking, genAlloc, st) {
+    box.addEventListener("click", function (e) {
+      var t = e.target.closest && e.target.closest("[data-act]");
+      if (!t) return;
+      var act = t.getAttribute("data-act");
+      if (act === "alloc-gen") openAllocateModal(booking);
+      else if (act === "xhire-gen") {
+        if (!ensureToken()) return;
+        var note = window.prompt("Cross-hire note (why no Nexus stock / supplier):", "");
+        doAllocate(booking, null, note || "Cross-hire required", { close: function () {} }, true);
+      }
+      else if (act === "alloc-stock") openAllocateStockModal(booking, Number(t.getAttribute("data-req")), st);
+      else if (act === "pick") {
+        if (!ensureToken()) { t.checked = !t.checked; return; }
+        var id = t.getAttribute("data-alloc");
+        apiSend("PATCH", "/allocations?id=" + encodeURIComponent(id), { dispatch_status: t.checked ? "picked" : "" })
+          .then(function (r) {
+            if (!r.body.ok) { alert(r.body.error || "Failed to update picked state"); t.checked = !t.checked; return; }
+            reopenJobsheet(booking);
+          }).catch(function (err) { alert(err.message); t.checked = !t.checked; });
+      }
+    });
+
+    /* engine hours validation + save */
+    var outEl = box.querySelector("#rsHoursOut"), inEl = box.querySelector("#rsHoursIn"),
+        rt = box.querySelector("#rsRuntime"), errEl = box.querySelector("#rsHoursErr");
+    function recalc() {
+      if (!outEl || !inEl) return true;
+      var o = outEl.value === "" ? null : parseFloat(outEl.value);
+      var i = inEl.value === "" ? null : parseFloat(inEl.value);
+      var msg = "";
+      if (o != null && o < 0) msg = "Engine hours out cannot be negative.";
+      else if (i != null && i < 0) msg = "Engine hours in cannot be negative.";
+      else if (o != null && i != null && i < o) msg = "Engine hours in cannot be less than engine hours out.";
+      if (errEl) { errEl.hidden = !msg; errEl.textContent = msg; }
+      if (rt) rt.textContent = (!msg && o != null && i != null) ? String(i - o) : "—";
+      return !msg;
+    }
+    if (outEl) outEl.addEventListener("input", recalc);
+    if (inEl) inEl.addEventListener("input", recalc);
+    var saveBtn = box.querySelector("#rsHoursSave");
+    if (saveBtn && genAlloc) saveBtn.addEventListener("click", function () {
+      if (!recalc()) return;
+      if (!ensureToken()) return;
+      var payload = { asset_id: genAlloc.asset_id, pipedrive_deal_id: booking.pipedriveDealId,
+                      hours_out: num(outEl.value), hours_in: num(inEl.value) };
+      saveBtn.disabled = true; saveBtn.textContent = "Saving…";
+      apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
+        saveBtn.disabled = false; saveBtn.textContent = "Record hours";
+        if (!r.body.ok) { alert(r.body.error || "Failed to record hours"); return; }
+        reopenJobsheet(booking);
+      }).catch(function (e) { saveBtn.disabled = false; saveBtn.textContent = "Record hours"; alert(e.message); });
+    });
+  }
+
   function allocBadge(status) {
     var map = {
       allocated: ["Allocated", "ab-ok"], proposed: ["Proposed", "ab-prop"],
@@ -850,81 +1000,8 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     return '<span class="alloc-badge ' + m[1] + '">' + esc(m[0]) + "</span>";
   }
 
-  function renderResourcing(container, booking) {
-    if (!container) return;
-    var dealId = booking.pipedriveDealId;
-    container.innerHTML = '<div class="js-resourcing"><div class="rs-loading">Loading resourcing&hellip;</div></div>';
-    apiGet("/jobsheet?dealId=" + encodeURIComponent(dealId)).then(function (r) {
-      var box = container.querySelector(".js-resourcing");
-      if (!box) return;
-      if (r.body.dbConfigured === false) {
-        box.innerHTML = '<div class="rs-note">Fleet resourcing is not connected (no database). Allocate generators on the ' +
-          '<a href="#/fleet">Fleet control centre</a> once the database is configured. This jobsheet still prints.</div>';
-        return;
-      }
-      STATE.writesEnabled = !!r.body.writesEnabled;
-      var allocations = r.body.allocations || [];
-      var engineHours = r.body.engineHours || [];
-      var genAlloc = allocations.filter(function (a) { return a.asset_id; })[0];
-      var html = "";
-      html += '<div class="rs-head"><strong>Resourcing</strong>' +
-        (STATE.writesEnabled ? '<button class="fleet-btn sm" id="rsAllocBtn">Allocate generator</button>' : '<span class="fleet-write-off sm">read-only</span>') + "</div>";
-      if (genAlloc) {
-        var svc = genAlloc.service || {};
-        html += '<div class="rs-line"><span>Allocated generator:</span> ' + allocBadge(genAlloc.allocation_status) +
-          (genAlloc.asset ? ' <strong>#' + esc(genAlloc.asset.fleet_number) + "</strong> " + esc(genAlloc.asset.asset_name) : "") + " " + svcPill(svc) + "</div>";
-        if (genAlloc.allocation_status === "conflict") html += '<div class="rs-alert crit">Conflict: this generator overlaps another booking. Choose another fleet # or cross-hire.</div>';
-        if (genAlloc.allocation_status === "cross_hire_required") html += '<div class="rs-alert warn">Cross-hire required &mdash; no suitable Nexus generator available for these dates.</div>';
-        if (svc.state === "overdue") html += '<div class="rs-alert crit">Generator service OVERDUE &mdash; override note required to dispatch.</div>';
-        else if (svc.state === "due_soon") html += '<div class="rs-alert warn">Generator service due soon (' + esc(svc.hoursUntilDue) + " hrs).</div>";
-        var latest = engineHours[0] || {};
-        html += '<div class="rs-hours">' +
-          '<div class="rs-hcell"><label>Engine hours OUT</label><input type="number" id="rsHoursOut" value="' + esc(latest.hours_out != null ? latest.hours_out : "") + '" ' + (STATE.writesEnabled ? "" : "disabled") + " /></div>" +
-          '<div class="rs-hcell"><label>Engine hours IN</label><input type="number" id="rsHoursIn" value="' + esc(latest.hours_in != null ? latest.hours_in : "") + '" ' + (STATE.writesEnabled ? "" : "disabled") + " /></div>" +
-          '<div class="rs-hcell"><label>Runtime</label><output id="rsRuntime">' + esc(latest.runtime_hours != null ? latest.runtime_hours : "\u2014") + "</output></div>" +
-                    '<div class="rs-hcell"><label>Current (after return)</label><output>' + (genAlloc.asset ? esc(genAlloc.asset.current_engine_hours) : "\u2014") + '</output></div>' +
-          (STATE.writesEnabled ? '<button class="fleet-btn sm" id="rsHoursSave">Record hours</button>' : "") + "</div>";
-      } else {
-        html += '<div class="rs-line">No generator allocated yet.' + (STATE.writesEnabled ? "" : " Configure the admin token and use the Fleet control centre to allocate.") + "</div>";
-      }
-      var stockAllocs = allocations.filter(function (a) { return a.stock_item_id; });
-      if (stockAllocs.length) {
-                html += '<div class="rs-stock"><strong>Cable / stock</strong><table class="fleet-mini"><thead><tr><th>Item</th><th>Required</th><th>Allocated</th><th>Status</th></tr></thead><tbody>';
-        stockAllocs.forEach(function (a) {
-          html += "<tr><td>" + esc(a.booking_title || a.stock_item_id) + "</td><td>" + esc(a.quantity_required) + "</td><td>" + esc(a.quantity_allocated) + "</td><td>" + allocBadge(a.allocation_status) +
-            (a.allocation_status === "cross_hire_required" ? " shortage " + esc(a.cross_hire_qty) : "") + "</td></tr>";
-        });
-        html += "</tbody></table></div>";
-      }
-      box.innerHTML = html;
-      wireResourcing(box, booking, genAlloc);
-    }).catch(function (e) {
-      var box = container.querySelector(".js-resourcing");
-      if (box) box.innerHTML = '<div class="rs-note">Couldn\'t load resourcing: ' + esc(e.message) + "</div>";
-    });
-  }
-
-  function wireResourcing(box, booking, genAlloc) {
-    var allocBtn = box.querySelector("#rsAllocBtn");
-    if (allocBtn) allocBtn.addEventListener("click", function () { openAllocateModal(booking); });
-    var outEl = box.querySelector("#rsHoursOut"), inEl = box.querySelector("#rsHoursIn"), rt = box.querySelector("#rsRuntime");
-    function recalc() {
-      var o = parseFloat(outEl && outEl.value), i = parseFloat(inEl && inEl.value);
-      if (!isNaN(o) && !isNaN(i)) rt.textContent = (i >= o) ? (i - o) : "invalid";
-    }
-    if (outEl) outEl.addEventListener("input", recalc);
-    if (inEl) inEl.addEventListener("input", recalc);
-    var saveBtn = box.querySelector("#rsHoursSave");
-    if (saveBtn && genAlloc) saveBtn.addEventListener("click", function () {
-      if (!ensureToken()) return;
-      var payload = { asset_id: genAlloc.asset_id, pipedrive_deal_id: booking.pipedriveDealId, hours_out: num(outEl.value), hours_in: num(inEl.value) };
-      saveBtn.disabled = true; saveBtn.textContent = "Saving\u2026";
-      apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
-        saveBtn.disabled = false; saveBtn.textContent = "Record hours";
-        if (!r.body.ok) { alert(r.body.error || "Failed to record hours"); return; }
-        renderResourcing(box.parentNode, booking);
-      }).catch(function (e) { saveBtn.disabled = false; saveBtn.textContent = "Record hours"; alert(e.message); });
-    });
+  function fmtConflict(c) {
+    return "deal #" + esc(c.pipedrive_deal_id) + " (" + esc(c.hire_start || "?") + " &rarr; " + esc(c.hire_end || "?") + ")";
   }
 
   function openAllocateModal(booking) {
@@ -981,10 +1058,77 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     }).catch(function (e) { alert(e.message); });
   }
 
+  /* Allocate a non-serialised stock quantity against the booking. */
+  function openAllocateStockModal(booking, reqIdx, st) {
+    if (!ensureToken()) return;
+    var req = (st && st.requirements || [])[reqIdx] || null;
+    var existing = req && req.alloc;
+    var m = openModal("Allocate stock - deal #" + booking.pipedriveDealId,
+      '<p class="subtle">' + (req ? "Requirement: <strong>" + esc(req.label) + "</strong>" : "Add a stock item to this job") + "</p>" +
+      '<div id="stockAllocBody">Loading stock&hellip;</div>');
+    apiGet("/stock").then(function (r) {
+      var body = m.body.querySelector("#stockAllocBody");
+      var items = (r.body.stock || r.body.items || []).filter(function (s) { return (s.status || "").toLowerCase() !== "retired"; });
+      if (!items.length) { body.innerHTML = "No stock items in the database yet. Add them in the Fleet control centre."; return; }
+      var match = null;
+      if (req) {
+        var want = req.label.toLowerCase();
+        items.forEach(function (s) { if (!match && want.indexOf(String(s.item_name || "").toLowerCase()) !== -1) match = s; });
+        if (!match) items.forEach(function (s) { if (!match && String(s.item_name || "").toLowerCase().split(" ")[0] && want.indexOf(String(s.item_name || "").toLowerCase().split(" ")[0]) !== -1) match = s; });
+      }
+      var opts = items.map(function (s) {
+        return '<option value="' + esc(s.stock_item_id) + '"' + (match && match.stock_item_id === s.stock_item_id ? " selected" : "") + ">" +
+               esc(s.item_name) + " (own " + esc(s.total_quantity) + ")</option>";
+      }).join("");
+      body.innerHTML = '<div class="fm-row"><label>Stock item</label><select id="saItem">' + opts + "</select></div>" +
+        '<div class="fm-row"><label>Quantity</label><input type="number" id="saQty" min="1" value="' + esc(existing ? existing.quantity_required : (req ? req.qtyRequired : 1)) + '" /></div>' +
+        '<button class="fleet-btn" id="saGo">Allocate</button>';
+      body.querySelector("#saGo").addEventListener("click", function () {
+        var qty = Number(body.querySelector("#saQty").value) || 1;
+        var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "",
+                        stock_item_id: body.querySelector("#saItem").value,
+                        quantity_required: qty, quantity_allocated: qty,
+                        hire_start: booking.startDate || null, hire_end: booking.endDate || null };
+        var p = existing
+          ? apiSend("PATCH", "/allocations?id=" + encodeURIComponent(existing.allocation_id), payload)
+          : apiSend("POST", "/allocations", payload);
+        p.then(function (r2) {
+          if (!r2.body.ok) { alert(r2.body.error || "Allocation failed"); return; }
+          if (r2.body.allocation && r2.body.allocation.allocation_status === "cross_hire_required")
+            alert("Not enough Nexus stock for these dates — the allocation was recorded as CROSS-HIRE REQUIRED (shortage " + r2.body.allocation.cross_hire_qty + ").");
+          m.close();
+          reopenJobsheet(booking);
+        }).catch(function (e2) { alert(e2.message); });
+      });
+    });
+  }
+
+  /* Gated ready-for-dispatch: requires complete allocation; service-overdue
+     generators additionally require an override note. app.js enforces the
+     completeness gate; the API re-checks server-side regardless. */
+  function setDispatchReady(booking, makeReady, done) {
+    if (!ensureToken()) return;
+    var cache = (STATE.jobsheet || {})[booking.pipedriveDealId] || {};
+    var genAlloc = (cache.allocations || []).filter(function (a) { return a.asset_id; })[0];
+    if (!genAlloc) { alert("Allocate a generator first."); return; }
+    var patch = { dispatch_status: makeReady ? "ready" : "picked" };
+    if (makeReady && genAlloc.service && genAlloc.service.state === "overdue") {
+      var note = window.prompt("This generator is service OVERDUE. Enter an override note to confirm dispatch readiness:", genAlloc.override_note || "");
+      if (!note || !note.trim()) return;
+      patch.override_note = note.trim();
+    }
+    apiSend("PATCH", "/allocations?id=" + encodeURIComponent(genAlloc.allocation_id), patch).then(function (r) {
+      if (!r.body.ok) { alert(r.body.error || "Failed to update dispatch state"); return; }
+      reopenJobsheet(booking);
+      if (done) done();
+    }).catch(function (e) { alert(e.message); });
+  }
+
   function reopenJobsheet(booking) {
-    var holder = document.getElementById("jsResourcingHolder");
+    var holder = document.getElementById("jsEquipmentHolder") || document.getElementById("jsResourcingHolder");
     if (holder) renderResourcing(holder, booking);
   }
+
   function parseGenSize(s) {
     if (!s) return null;
     var m = String(s).match(/(\d+(\.\d+)?)/);
@@ -995,6 +1139,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
   window.NexusFleet = {
     renderFleetPage: renderFleetPage,
     renderResourcing: renderResourcing,
+    setDispatchReady: setDispatchReady,
     isFleetRoute: function () { return /#\/(fleet|rental-stock|fleet-control)/.test(location.hash); },
     hasToken: hasToken, setToken: setToken
   };
