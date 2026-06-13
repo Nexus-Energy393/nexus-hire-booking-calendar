@@ -10,6 +10,7 @@
  *                                      allocation_end, duration_hours, billable,
  *                                      billable_hours, notes, booking_title }
  *     ?action=update-allocation   -> { staff_allocation_id, ...fields }
+ *     ?action=update-staff        -> { staff_id, ...fields }
  *     ?action=create-unavailability -> { staff_id, start_time, end_time, reason, notes }
  *   GET  /api/staff?action=allocations&dealId=<id>  -> staff allocated to a deal
  *   GET  /api/staff?action=unavailability&staffId=<id>&start=&end=
@@ -27,7 +28,7 @@ module.exports = async function handler(req, res) {
   const q = req.query || {};
 
   try {
-    // ── GET ──────────────────────────────────────────────────────────
+    // ââ GET ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     if (req.method === "GET") {
       if (q.action === "allocations") {
         const rows = await store.listAllocations({
@@ -37,6 +38,11 @@ module.exports = async function handler(req, res) {
           end:     q.end
         });
         res.status(200).json({ ok: true, allocations: rows });
+        return;
+      }
+      if (q.action === "conflicts") {
+        const dealIds = await store.findConflictedDealIds(q.start, q.end);
+        res.status(200).json({ ok: true, conflicted_deal_ids: dealIds });
         return;
       }
       if (q.action === "unavailability") {
@@ -60,7 +66,7 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // ── POST / mutations ──────────────────────────────────────────────
+    // ââ POST / mutations ââââââââââââââââââââââââââââââââââââââââââââââ
     if (req.method === "POST" || req.method === "PATCH") {
       if (!auth.requireAdmin(req, res)) return;
       const body = await http.readBody(req);
@@ -86,7 +92,28 @@ module.exports = async function handler(req, res) {
           return;
         }
         const alloc = await store.createAllocation(body);
-        res.status(201).json({ ok: true, allocation: alloc });
+
+        // ââ conflict detection ââââââââââââââââââââââââââââââââââââââââ
+        // Find any other non-cancelled allocations for this staff member
+        // that overlap the new allocation's time window.
+        const overlapping = await store.listAllocations({
+          staffId: body.staff_id,
+          start:   body.allocation_start,
+          end:     body.allocation_end
+        });
+        const conflicts = overlapping.filter(function (a) {
+          return a.staff_allocation_id !== alloc.staff_allocation_id &&
+                 a.status !== "cancelled";
+        });
+
+        res.status(201).json({
+          ok:            true,
+          allocation:    alloc,
+          conflict:      conflicts.length > 0,
+          conflict_with: conflicts.map(function (a) {
+            return a.booking_title || ("Deal #" + a.pipedrive_deal_id) || "another job";
+          })
+        });
         return;
       }
 
