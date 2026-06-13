@@ -899,7 +899,15 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           ? '<input type="checkbox" class="js-chk" data-act="pick" data-alloc="' + esc(a.allocation_id) + '"' +
             (picked ? " checked" : "") + (can ? "" : " disabled") + ' aria-label="Picked" />'
           : '<span class="js-box"></span>';
-        html += '<tr><td data-label="Item">' + esc(req.label) + '</td>' +
+        var noteLine = "";
+        if (a && a.allocation_status === "cross_hire_required") {
+          var xn = (a.override_note || a.notes || "").trim();
+          noteLine = xn ? '<div class="js-xhire-note">Cross-hire: ' + esc(xn) + "</div>"
+                        : '<div class="js-xhire-note missing">Cross-hire supplier not recorded</div>';
+        } else if (a && (a.notes || "").trim()) {
+          noteLine = '<div class="js-xhire-note">' + esc(a.notes) + "</div>";
+        }
+        html += '<tr><td data-label="Item">' + esc(req.label) + noteLine + '</td>' +
                 '<td class="num" data-label="Req">' + esc(req.qtyRequired) + "</td>" +
                 '<td data-label="Allocated">' + allocatedCell + "</td>" +
                 '<td data-label="Status">' + statusCell + "</td>" +
@@ -946,8 +954,9 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       if (act === "alloc-gen") openAllocateModal(booking);
       else if (act === "xhire-gen") {
         if (!ensureToken()) return;
-        var note = window.prompt("Cross-hire note (why no Nexus stock / supplier):", "");
-        doAllocate(booking, null, note || "Cross-hire required", { close: function () {} }, true);
+        var note = window.prompt("Cross-hire supplier name + notes (required):", "");
+        if (!note || !note.trim()) { alert("Cross-hire needs the supplier name (or a note) so dispatch knows where the unit is coming from."); return; }
+        doAllocate(booking, null, note.trim(), { close: function () {} }, true);
       }
       else if (act === "alloc-stock") openAllocateStockModal(booking, Number(t.getAttribute("data-req")), st);
       else if (act === "release") {
@@ -1046,7 +1055,11 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         var b = e.target.closest && e.target.closest("[data-alloc]");
         var x = e.target.closest && e.target.closest("[data-xhire]");
         if (b) doAllocate(booking, b.getAttribute("data-alloc"), null, m);
-        else if (x) { var note = window.prompt("Cross-hire note (why no Nexus stock / supplier):", ""); doAllocate(booking, null, note || "Cross-hire required", m, true); }
+        else if (x) {
+          var note = window.prompt("Cross-hire supplier name + notes (required):", "");
+          if (!note || !note.trim()) { alert("Cross-hire needs the supplier name (or a note) so dispatch knows where the unit is coming from."); return; }
+          doAllocate(booking, null, note.trim(), m, true);
+        }
       });
     });
   }
@@ -1094,20 +1107,31 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       }).join("");
       body.innerHTML = '<div class="fm-row"><label>Stock item</label><select id="saItem">' + opts + "</select></div>" +
         '<div class="fm-row"><label>Quantity</label><input type="number" id="saQty" min="1" value="' + esc(existing ? existing.quantity_required : (req ? req.qtyRequired : 1)) + '" /></div>' +
+        '<div class="fm-row"><label>Cross-hire supplier / item notes <span class="fm-optional">(required if stock is short)</span></label>' +
+        '<input type="text" id="saNotes" placeholder="e.g. Coates Eltham — 95mm set x1" value="' + esc(existing && existing.notes ? existing.notes : "") + '" /></div>' +
         '<button class="fleet-btn primary" id="saGo">Allocate quantity</button>';
       body.querySelector("#saGo").addEventListener("click", function () {
         var qty = Number(body.querySelector("#saQty").value) || 1;
+        var notesVal = (body.querySelector("#saNotes").value || "").trim();
         var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "",
                         stock_item_id: body.querySelector("#saItem").value,
-                        quantity_required: qty, quantity_allocated: qty,
+                        quantity_required: qty, quantity_allocated: qty, notes: notesVal || null,
                         hire_start: booking.startDate || null, hire_end: booking.endDate || null };
         var p = existing
           ? apiSend("PATCH", "/allocations?id=" + encodeURIComponent(existing.allocation_id), payload)
           : apiSend("POST", "/allocations", payload);
         p.then(function (r2) {
           if (!r2.body.ok) { alert(r2.body.error || "Allocation failed"); return; }
-          if (r2.body.allocation && r2.body.allocation.allocation_status === "cross_hire_required")
-            alert("Not enough Nexus stock for these dates — the allocation was recorded as CROSS-HIRE REQUIRED (shortage " + r2.body.allocation.cross_hire_qty + ").");
+          var rec = r2.body.allocation;
+          if (rec && rec.allocation_status === "cross_hire_required" && !notesVal) {
+            var supplier = window.prompt("Not enough Nexus stock for these dates (shortage " + rec.cross_hire_qty + ").\nEnter the cross-hire supplier name + notes:", "");
+            if (supplier && supplier.trim()) {
+              apiSend("PATCH", "/allocations?id=" + encodeURIComponent(rec.allocation_id), { notes: supplier.trim() })
+                .then(function () { m.close(); reopenJobsheet(booking); });
+              return;
+            }
+            alert("Recorded as CROSS-HIRE REQUIRED. Add the supplier in the item notes before the job can be marked ready.");
+          }
           m.close();
           reopenJobsheet(booking);
         }).catch(function (e2) { alert(e2.message); });

@@ -1067,3 +1067,9 @@ details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: v
 .db-indicator.sample { color: var(--muted); background: var(--column-bg); border-color: var(--border-strong); }
 .db-indicator.sample .db-dot { background: var(--muted); animation: none; }
 @media (prefers-reduced-motion: reduce) { .db-indicator .db-dot { animation: none !important; } }
+
+/* cross-hire supplier note under item name */
+.js-xhire-note { font-size: 11px; color: var(--status-needs-text); font-weight: 600; margin-top: 2px; }
+.js-xhire-note.missing { color: var(--danger); }
+.fm-optional { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
+@media print { .js-xhire-note { font-size: 8.5px; } }

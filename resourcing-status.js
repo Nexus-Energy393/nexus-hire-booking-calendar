@@ -106,13 +106,24 @@
     });
 
     var satisfied = reqs.filter(reqSatisfied).length;
-    var allOk = satisfied === reqs.length;
-    var allPicked = allOk && reqs.every(reqPicked);
+    var covered = satisfied === reqs.length;
+    /* cross-hire only counts as resolved once a supplier name / note is recorded */
+    var noteMissing = [];
+    reqs.forEach(function (r) {
+      var a = r.alloc;
+      if (a && live(a) && a.allocation_status === "cross_hire_required" && !((a.override_note || "").trim() || (a.notes || "").trim())) {
+        noteMissing.push('Cross-hire supplier not recorded for "' + r.label + '"');
+      }
+    });
+    var allOk = covered && noteMissing.length === 0;
+    var allPicked = covered && reqs.every(reqPicked);
+    /* ready is an EXPLICIT action (Mark ready for dispatch), never automatic */
     var ready = !!(genAlloc && String(genAlloc.dispatch_status || "").toLowerCase() === "ready");
 
+    noteMissing.forEach(function (msg) { missing.push(msg); });
     var hoursOut = engineHours.some(function (r) { return r.hours_out != null; });
     var hoursIn = engineHours.some(function (r) { return r.hours_in != null; });
-    if (allOk && !hoursOut) missing.push("Engine hours out not recorded");
+    if (covered && !hoursOut) missing.push("Engine hours out not recorded");
     if (!booking.contactPhone && !booking.sitePhone) missing.push("Site contact phone missing");
 
     var ended = false;
@@ -125,9 +136,9 @@
     if (ended && hoursIn) key = "completed";
     else if (hasConflict) key = "conflict";
     else if (!genAlloc || (!reqSatisfied(genReq))) key = satisfied > 0 ? "part-allocated" : "needs-equipment";
-    else if (!allOk) key = "part-allocated";
+    else if (!covered) key = "part-allocated";
     else if (crossHire) key = "cross-hire";
-    else if (ready || allPicked) key = "ready";
+    else if (ready) key = "ready";
     else key = "allocated";
 
     var labels = {
