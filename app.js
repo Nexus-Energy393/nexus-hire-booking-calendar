@@ -1031,45 +1031,224 @@ function jsStaticEquipmentTable(b, st) {
 }
 
 /* Fetch and render staff allocations inside the jobsheet staff section. */
+function jsStaffApiBase() {
+  return (CONFIG.apiBase || "/api").replace(/\/$/, "");
+}
+function jsStaffToken() {
+  try { return localStorage.getItem("nexusFleetAdminToken") || ""; } catch(e) { return ""; }
+}
+function jsStaffAuthHeaders() {
+  var h = { "Content-Type": "application/json" };
+  var t = jsStaffToken();
+  if (t) h["x-fleet-admin-token"] = t;
+  return h;
+}
+
+/* Format a Date to "YYYY-MM-DDTHH:MM" for datetime-local input */
+function toDateTimeLocal(d) {
+  if (!d) return "";
+  var dt = new Date(d);
+  var pad = function(n){ return String(n).padStart(2,"0"); };
+  return dt.getFullYear() + "-" + pad(dt.getMonth()+1) + "-" + pad(dt.getDate()) +
+         "T" + pad(dt.getHours()) + ":" + pad(dt.getMinutes());
+}
+
 function jsRenderStaffAllocations(holder, booking) {
   if (!holder) return;
+
+  function reload() { jsRenderStaffAllocations(holder, booking); }
+
   holder.innerHTML = '<div class="js-staff-placeholder">Loading staff…</div>';
-  fetch((CONFIG.apiBase || "/api").replace(/\/$/, "") + "/staff?action=allocations&dealId=" + encodeURIComponent(booking.pipedriveDealId),
+  fetch(jsStaffApiBase() + "/staff?action=allocations&dealId=" + encodeURIComponent(booking.pipedriveDealId),
     { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      holder.innerHTML = "";
-      var allocs = data.allocations || [];
-      if (!allocs.length) {
-        holder.innerHTML = '<div class="js-staff-placeholder">No staff allocated to this job.</div>';
-        return;
-      }
-      var html = '<table class="js-staff-table"><thead><tr>' +
-        '<th>Name</th><th>Role</th><th>Start</th><th>End</th>' +
-        '<th>Hours</th><th>Billable</th><th>Bill. hrs</th><th>Notes</th>' +
-        '</tr></thead><tbody>';
-      allocs.forEach(function (a) {
-        var billCls = a.billable ? "js-bill-yes" : "js-bill-no";
-        var startStr = a.allocation_start ? new Date(a.allocation_start).toLocaleString("en-AU", {dateStyle:"short",timeStyle:"short"}) : "—";
-        var endStr   = a.allocation_end   ? new Date(a.allocation_end).toLocaleString("en-AU", {dateStyle:"short",timeStyle:"short"}) : "—";
-        html += '<tr>' +
-          '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
-          '<td>' + escapeHtml(a.staff_role || "—") + '</td>' +
-          '<td>' + escapeHtml(startStr) + '</td>' +
-          '<td>' + escapeHtml(endStr) + '</td>' +
-          '<td class="js-staff-num">' + (a.duration_hours != null ? a.duration_hours + "h" : "—") + '</td>' +
-          '<td class="' + billCls + '">' + (a.billable ? "Yes" : "No") + '</td>' +
-          '<td class="js-staff-num">' + (a.billable ? (a.billable_hours != null ? a.billable_hours + "h" : "—") : "—") + '</td>' +
-          '<td class="js-staff-note">' + escapeHtml(a.notes || "") + '</td>' +
-          '</tr>';
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var allocs = (data.allocations || []).filter(function(a) {
+        return a.status !== "cancelled";
       });
-      html += '</tbody></table>';
-      holder.innerHTML = html;
+      var wrap = document.createElement("div");
+
+      /* ── existing allocations table ── */
+      if (allocs.length) {
+        var tbl = document.createElement("table");
+        tbl.className = "js-staff-table";
+        tbl.innerHTML = '<thead><tr>' +
+          '<th>Name</th><th>Role</th><th>Start</th><th>End</th>' +
+          '<th>Hours</th><th>Billable</th><th></th>' +
+          '</tr></thead><tbody></tbody>';
+        var tbody = tbl.querySelector("tbody");
+        allocs.forEach(function(a) {
+          var billCls = a.billable ? "js-bill-yes" : "js-bill-no";
+          var startStr = a.allocation_start ? new Date(a.allocation_start).toLocaleString("en-AU",{dateStyle:"short",timeStyle:"short"}) : "—";
+          var endStr   = a.allocation_end   ? new Date(a.allocation_end).toLocaleString("en-AU",{dateStyle:"short",timeStyle:"short"}) : "—";
+          var tr = document.createElement("tr");
+          tr.innerHTML =
+            '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
+            '<td>' + escapeHtml(a.staff_role || "—") + '</td>' +
+            '<td>' + escapeHtml(startStr) + '</td>' +
+            '<td>' + escapeHtml(endStr) + '</td>' +
+            '<td class="js-staff-num">' + (a.duration_hours != null ? a.duration_hours + "h" : "—") + '</td>' +
+            '<td class="' + billCls + '">' + (a.billable ? "Yes" : "No") + '</td>' +
+            '<td class="js-staff-del-cell"><button class="js-staff-del" title="Remove allocation" data-id="' + escapeHtml(a.staff_allocation_id) + '">✕</button></td>';
+          tbody.appendChild(tr);
+        });
+        /* remove buttons */
+        tbl.querySelectorAll(".js-staff-del").forEach(function(btn) {
+          btn.addEventListener("click", function() {
+            if (!confirm("Remove this staff allocation?")) return;
+            btn.disabled = true;
+            fetch(jsStaffApiBase() + "/staff?action=update-allocation", {
+              method: "POST",
+              headers: jsStaffAuthHeaders(),
+              body: JSON.stringify({ staff_allocation_id: btn.dataset.id, status: "cancelled" })
+            }).then(function() { reload(); })
+              .catch(function() { alert("Could not remove allocation."); btn.disabled = false; });
+          });
+        });
+        wrap.appendChild(tbl);
+      } else {
+        var ph = document.createElement("div");
+        ph.className = "js-staff-placeholder";
+        ph.textContent = "No staff allocated to this job.";
+        wrap.appendChild(ph);
+      }
+
+      /* ── add staff form / button ── */
+      var addBtn = document.createElement("button");
+      addBtn.className = "js-staff-add-btn";
+      addBtn.textContent = "+ Add staff";
+      wrap.appendChild(addBtn);
+
+      var form = document.createElement("div");
+      form.className = "js-alloc-form";
+      form.hidden = true;
+      form.innerHTML =
+        '<div class="js-alloc-row">' +
+          '<label class="js-alloc-lbl">Staff member' +
+            '<select class="js-alloc-select" id="jsAllocStaff"><option value="">Loading…</option></select>' +
+          '</label>' +
+          '<label class="js-alloc-lbl">Hours required' +
+            '<input type="number" class="js-alloc-input" id="jsAllocHours" min="0.5" max="999" step="0.5" value="8" style="width:80px">' +
+          '</label>' +
+          '<label class="js-alloc-lbl js-alloc-check-lbl">' +
+            '<input type="checkbox" id="jsAllocBillable" checked> Billable' +
+          '</label>' +
+        '</div>' +
+        '<div class="js-alloc-row">' +
+          '<label class="js-alloc-lbl">Start' +
+            '<input type="datetime-local" class="js-alloc-input" id="jsAllocStart">' +
+          '</label>' +
+          '<label class="js-alloc-lbl">End' +
+            '<input type="datetime-local" class="js-alloc-input" id="jsAllocEnd">' +
+          '</label>' +
+          '<label class="js-alloc-lbl" style="flex:2">Notes (optional)' +
+            '<input type="text" class="js-alloc-input" id="jsAllocNotes" placeholder="e.g. site supervisor">' +
+          '</label>' +
+        '</div>' +
+        '<div class="js-alloc-actions">' +
+          '<button class="js-alloc-save btn-primary">Save allocation</button>' +
+          '<button class="js-alloc-cancel">Cancel</button>' +
+          '<span class="js-alloc-err"></span>' +
+        '</div>';
+      wrap.appendChild(form);
+
+      /* pre-fill dates from booking */
+      var bStartVal = booking.startDate ? toDateTimeLocal(booking.startDate) : "";
+      var bEndVal   = booking.endDate   ? toDateTimeLocal(booking.endDate)   : "";
+      form.querySelector("#jsAllocStart").value = bStartVal;
+      form.querySelector("#jsAllocEnd").value   = bEndVal;
+
+      /* auto-calc hours when dates change */
+      function recalcHours() {
+        var s = form.querySelector("#jsAllocStart").value;
+        var e = form.querySelector("#jsAllocEnd").value;
+        if (s && e) {
+          var diff = (new Date(e) - new Date(s)) / 3600000;
+          if (diff > 0) form.querySelector("#jsAllocHours").value = Math.round(diff * 2) / 2;
+        }
+      }
+      form.querySelector("#jsAllocStart").addEventListener("change", recalcHours);
+      form.querySelector("#jsAllocEnd").addEventListener("change", recalcHours);
+      recalcHours();
+
+      /* load staff list into select */
+      fetch(jsStaffApiBase() + "/staff", { headers: { "Accept": "application/json" } })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var sel = form.querySelector("#jsAllocStaff");
+          sel.innerHTML = '<option value="">— select staff member —</option>';
+          (d.staff || []).forEach(function(s) {
+            var opt = document.createElement("option");
+            opt.value = s.staff_id;
+            opt.textContent = s.name + (s.role ? " (" + s.role + ")" : "") + (s.staff_type === "contractor" ? " [C]" : "");
+            sel.appendChild(opt);
+          });
+        });
+
+      /* toggle form */
+      addBtn.addEventListener("click", function() {
+        form.hidden = !form.hidden;
+        addBtn.textContent = form.hidden ? "+ Add staff" : "− Cancel";
+      });
+      form.querySelector(".js-alloc-cancel").addEventListener("click", function() {
+        form.hidden = true;
+        addBtn.textContent = "+ Add staff";
+        form.querySelector(".js-alloc-err").textContent = "";
+      });
+
+      /* save */
+      form.querySelector(".js-alloc-save").addEventListener("click", function() {
+        var staffId  = form.querySelector("#jsAllocStaff").value;
+        var hours    = parseFloat(form.querySelector("#jsAllocHours").value);
+        var start    = form.querySelector("#jsAllocStart").value;
+        var end      = form.querySelector("#jsAllocEnd").value;
+        var billable = form.querySelector("#jsAllocBillable").checked;
+        var notes    = form.querySelector("#jsAllocNotes").value.trim();
+        var errEl    = form.querySelector(".js-alloc-err");
+        errEl.textContent = "";
+        if (!staffId)        { errEl.textContent = "Select a staff member."; return; }
+        if (!start || !end)  { errEl.textContent = "Start and end are required."; return; }
+        if (new Date(end) <= new Date(start)) { errEl.textContent = "End must be after start."; return; }
+        if (!hours || hours <= 0) { errEl.textContent = "Enter hours > 0."; return; }
+        var saveBtn = form.querySelector(".js-alloc-save");
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving…";
+        var payload = {
+          staff_id: staffId,
+          pipedrive_deal_id: String(booking.pipedriveDealId),
+          booking_title: booking.title || booking.customerName || "",
+          allocation_start: new Date(start).toISOString(),
+          allocation_end:   new Date(end).toISOString(),
+          duration_hours: hours,
+          billable: billable,
+          billable_hours: billable ? hours : 0,
+          status: "allocated",
+          notes: notes || null
+        };
+        fetch(jsStaffApiBase() + "/staff?action=create-allocation", {
+          method: "POST",
+          headers: jsStaffAuthHeaders(),
+          body: JSON.stringify(payload)
+        }).then(function(r) { return r.json().then(function(j){ return {s:r.status,b:j}; }); })
+          .then(function(res) {
+            if (res.s >= 400) throw new Error(res.b.error || "Server error " + res.s);
+            reload();
+          })
+          .catch(function(e) {
+            errEl.textContent = e.message || "Failed to save.";
+            saveBtn.disabled = false;
+            saveBtn.textContent = "Save allocation";
+          });
+      });
+
+      holder.innerHTML = "";
+      holder.appendChild(wrap);
     })
-    .catch(function () {
+    .catch(function() {
       holder.innerHTML = '<div class="js-staff-placeholder">Staff data unavailable.</div>';
     });
 }
+
 
 /* Wire up jobsheet interactions. */
 function jsWire(m, b) {

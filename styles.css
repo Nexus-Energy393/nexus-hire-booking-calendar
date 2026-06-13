@@ -599,6 +599,61 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
 .js-bill-yes   { color: #2e7d32; font-weight: 600; }
 .js-bill-no    { color: var(--muted); }
 .js-staff-placeholder { padding: 10px 0; color: var(--muted); font-size: 13px; font-style: italic; }
+
+/* Staff allocation — add/remove controls */
+.js-staff-del-cell { width: 32px; text-align: center; }
+.js-staff-del {
+  background: none; border: none; cursor: pointer; color: var(--muted);
+  font-size: 13px; padding: 2px 4px; border-radius: 3px; line-height: 1;
+}
+.js-staff-del:hover { color: var(--danger); background: #fef2f2; }
+
+.js-staff-add-btn {
+  margin-top: 10px; padding: 6px 14px; font-size: 13px; font-weight: 600;
+  background: none; border: 1.5px solid var(--accent); color: var(--accent);
+  border-radius: 6px; cursor: pointer; transition: background .15s, color .15s;
+}
+.js-staff-add-btn:hover { background: var(--accent); color: #fff; }
+
+.js-alloc-form {
+  margin-top: 12px; padding: 14px 16px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.js-alloc-row {
+  display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.js-alloc-lbl {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .04em; flex: 1; min-width: 120px;
+}
+.js-alloc-check-lbl {
+  flex-direction: row; align-items: center; gap: 6px; padding-top: 18px;
+  font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 500; color: inherit;
+}
+.js-alloc-input {
+  padding: 6px 8px; font-size: 13px; border: 1px solid var(--line);
+  border-radius: 5px; background: #fff; width: 100%; box-sizing: border-box;
+}
+.js-alloc-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent); }
+.js-alloc-select { padding: 6px 8px; font-size: 13px; border: 1px solid var(--line); border-radius: 5px; background: #fff; width: 100%; }
+.js-alloc-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.js-alloc-save {
+  padding: 7px 18px; font-size: 13px; font-weight: 600; border: none;
+  background: var(--accent); color: #fff; border-radius: 6px; cursor: pointer;
+}
+.js-alloc-save:hover:not(:disabled) { filter: brightness(1.1); }
+.js-alloc-save:disabled { opacity: .5; cursor: default; }
+.js-alloc-cancel {
+  padding: 7px 14px; font-size: 13px; background: none; border: 1px solid var(--line);
+  border-radius: 6px; cursor: pointer; color: var(--muted);
+}
+.js-alloc-cancel:hover { background: var(--line); }
+.js-alloc-err { font-size: 12px; color: var(--danger); }
+
+@media print {
+  .js-staff-add-btn, .js-alloc-form, .js-staff-del { display: none !important; }
+}
 @media print {
   .js-section-staff { page-break-inside: avoid; break-inside: avoid; }
   .js-staff-table td, .js-staff-table th { font-size: 9.5px; padding: 4px 6px; }
