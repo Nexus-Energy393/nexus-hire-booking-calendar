@@ -1020,3 +1020,28 @@ details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: v
   .js-toolbar { padding: 10px 12px; }
   .js-toolbar .js-title-min { flex-basis: 100%; }
 }
+
+/* clickable allocation status pill -> release / un-allocate */
+.alloc-badge-btn { display: inline-flex; align-items: center; gap: 5px; background: none; border: none;
+  padding: 0; cursor: pointer; border-radius: 999px; }
+.alloc-badge-btn .abx { display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 999px; font-size: 11px; line-height: 1;
+  color: var(--muted); background: var(--column-bg); border: 1px solid var(--border-strong);
+  opacity: 0; transition: opacity .12s; }
+.alloc-badge-btn:hover .abx, .alloc-badge-btn:focus-visible .abx { opacity: 1; }
+.alloc-badge-btn:hover .abx { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+.alloc-badge-btn:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+@media (pointer: coarse) { .alloc-badge-btn .abx { opacity: 1; } } /* always visible on touch */
+@media print { .alloc-badge-btn .abx { display: none !important; } }
+
+/* ---------- print: kill the blank first page ----------
+   The old approach used visibility:hidden, but hidden elements (side rail,
+   app main) still OCCUPY layout space, pushing the jobsheet to page 2.
+   Remove them from layout entirely; only the modal chain remains. */
+@media print {
+  .app-shell { display: block !important; height: auto !important; min-height: 0 !important; }
+  .app-shell > *:not(#modalBackdrop) { display: none !important; }
+  #modalBackdrop { position: static !important; padding: 0 !important; margin: 0 !important; }
+  .modal.jobsheet-modal { margin: 0 !important; }
+  details.js-notes:not([open]), details.js-notes .js-notes-body:empty { display: none !important; } /* no empty NOTES header */
+}

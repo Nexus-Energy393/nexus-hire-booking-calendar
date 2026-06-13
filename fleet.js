@@ -890,7 +890,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
             ? '<button class="fleet-btn sm" data-act="alloc-stock" data-req="' + idx + '">' + (a ? "Change qty" : "Allocate") + "</button>"
             : "";
         }
-        statusCell = a ? allocBadge(a.allocation_status) : '<span class="alloc-badge none">not allocated</span>';
+        statusCell = a
+          ? (can ? '<button class="alloc-badge-btn" type="button" data-act="release" data-alloc="' + esc(a.allocation_id) + '" title="Click to release / un-allocate this item">' + allocBadge(a.allocation_status) + '<span class="abx" aria-hidden="true">&times;</span></button>'
+                 : allocBadge(a.allocation_status))
+          : '<span class="alloc-badge none">not allocated</span>';
         var picked = a && /^(picked|ready)$/i.test(a.dispatch_status || "");
         pickedCell = a
           ? '<input type="checkbox" class="js-chk" data-act="pick" data-alloc="' + esc(a.allocation_id) + '"' +
@@ -947,6 +950,15 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         doAllocate(booking, null, note || "Cross-hire required", { close: function () {} }, true);
       }
       else if (act === "alloc-stock") openAllocateStockModal(booking, Number(t.getAttribute("data-req")), st);
+      else if (act === "release") {
+        if (!ensureToken()) return;
+        if (!window.confirm("Release this allocation?\n\nThe generator/stock becomes available for other bookings and this item returns to 'not allocated' on the jobsheet.")) return;
+        apiSend("PATCH", "/allocations?id=" + encodeURIComponent(t.getAttribute("data-alloc")), { allocation_status: "released", dispatch_status: "" })
+          .then(function (r) {
+            if (!r.body.ok) { alert(r.body.error || "Failed to release allocation"); return; }
+            reopenJobsheet(booking);
+          }).catch(function (err) { alert(err.message); });
+      }
       else if (act === "pick") {
         if (!ensureToken()) { t.checked = !t.checked; return; }
         var id = t.getAttribute("data-alloc");

@@ -914,7 +914,7 @@ function renderJobSheet(b) {
 
   /* notes: collapsed on screen, compact on print, only if present */
   if (jsVal(b.notes)) {
-    html += '<details class="js-notes js-section"><summary>Notes</summary><div class="js-section-body js-notes-body">' +
+    html += '<details class="js-notes js-section" open><summary>Notes</summary><div class="js-section-body js-notes-body">' +
             escapeHtml(b.notes) + "</div></details>";
   }
 
