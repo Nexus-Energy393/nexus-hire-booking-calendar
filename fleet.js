@@ -1022,7 +1022,8 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
   }
 
   function fmtConflict(c) {
-    return "deal #" + esc(c.pipedrive_deal_id) + " (" + esc(c.hire_start || "?") + " &rarr; " + esc(c.hire_end || "?") + ")";
+    function d(v) { return v ? String(v).slice(0, 10) : "?"; }
+    return "on hire to deal #" + esc(c.pipedrive_deal_id) + " (" + d(c.hire_start) + " &rarr; " + d(c.hire_end) + ")";
   }
 
   function openAllocateModal(booking) {
@@ -1043,9 +1044,12 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           '<button class="fleet-btn sm" data-alloc="' + esc(a.asset_id) + '">Allocate</button></div>';
       });
       if (conf.length) {
-        html += '<div class="alloc-conf"><strong>Conflicted (overlapping):</strong>';
+        html += '<div class="alloc-conf"><strong>Unavailable:</strong>';
         conf.forEach(function (c) {
-          html += '<div class="alloc-opt conf"><span>#' + esc(c.asset.fleet_number) + " " + esc(c.asset.asset_name) + " &mdash; " + (c.conflicts || []).map(fmtConflict).join(", ") + "</span></div>";
+          var why;
+          if (c.conflicts && c.conflicts.length) why = c.conflicts.map(fmtConflict).join(", ");
+          else why = "fleet status: " + esc(c.status || c.asset.status || "unavailable");
+          html += '<div class="alloc-opt conf"><span>#' + esc(c.asset.fleet_number) + " " + esc(c.asset.asset_name) + " &mdash; " + why + "</span></div>";
         });
         html += "</div>";
       }
