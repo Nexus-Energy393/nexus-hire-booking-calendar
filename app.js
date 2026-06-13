@@ -316,7 +316,7 @@ function bookingCard(b, compact) {
     '</div>' +
     '<div class="bc-site">' + escapeHtml(b.suburb || b.site || "Site TBC") + '</div>' +
     (compact ? "" :
-     '<div class="bc-meta"><span>' + escapeHtml(size) + '</span><span>' + tm.label + '</span></div>' +
+      '<div class="bc-meta"><span>' + escapeHtml(size) + '</span><span>' + tm.label + '</span></div>' +
       '<div class="bc-dates">' + fmtShort(bStart(b)) + ' &rarr; ' + fmtShort(bEnd(b)) + ' &middot; ' + dur + '</div>' +
       '<div class="bc-owner">' + escapeHtml(b.dealOwner || "Unassigned") + '</div>');
   card.addEventListener("click", function () { openModal(b); });
@@ -352,7 +352,7 @@ function render() {
 
   updatePeriodLabel();
   var lu = document.getElementById("lastUpdated");
-  lu.textContent = "Last updated: " + (STATE.lastUpdated ? STATE-cursor.toLocaleTimeString("en-AU") : "--");
+  lu.textContent = "Last updated: " + (STATE.lastUpdated ? STATE.lastUpdated.toLocaleTimeString("en-AU") : "--");
 }
 
 function renderMonth(root, bookings) {
@@ -402,7 +402,7 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
       var date = addDays(gridStart, w * 7 + d);
       rowDates.push(date);
       var cell = el("div", "month-cell" + (opts.cellCls ? " " + opts.cellCls : ""));
-      if (opts.month != null && date.getMonth() !== opts.month) cell.classList.aList.add("other-month");
+      if (opts.month != null && date.getMonth() !== opts.month) cell.classList.add("other-month");
       if (sameDay(date, new Date())) cell.classList.add("today");
       var dow = date.toLocaleDateString("en-AU", { weekday: "short" });
       var label = dow + " " + date.getDate();
@@ -622,7 +622,7 @@ function renderList(root, bookings) {
   wrap.appendChild(head);
 
   if (!rows.length) {
-    wrap.appendChild(el("p", "empty", "No current or upcoming bookings match the current filters."));
+    wrap.appendChild(el("p", "empty", "No current or incoming bookings match the current filters."));
     root.appendChild(wrap);
     return;
   }
@@ -1411,4 +1411,26 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
   function setSubtitle(view) {
     try {
       var el = document.getElementById("appSubtitle");
-      if (el && SUBTITLES[view]) el.textCont
+      if (el && SUBTITLES[view]) el.textContent = SUBTITLES[view];
+    } catch(e) {}
+  }
+  function setDbMode() {
+    try {
+      var badge = document.getElementById("appDbBadge");
+      if (!badge) return;
+      var isSample = window.CONFIG && CONFIG.sampleData;
+      badge.textContent = isSample ? "â  Sample data" : "";
+      badge.style.display = isSample ? "" : "none";
+    } catch(e) {}
+  }
+  function initShell() {
+    try { setSubtitle((window.STATE && STATE.view) || "month"); } catch(e) {}
+    try { setDbMode(); } catch(e) {}
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initShell);
+  } else { setTimeout(initShell, 0); }
+  document.addEventListener("nexus:render", function() {
+    try { setSubtitle(window.STATE && STATE.view); } catch(e) {}
+  });
+})();
