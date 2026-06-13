@@ -739,3 +739,116 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 44px; }
   .month-grid-spans.fortnight-spans { height: auto; grid-template-rows: none; }
   .fortnight-spans .month-row, .fortnight-spans .month-cell { height: auto; }
 }
+
+/* ===================== UI polish pass: contrast, event definition, status language =====================
+   Tokens first, then overrides. Scoped to existing classes; no structural changes. */
+:root {
+  --booking-bg: #ffffff;
+  --booking-bg-multi: #f8f7fd;
+  --booking-bg-hover: #faf9ff;
+  --booking-border: #cfcbe8;
+  --booking-border-strong: #b7b1dd;
+  --booking-shadow: 0 1px 2px rgba(33,23,79,.08), 0 1px 3px rgba(33,23,79,.06);
+  --booking-shadow-hover: 0 3px 10px rgba(33,23,79,.14);
+  --booking-text: #1f2733;
+  --booking-muted: #5b6472;
+  --booking-accent: #6d28d9;
+  --status-needs-bg: #fdf3e2;   --status-needs-text: #8a5200;   --status-needs-accent: #e8920c;
+  --status-allocated-bg: #e8f6ee; --status-allocated-text: #15703f; --status-allocated-accent: #20a052;
+  --status-conflict-bg: #fcecec;  --status-conflict-text: #a32424;  --status-conflict-accent: #d23f3f;
+  --status-service-bg: #fdf3e2;   --status-service-text: #8a5200;
+  --status-done-bg: #eef0f3;      --status-done-text: #5b6472;     --status-done-accent: #9ca3af;
+  --calendar-cell-border: #d8dbe2;
+  --calendar-cell-bg: #ffffff;
+  --calendar-cell-muted-bg: #f1f2f5;
+}
+
+/* ---- 1. grid contrast ---- */
+.month-grid-spans .month-cell {
+  background: var(--calendar-cell-bg);
+  border: 1px solid var(--calendar-cell-border);
+}
+.month-grid-spans .month-cell.other-month { opacity: 1; background: var(--calendar-cell-muted-bg); border-color: #e2e4e9; }
+.month-grid-spans .other-month .mc-num { color: #aeb4bd; font-weight: 500; }
+.month-grid-spans .mc-num { color: #3c4554; font-weight: 700; font-size: 12.5px; padding: 6px 8px 2px; margin-bottom: 0; }
+.month-grid-spans .month-cell.today { background: #f3f7ff; border-color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.month-grid-spans .month-cell.today .mc-num { color: var(--accent); }
+.month-dow-row .month-dow { font-weight: 700; color: #555e6b; letter-spacing: .8px; }
+
+/* ---- 2/3. booking span definition ---- */
+.booking-span {
+  background: var(--booking-bg);
+  border: 1px solid var(--booking-border);
+  border-left: 3px solid var(--span-accent, var(--booking-accent));
+  box-shadow: var(--booking-shadow);
+  color: var(--booking-text);
+  font-size: 11.5px;
+  line-height: 1.2;
+  transition: box-shadow .12s, border-color .12s, background .12s;
+}
+.booking-span.span-multi {
+  background: var(--booking-bg-multi);
+  border-color: var(--booking-border-strong);
+  border-left-width: 4px;
+}
+.booking-span:hover, .booking-span.span-hover {
+  background: var(--booking-bg-hover);
+  border-color: var(--booking-border-strong);
+  box-shadow: var(--booking-shadow-hover);
+  outline: none;
+}
+.booking-span:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: var(--booking-shadow-hover); }
+.booking-span.span-cont-right { border-right-style: dashed; border-right-color: var(--booking-border-strong); }
+
+/* ---- 5. text hierarchy ---- */
+.bs-top { justify-content: flex-start; align-items: center; gap: 6px; min-width: 0; }
+.bs-cust { font-weight: 700; font-size: 11.5px; color: var(--booking-text); flex: 0 1 auto; }
+.bs-site { color: var(--booking-muted); font-size: 10.5px; }
+.bs-cont { color: var(--booking-muted); }
+
+/* ---- 4. status pills (not colour-only: text always shown) ---- */
+.booking-span .bs-status {
+  flex: 0 0 auto;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .2px;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--status-pill-bg, var(--status-done-bg));
+  color: var(--status-pill-text, var(--status-done-text));
+  text-transform: uppercase;
+}
+.booking-span.st-equipment, .booking-span.st-duration { --status-pill-bg: var(--status-needs-bg); --status-pill-text: var(--status-needs-text); --span-accent: var(--status-needs-accent); }
+.booking-span.st-confirmed { --status-pill-bg: var(--status-allocated-bg); --status-pill-text: var(--status-allocated-text); --span-accent: var(--status-allocated-accent); }
+.booking-span.st-review    { --status-pill-bg: var(--status-conflict-bg); --status-pill-text: var(--status-conflict-text); --span-accent: var(--status-conflict-accent); }
+.booking-span.st-completed { --status-pill-bg: var(--status-done-bg); --status-pill-text: var(--status-done-text); --span-accent: var(--status-done-accent); opacity: .8; }
+.booking-span.st-cancelled { --status-pill-bg: var(--status-done-bg); --status-pill-text: var(--status-done-text); --span-accent: #d1d5db; opacity: .65; }
+.booking-span.st-cancelled .bs-cust { text-decoration: line-through; }
+.booking-span.jt-emergency { background: var(--danger-bg); border-color: #efc3c3; }
+
+/* status pills on regular cards (week/day/list) for consistency */
+.booking-card .bc-status { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: .2px; background: var(--status-done-bg); }
+.booking-card.st-equipment .bc-status, .booking-card.st-duration .bc-status { background: var(--status-needs-bg); color: var(--status-needs-text); }
+.booking-card.st-confirmed .bc-status { background: var(--status-allocated-bg); color: var(--status-allocated-text); }
+.booking-card.st-review .bc-status { background: var(--status-conflict-bg); color: var(--status-conflict-text); }
+.booking-card { border-color: #d9dce3; box-shadow: var(--booking-shadow); }
+.booking-card:hover { box-shadow: var(--booking-shadow-hover); }
+
+/* ---- overflow chip ---- */
+.month-row-spans .mc-more {
+  font-weight: 700; font-size: 10px; color: var(--accent);
+  background: #eef3fe; border: 1px solid #d3e0fb; border-radius: 999px;
+  padding: 2px 8px; justify-self: start; align-self: center;
+}
+.month-row-spans .mc-more:hover { background: #dfe9fd; }
+
+/* ---- 6/8. toolbar + page depth ---- */
+.app-shell .toolbar { box-shadow: 0 1px 2px rgba(16,24,40,.05); }
+.filters select:hover, .filters input:hover { border-color: var(--border-strong); }
+.calendar-root { padding-top: 14px; }
+
+/* ---- 7. side rail active clarity ---- */
+.side-rail .tab.active { box-shadow: inset 3px 0 0 var(--brand-green); }
+
+/* ---- 17. tablet tap targets ---- */
+@media (max-width: 1100px) and (min-width: 641px) {
+  .month-row-spans { grid-auto-rows: 42px; }
+  .booking-span { font-size: 12px; }
+}

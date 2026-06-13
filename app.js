@@ -371,6 +371,10 @@ function bookingSpan(seg) {
   if (seg.isTrueEnd   && !seg.continuesRight) bar.classList.add("span-end");
   if (seg.continuesLeft)  bar.classList.add("span-cont-left");
   if (seg.continuesRight) bar.classList.add("span-cont-right");
+  if (seg.endCol > seg.startCol || seg.continuesLeft || seg.continuesRight) bar.classList.add("span-multi");
+  bar.title = (b.customer || "Unknown customer") +
+    ((b.suburb || b.site) ? " \u2014 " + (b.suburb || b.site) : "") +
+    " \u00b7 " + fmtShort(bStart(b)) + " \u2013 " + fmtShort(bEnd(b)) + " \u00b7 " + sm.label;
   bar.setAttribute("role", "button");
   bar.setAttribute("tabindex", "0");
   bar.setAttribute("data-deal-id", b.pipedriveDealId);
