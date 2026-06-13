@@ -65,18 +65,20 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ ok: false, error: "pipedrive_deal_id is required." });
         return;
       }
-      if (!body.asset_id && !body.stock_item_id) {
+      if (req.method === "POST" && !body.asset_id && !body.stock_item_id) {
         res.status(400).json({ ok: false, error: "Either asset_id (generator) or stock_item_id (stock) is required." });
         return;
       }
 
-      // Determine authoritative status.
+      // Determine authoritative status. A PATCH that touches neither the asset
+      // nor the stock item (e.g. dispatch_status: picked/ready) is a partial
+      // update and skips re-resolution.
       let resolved;
       if (body.asset_id) {
         resolved = await resolveSerialisedStatus(body);
         if (resolved.error) { res.status(409).json({ ok: false, error: resolved.error, conflicts: resolved.conflicts }); return; }
         body.allocation_status = resolved.status;
-      } else {
+      } else if (body.stock_item_id) {
         // Non-serialised: check quantity availability.
         const avail = await store.stockItemAvailability(
           body.stock_item_id,
