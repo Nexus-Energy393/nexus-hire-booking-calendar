@@ -124,8 +124,10 @@ function applyFilters(bookings) {
     if (f.size && b.generatorSize !== f.size) return false;
     if (f.owner && b.dealOwner !== f.owner) return false;
     if (q) {
-      var hay = [b.customer, b.contact, b.site, b.suburb, b.dealOwner, b.generatorSize, b.notes].join(" ").toLowerCase();
-      if (hay.indexOf(q) === -1) return false;
+      var qNum = q.replace(/^(#|job\s*|deal\s*)+/i, ""); /* "#458", "job 458", "deal 458" -> "458" */
+      var hay = [b.customer, b.contact, b.site, b.suburb, b.dealOwner, b.generatorSize, b.notes,
+                 b.pipedriveDealId, b.equipmentId].join(" ").toLowerCase();
+      if (hay.indexOf(q) === -1 && (qNum === q || hay.indexOf(qNum) === -1)) return false;
     }
     return true;
   });
