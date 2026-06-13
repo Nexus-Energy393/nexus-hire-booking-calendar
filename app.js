@@ -192,6 +192,7 @@ function applyResourcingStatuses() {
     var st = window.NexusResourcing.computeJobStatus(b, allocs, hoursByDeal[String(b.pipedriveDealId)] || []);
     b.resourcing = st;
     b.resourcingStatus = st.key;
+    b.refuellingRequired = !!st.refuellingRequired;
   });
 }
 
@@ -484,6 +485,13 @@ function bookingSpan(seg) {
     }
   } else {
     bar.appendChild(el("div", "bs-cont", "‹ " + escapeHtml(b.customer || "") + " continues"));
+  }
+  /* pulsing fuel pump indicator */
+  if (b.refuellingRequired) {
+    var fuelPin = el("div", "bs-fuel-warn");
+    fuelPin.setAttribute("title", "Ongoing refuelling scheduled for this hire");
+    fuelPin.innerHTML = "&#9981;"; /* ⛽ fuel pump */
+    bar.appendChild(fuelPin);
   }
   var open = function () { openModal(b); };
   bar.addEventListener("click", open);

@@ -129,6 +129,7 @@
     var hoursOut = engineHours.some(function (r) { return r.hours_out != null; });
     var hoursIn = engineHours.some(function (r) { return r.hours_in != null; });
     var fuelRecorded = engineHours.some(function (r) { return /fuel out:\s*\d/i.test(r.notes || ""); });
+    var refuellingRequired = engineHours.some(function (r) { return /ongoing refuelling required/i.test(r.notes || ""); });
     if (covered && !hoursOut) missing.push("Engine hours out not recorded");
     if (covered && !fuelRecorded) missing.push("Fuel level not checked / recorded");
     if (!booking.contactPhone && !booking.sitePhone) missing.push("Site contact phone missing");
@@ -169,6 +170,7 @@
       hoursOutRecorded: hoursOut,
       hoursInRecorded: hoursIn,
       fuelRecorded: fuelRecorded,
+      refuellingRequired: refuellingRequired,
       dispatchReady: allOk && allPicked && hoursOut && fuelRecorded
     };
   }

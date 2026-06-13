@@ -360,6 +360,43 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
 .rs-hcell output { display: inline-block; font-weight: 700; }
 .rs-stock { margin-top: 12px; }
 
+/* ---- Fuel section: dedicated full-width row below engine hours ---- */
+.rs-fuel {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  margin-top: 14px; padding: 14px 16px; border-top: 2px solid var(--line);
+  background: var(--bg); border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.rs-fuel-label {
+  display: block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--muted); margin-bottom: 6px;
+}
+.rs-fuel-unit { font-weight: 400; font-size: 10px; }
+.rs-fuel-cell input[type="number"] {
+  width: 100%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 10px; font-size: 15px; font-weight: 600; box-sizing: border-box;
+}
+.rs-fuel-cell input[type="number"]:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px rgba(66,133,244,0.18); }
+.rs-fuel-toggle-cell { display: flex; flex-direction: column; }
+
+/* CSS toggle switch */
+.rs-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.rs-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.rs-toggle-track {
+  position: relative; width: 44px; height: 24px; border-radius: 12px;
+  background: #d1d5db; transition: background .2s; flex-shrink: 0;
+}
+.rs-toggle input:checked ~ .rs-toggle-track { background: var(--danger, #e53935); }
+.rs-toggle-thumb {
+  position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: left .18s;
+}
+.rs-toggle input:checked ~ .rs-toggle-track .rs-toggle-thumb { left: 23px; }
+.rs-toggle-text { font-size: 13px; font-weight: 600; color: var(--text); }
+.rs-toggle input:checked ~ .rs-toggle-text { color: var(--danger, #e53935); }
+
 /* ---- calendar booking indicators ---- */
 .booking-card.bc-alloc::after { content: ""; }
 .bc-flag-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 4px; vertical-align: middle; }
@@ -388,6 +425,10 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
   .rs-head .fleet-btn, .rs-head .fleet-write-off, #rsHoursSave, #rsAllocBtn { display: none !important; }
   /* show engine-hour values as plain boxes; inputs print their values */
   .rs-hcell input, .rs-hcell output { border: 1px solid #999 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .rs-fuel { display: grid !important; grid-template-columns: repeat(3, 1fr); border: 1px solid #999 !important; gap: 4mm; padding: 4mm; }
+  .rs-fuel-cell input[type="number"] { border: none !important; border-bottom: 1px solid #999 !important; background: none !important; font-size: 11px; }
+  .rs-toggle-track, .bs-fuel-warn { display: none !important; }
+  .rs-toggle-text { font-size: 10px; font-weight: 700; }
   .alloc-badge, .fleet-pill { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 1px solid #999; }
   .rs-alert { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 1px solid #999 !important; }
 }
@@ -699,6 +740,7 @@ body[data-mode="tv"] .month-grid-spans .month-cell { min-height: max(150px, calc
 }
 .booking-span, .month-row-spans .mc-more { pointer-events: auto; }
 .booking-span {
+  position: relative;
   display: flex; flex-direction: column; justify-content: center; min-width: 0;
   padding: 3px 8px; background: var(--panel); border: 1px solid var(--line);
   border-left: 3px solid var(--span-accent, var(--accent)); border-radius: 2px;
@@ -949,6 +991,18 @@ details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: v
   box-shadow: 0 18px 50px rgba(16, 24, 40, .28); overflow: hidden; animation: fmPop .15s ease-out; }
 @keyframes fmFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fmPop { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+/* ---- pulsing fuel pump indicator on booking tiles ---- */
+@keyframes fuelPulse {
+  0%, 100% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 2px rgba(229,57,53,.5)); }
+  50% { opacity: .75; transform: scale(1.22); filter: drop-shadow(0 0 6px rgba(229,57,53,.9)); }
+}
+.bs-fuel-warn {
+  position: absolute; bottom: 4px; right: 5px;
+  font-size: 13px; line-height: 1;
+  animation: fuelPulse 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
 .fleet-modal .fm-head { background: var(--brand-purple); color: #fff; padding: 12px 18px; border-bottom: none; }
 .fleet-modal .fm-head h3 { font-size: 14px; font-weight: 700; letter-spacing: .3px; color: #fff; }
 .fleet-modal .fm-close { background: transparent; border: none; color: rgba(255,255,255,.75); font-size: 20px;
@@ -1143,9 +1197,7 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .rs-refuel { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text); cursor: pointer; }
 .rs-refuel input { width: 17px; height: 17px; accent-color: var(--brand-green); }
 @media print {
-  .rs-hours { grid-template-columns: repeat(5, 1fr) !important; }
-  .rs-refuel { font-size: 9px; }
-  .rs-refuel input { width: 11px; height: 11px; }
+  /* rs-fuel row handles fuel in print */
 }
 
 /* status-tinted tile shadows: the card's glow matches its state */
