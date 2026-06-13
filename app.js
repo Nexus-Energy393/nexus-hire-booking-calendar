@@ -650,7 +650,20 @@ function openModal(b) { renderJobSheet(b); return; } function openModal_legacy(b
   document.getElementById("modalClose").addEventListener("click", closeModal);
 }
 function detailRow(k, v) { return '<div class="detail-row"><span class="dk">' + k + '</span><span class="dv">' + (v == null || v === "" ? "&mdash;" : escapeHtml(v)) + '</span></div>'; }
-function closeModal() { document.getElementById("modalBackdrop").hidden = true; }
+var APP_TITLE = "Nexus Hire Operations";
+function closeModal() {
+  document.getElementById("modalBackdrop").hidden = true;
+  document.title = APP_TITLE; /* restore after a jobsheet set a job-specific title */
+}
+
+/* Job-specific document title so a printed/saved PDF gets a meaningful
+   filename, e.g. "JOB 458 - ACE Contractors - 15 Jun 2026 - Nexus Jobsheet". */
+function jsDocumentTitle(b) {
+  var parts = ["JOB " + b.pipedriveDealId, b.customer || "Unknown customer"];
+  if (bStart(b)) parts.push(fmtShort(bStart(b)) + " " + bStart(b).getFullYear());
+  parts.push("Nexus Jobsheet");
+  return parts.join(" - ").replace(/[\/\\:*?"<>|]/g, "");
+}
 
 // ---------- filter options ----------
 function populateFilterOptions() {
@@ -932,6 +945,7 @@ function renderJobSheet(b) {
 
   m.innerHTML = html;
   document.getElementById("modalBackdrop").hidden = false;
+  document.title = jsDocumentTitle(b);
   jsWire(m, b);
   jsUpdateStatusUI(b);
   if (window.NexusFleet && CONFIG.apiBase) {
