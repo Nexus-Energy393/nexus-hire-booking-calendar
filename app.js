@@ -299,6 +299,12 @@ function render() {
     updatePeriodLabel();
     return;
   }
+  else if (STATE.view === "staff") {
+    if (window.NexusStaff) window.NexusStaff.render(root);
+    else root.innerHTML = "<p class='empty'>Staff module not loaded.</p>";
+    updatePeriodLabel();
+    return;
+  }
 
   updatePeriodLabel();
   var lu = document.getElementById("lastUpdated");
@@ -956,6 +962,11 @@ function renderJobSheet(b) {
   html += '<div class="js-section"><h3>Equipment &amp; Allocation</h3><div class="js-section-body">' +
           '<div id="jsEquipmentHolder">' + jsStaticEquipmentTable(b, st) + "</div></div></div>";
 
+  /* STAFF ALLOCATION: show who is assigned + hours/billable */
+  html += '<div class="js-section js-section-staff"><h3>Staff Allocation</h3>' +
+          '<div class="js-section-body"><div id="jsStaffHolder"><div class="js-staff-placeholder">' +
+          'Loading staff…</div></div></div></div>';
+
   /* electrical works: only when relevant */
   if (b.electricalConnectionRequired) {
     html += '<div class="js-section"><h3>Electrical Works</h3><div class="js-section-body">' +
@@ -988,6 +999,11 @@ function renderJobSheet(b) {
     var holder = document.getElementById("jsEquipmentHolder");
     if (holder) window.NexusFleet.renderResourcing(holder, b);
   }
+  /* load staff allocations for this deal */
+  if (CONFIG.apiBase && b.pipedriveDealId) {
+    var staffHolder = document.getElementById("jsStaffHolder");
+    if (staffHolder) jsRenderStaffAllocations(staffHolder, b);
+  }
 }
 
 /* Static (print-safe) equipment table used before/without the live fleet data.
@@ -1012,6 +1028,47 @@ function jsStaticEquipmentTable(b, st) {
          '<th>Item</th><th class="num">Req</th><th>Allocated</th><th>Status</th><th class="chk">Picked</th>' +
          "</tr></thead><tbody>" + rows + "</tbody></table>" +
          (CONFIG.apiBase ? "" : '<div class="js-line-note">Fleet resourcing not connected — allocation is manual on this sheet.</div>');
+}
+
+/* Fetch and render staff allocations inside the jobsheet staff section. */
+function jsRenderStaffAllocations(holder, booking) {
+  if (!holder) return;
+  holder.innerHTML = '<div class="js-staff-placeholder">Loading staff…</div>';
+  fetch((CONFIG.apiBase || "/api").replace(/\/$/, "") + "/staff?action=allocations&dealId=" + encodeURIComponent(booking.pipedriveDealId),
+    { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      holder.innerHTML = "";
+      var allocs = data.allocations || [];
+      if (!allocs.length) {
+        holder.innerHTML = '<div class="js-staff-placeholder">No staff allocated to this job.</div>';
+        return;
+      }
+      var html = '<table class="js-staff-table"><thead><tr>' +
+        '<th>Name</th><th>Role</th><th>Start</th><th>End</th>' +
+        '<th>Hours</th><th>Billable</th><th>Bill. hrs</th><th>Notes</th>' +
+        '</tr></thead><tbody>';
+      allocs.forEach(function (a) {
+        var billCls = a.billable ? "js-bill-yes" : "js-bill-no";
+        var startStr = a.allocation_start ? new Date(a.allocation_start).toLocaleString("en-AU", {dateStyle:"short",timeStyle:"short"}) : "—";
+        var endStr   = a.allocation_end   ? new Date(a.allocation_end).toLocaleString("en-AU", {dateStyle:"short",timeStyle:"short"}) : "—";
+        html += '<tr>' +
+          '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
+          '<td>' + escapeHtml(a.staff_role || "—") + '</td>' +
+          '<td>' + escapeHtml(startStr) + '</td>' +
+          '<td>' + escapeHtml(endStr) + '</td>' +
+          '<td class="js-staff-num">' + (a.duration_hours != null ? a.duration_hours + "h" : "—") + '</td>' +
+          '<td class="' + billCls + '">' + (a.billable ? "Yes" : "No") + '</td>' +
+          '<td class="js-staff-num">' + (a.billable ? (a.billable_hours != null ? a.billable_hours + "h" : "—") : "—") + '</td>' +
+          '<td class="js-staff-note">' + escapeHtml(a.notes || "") + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+      holder.innerHTML = html;
+    })
+    .catch(function () {
+      holder.innerHTML = '<div class="js-staff-placeholder">Staff data unavailable.</div>';
+    });
 }
 
 /* Wire up jobsheet interactions. */
@@ -1065,7 +1122,10 @@ function jsOpenByDealId(dealId) {
   }, 300);
 }
 function jsRouteFromHash() {
-    if (/#\/(fleet|rental-stock)/.test(window.location.hash || "")) {
+    if (/#\/(staff)/.test(window.location.hash || "")) {
+      STATE.view = "staff";
+      tabs.forEach(function (t) { t.classList.toggle("active", t.getAttribute("data-view") === "staff"); });
+    } else if (/#\/(fleet|rental-stock)/.test(window.location.hash || "")) {
       STATE.view = "fleet";
       var tabs = document.querySelectorAll(".tab");
       for (var ti = 0; ti < tabs.length; ti++) {
@@ -1098,7 +1158,7 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
     month: "Generator hire bookings", fortnight: "Two-week dispatch view",
     week: "Weekly hire schedule", day: "Daily run sheet",
     list: "All current & upcoming hires", fleet: "Fleet control centre \u2014 assets, stock & service",
-    missing: "Alerts & jobs needing attention", sync: "Pipedrive sync status"
+    missing: "Alerts & jobs needing attention", sync: "Pipedrive sync status", staff: "Staff resourcing & utilisation"
   };
   function setSubtitle(view) {
     try {
