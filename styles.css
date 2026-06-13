@@ -1147,3 +1147,16 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
   .rs-refuel { font-size: 9px; }
   .rs-refuel input { width: 11px; height: 11px; }
 }
+
+/* status-tinted tile shadows: the card's glow matches its state */
+.booking-span { --shadow-rgb: 33, 23, 79;
+  box-shadow: 0 1px 2px rgba(var(--shadow-rgb), .08), 0 2px 7px rgba(var(--shadow-rgb), .14); }
+.booking-span.st-confirmed { --shadow-rgb: 32, 160, 82; }    /* allocated / ready */
+.booking-span.st-equipment,
+.booking-span.st-duration  { --shadow-rgb: 232, 146, 12; }   /* needs equipment / part allocated / cross-hire */
+.booking-span.st-review    { --shadow-rgb: 210, 63, 63; }    /* conflict / needs review */
+.booking-span.st-completed,
+.booking-span.st-cancelled { --shadow-rgb: 95, 94, 90; box-shadow: 0 1px 2px rgba(var(--shadow-rgb), .07), 0 1px 4px rgba(var(--shadow-rgb), .08); }
+.booking-span:hover, .booking-span.span-hover, .booking-span:focus-visible {
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), .26); }
+@media print { .booking-span { box-shadow: none !important; } }
