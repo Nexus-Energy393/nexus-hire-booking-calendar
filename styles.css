@@ -1160,3 +1160,18 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .booking-span:hover, .booking-span.span-hover, .booking-span:focus-visible {
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), .26); }
 @media print { .booking-span { box-shadow: none !important; } }
+
+/* stronger, visible status glow: tinted border + deeper two-layer shadow */
+.booking-span {
+  border-color: rgba(var(--shadow-rgb), .30);
+  box-shadow: 0 1px 3px rgba(var(--shadow-rgb), .22), 0 4px 12px rgba(var(--shadow-rgb), .22);
+}
+.booking-span.span-multi { border-left-width: 4px; }
+.booking-span:hover, .booking-span.span-hover, .booking-span:focus-visible {
+  border-color: rgba(var(--shadow-rgb), .55);
+  box-shadow: 0 2px 5px rgba(var(--shadow-rgb), .30), 0 6px 18px rgba(var(--shadow-rgb), .32);
+}
+.booking-span.st-completed, .booking-span.st-cancelled {
+  border-color: var(--border-strong);
+  box-shadow: 0 1px 3px rgba(95, 94, 90, .14);
+}
