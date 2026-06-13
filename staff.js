@@ -1,150 +1,474 @@
 /*
- * api/staff.js  (Vercel serverless)
- * CRUD for staff, staff_allocations, staff_unavailability.
+ * staff.js
+ * Staff resourcing + utilisation page for #/staff view.
+ * Loaded after app.js. Exposes window.NexusStaff.
  *
- *   GET  /api/staff               -> list all active staff
- *   GET  /api/staff?id=<uuid>     -> single staff record
- *   POST /api/staff               (admin) body: staff record or action
- *     ?action=create-staff        -> { name, email, role, staff_type }
- *     ?action=create-allocation   -> { staff_id, pipedrive_deal_id, allocation_start,
- *                                      allocation_end, duration_hours, billable,
- *                                      billable_hours, notes, booking_title }
- *     ?action=update-allocation   -> { staff_allocation_id, ...fields }
- *     ?action=update-staff        -> { staff_id, ...fields }
- *     ?action=create-unavailability -> { staff_id, start_time, end_time, reason, notes }
- *   GET  /api/staff?action=allocations&dealId=<id>  -> staff allocated to a deal
- *   GET  /api/staff?action=unavailability&staffId=<id>&start=&end=
+ * Views:
+ *   #team        - staff roster list with add/edit/remove
+ *   #utilisation - utilisation report with filters, summary cards, table
  */
-const db = require("../lib/db");
-const store = require("../lib/store-staff");
-const auth = require("../lib/auth");
-const http = require("../lib/http");
+(function () {
+  "use strict";
 
-module.exports = async function handler(req, res) {
-  http.cors(res, "GET, POST, PATCH, OPTIONS");
-  if (req.method === "OPTIONS") { res.status(204).end(); return; }
-  if (!db.isConfigured()) { http.dbNotConfigured(res, auth, { staff: [] }); return; }
+  var API = (window.CONFIG && window.CONFIG.apiBase) ? window.CONFIG.apiBase.replace(/\/$/, "") : "/api";
+  var TOKEN = (window.CONFIG && window.CONFIG.adminToken) ? window.CONFIG.adminToken : null;
 
-  const q = req.query || {};
-
-  try {
-    // ── GET ──────────────────────────────────────────────────────────
-    if (req.method === "GET") {
-      if (q.action === "allocations") {
-        const rows = await store.listAllocations({
-          dealId:  q.dealId,
-          staffId: q.staffId,
-          start:   q.start,
-          end:     q.end
-        });
-        res.status(200).json({ ok: true, allocations: rows });
-        return;
-      }
-      if (q.action === "conflicts") {
-        const dealIds = await store.findConflictedDealIds(q.start, q.end);
-        res.status(200).json({ ok: true, conflicted_deal_ids: dealIds });
-        return;
-      }
-      if (q.action === "unavailability") {
-        const rows = await store.listUnavailability({
-          staffId: q.staffId,
-          start:   q.start,
-          end:     q.end
-        });
-        res.status(200).json({ ok: true, unavailability: rows });
-        return;
-      }
-      if (q.id) {
-        const member = await store.getStaff(q.id);
-        if (!member) { res.status(404).json({ ok: false, error: "Staff not found" }); return; }
-        const allocs = await store.listAllocations({ staffId: q.id });
-        res.status(200).json({ ok: true, staff: member, allocations: allocs });
-        return;
-      }
-      const staffList = await store.listStaff({ staffType: q.staffType, showInactive: q.showInactive });
-      res.status(200).json({ ok: true, staff: staffList, writesEnabled: auth.configured() });
-      return;
-    }
-
-    // ── POST / mutations ──────────────────────────────────────────────
-    if (req.method === "POST" || req.method === "PATCH") {
-      if (!auth.requireAdmin(req, res)) return;
-      const body = await http.readBody(req);
-      const action = q.action || body.action || "";
-
-      if (action === "create-staff" || (!action && body.name && !body.staff_id)) {
-        if (!body.name) { res.status(400).json({ ok: false, error: "name is required" }); return; }
-        const member = await store.upsertStaff(body);
-        res.status(201).json({ ok: true, staff: member });
-        return;
-      }
-
-      if (action === "update-staff") {
-        if (!body.staff_id) { res.status(400).json({ ok: false, error: "staff_id required" }); return; }
-        const member = await store.upsertStaff(body);
-        res.status(200).json({ ok: true, staff: member });
-        return;
-      }
-
-      if (action === "create-allocation") {
-        if (!body.staff_id || !body.allocation_start || !body.allocation_end) {
-          res.status(400).json({ ok: false, error: "staff_id, allocation_start, allocation_end required" });
-          return;
-        }
-        const alloc = await store.createAllocation(body);
-
-        // ── conflict detection ────────────────────────────────────────
-        // Find any other non-cancelled allocations for this staff member
-        // that overlap the new allocation's time window.
-        const overlapping = await store.listAllocations({
-          staffId: body.staff_id,
-          start:   body.allocation_start,
-          end:     body.allocation_end
-        });
-        const conflicts = overlapping.filter(function (a) {
-          return a.staff_allocation_id !== alloc.staff_allocation_id &&
-                 a.status !== "cancelled";
-        });
-
-        res.status(201).json({
-          ok:            true,
-          allocation:    alloc,
-          conflict:      conflicts.length > 0,
-          conflict_with: conflicts.map(function (a) {
-            return a.booking_title || ("Deal #" + a.pipedrive_deal_id) || "another job";
-          })
-        });
-        return;
-      }
-
-      if (action === "update-allocation") {
-        if (!body.staff_allocation_id) {
-          res.status(400).json({ ok: false, error: "staff_allocation_id required" });
-          return;
-        }
-        const alloc = await store.updateAllocation(body.staff_allocation_id, body);
-        res.status(200).json({ ok: true, allocation: alloc });
-        return;
-      }
-
-      if (action === "create-unavailability") {
-        if (!body.staff_id || !body.start_time || !body.end_time) {
-          res.status(400).json({ ok: false, error: "staff_id, start_time, end_time required" });
-          return;
-        }
-        const unavail = await store.createUnavailability(body);
-        res.status(201).json({ ok: true, unavailability: unavail });
-        return;
-      }
-
-      res.status(400).json({ ok: false, error: "Unknown action: " + action });
-      return;
-    }
-
-    res.setHeader("Allow", "GET, POST, PATCH, OPTIONS");
-    res.status(405).json({ ok: false, error: "Method not allowed" });
-  } catch (e) {
-    console.error("[api/staff]", e.message);
-    res.status(500).json({ ok: false, error: e.message });
+  // ── tiny DOM helpers ──────────────────────────────────────────────
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
   }
-};
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;");
+  }
+  function num(v, dec) {
+    var n = parseFloat(v);
+    if (isNaN(n)) return "—";
+    return dec != null ? n.toFixed(dec) : String(n);
+  }
+  function apiHeaders() {
+    var h = { "Accept": "application/json", "Content-Type": "application/json" };
+    var tok = TOKEN || (window.CONFIG && window.CONFIG.adminToken) || localStorage.getItem("nexus_admin_token");
+    if (tok) { h["Authorization"] = "Bearer " + tok; h["x-fleet-admin-token"] = tok; }
+    return h;
+  }
+  function apiFetch(path, opts) {
+    return fetch(API + path, Object.assign({ headers: apiHeaders() }, opts || {})).then(function (r) { return r.json(); });
+  }
+
+  // ── state ─────────────────────────────────────────────────────────
+  var STATE = {
+    tab: "utilisation",
+    period: "week",
+    date: new Date().toISOString().slice(0, 10),
+    staffType: "",
+    staffId: "",
+    util: null,   // last utilisation response
+    staff: []     // roster
+  };
+
+  // ── period navigation helpers ─────────────────────────────────────
+  function shiftDate(dateStr, period, dir) {
+    var d = new Date(dateStr + "T00:00:00Z");
+    if (period === "day")   d.setUTCDate(d.getUTCDate() + dir);
+    else if (period === "week")  d.setUTCDate(d.getUTCDate() + dir * 7);
+    else if (period === "month") d.setUTCMonth(d.getUTCMonth() + dir);
+    else                         d.setUTCFullYear(d.getUTCFullYear() + dir);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // ── utilisation colour helpers ────────────────────────────────────
+  function utilClass(pct) {
+    if (pct === null || pct === undefined) return "util-na";
+    if (pct > 100) return "util-over";
+    if (pct >= 85) return "util-near";
+    if (pct >= 50) return "util-good";
+    return "util-low";
+  }
+  function statusPillClass(label) {
+    var map = {
+      "Overloaded":        "sp-over",
+      "Near capacity":     "sp-near",
+      "Good utilisation":  "sp-good",
+      "Available capacity":"sp-low",
+      "No available hours":"sp-none",
+      "Missing data":      "sp-missing"
+    };
+    return "staff-status-pill " + (map[label] || "sp-missing");
+  }
+
+  // ── utilisation bar ───────────────────────────────────────────────
+  function utilBar(row) {
+    var avail = row.available_hours || 0;
+    if (!avail) return '<div class="su-bar-wrap"><span class="su-bar-na">No hours</span></div>';
+    var allocPct = Math.min(100, Math.round((row.allocated_hours / avail) * 100));
+    var billPct  = Math.min(allocPct, Math.round((row.billable_hours  / avail) * 100));
+    var cls = utilClass(row.utilisation_pct);
+    return (
+      '<div class="su-bar-wrap" title="' + esc(num(row.allocated_hours,1)) + 'h allocated / ' + esc(num(avail,0)) + 'h available">' +
+        '<div class="su-bar-track">' +
+          '<div class="su-bar-fill ' + cls + '" style="width:' + allocPct + '%">' +
+            '<div class="su-bar-bill" style="width:' + (allocPct ? Math.round(billPct / allocPct * 100) : 0) + '%"></div>' +
+          '</div>' +
+        '</div>' +
+        '<span class="su-bar-pct ' + cls + '">' + (row.utilisation_pct !== null ? row.utilisation_pct + "%" : "—") + '</span>' +
+      '</div>'
+    );
+  }
+
+  // ── summary cards ─────────────────────────────────────────────────
+  function renderSummaryCards(s, container) {
+    container.innerHTML = "";
+    var cards = [
+      { label: "Available hours",    value: num(s.total_available_hours, 0) + "h", sub: "" },
+      { label: "Allocated hours",    value: num(s.total_allocated_hours, 1) + "h", sub: "" },
+      { label: "Billable hours",     value: num(s.total_billable_hours,  1) + "h", sub: "" },
+      { label: "Avg utilisation",    value: s.avg_utilisation_pct  !== null ? s.avg_utilisation_pct  + "%" : "—",
+        cls: utilClass(s.avg_utilisation_pct) },
+      { label: "Billable utilisation", value: s.avg_billable_util_pct !== null ? s.avg_billable_util_pct + "%" : "—",
+        cls: utilClass(s.avg_billable_util_pct) },
+      { label: "Overloaded",         value: String(s.overloaded_count), cls: s.overloaded_count ? "util-over" : "" },
+      { label: "Spare capacity",     value: String(s.under_util_count), cls: "" }
+    ];
+    cards.forEach(function (c) {
+      var card = el("div", "su-card");
+      var v = el("div", "su-card-val " + (c.cls || ""), c.value);
+      var l = el("div", "su-card-lbl", c.label);
+      card.appendChild(v);
+      card.appendChild(l);
+      container.appendChild(card);
+    });
+  }
+
+  // ── staff table ────────────────────────────────────────────────────
+  function renderUtilTable(rows, tbody) {
+    tbody.innerHTML = "";
+    if (!rows || !rows.length) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = '<td colspan="12" style="text-align:center;padding:24px;color:var(--muted)">No staff data for this period.</td>';
+      tbody.appendChild(tr);
+      return;
+    }
+    rows.forEach(function (r) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = (
+        '<td class="su-name">' + esc(r.name) + '</td>' +
+        '<td>' + esc(r.role || "—") + '</td>' +
+        '<td><span class="staff-type-badge st-' + esc(r.staff_type) + '">' + esc(r.staff_type) + '</span></td>' +
+        '<td class="su-num">' + num(r.available_hours, 0) + 'h</td>' +
+        '<td class="su-num">' + num(r.allocated_hours, 1) + 'h</td>' +
+        '<td class="su-num">' + num(r.billable_hours,  1) + 'h</td>' +
+        '<td>' + utilBar(r) + '</td>' +
+        '<td class="su-num ' + utilClass(r.billable_util_pct) + '">' + (r.billable_util_pct !== null ? r.billable_util_pct + "%" : "—") + '</td>' +
+        '<td class="su-num">' + num(r.unavailable_hours, 1) + 'h</td>' +
+        '<td class="su-num">' + r.allocation_count + '</td>' +
+        '<td class="su-num ' + (r.conflict_count ? "util-over" : "") + '">' + r.conflict_count + '</td>' +
+        '<td><span class="' + statusPillClass(r.status_label) + '">' + esc(r.status_label) + '</span></td>'
+      );
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── insights panel ────────────────────────────────────────────────
+  function renderInsights(insights, container) {
+    container.innerHTML = "";
+    if (!insights || !insights.length) return;
+    var h = el("div", "su-insights-head", "Insights");
+    container.appendChild(h);
+    insights.forEach(function (txt) {
+      var row = el("div", "su-insight-row");
+      row.innerHTML = '<span class="su-insight-ico">💡</span><span>' + esc(txt) + '</span>';
+      container.appendChild(row);
+    });
+  }
+
+  // ── load utilisation data ─────────────────────────────────────────
+  function loadUtilisation(root) {
+    var qs = "?period=" + encodeURIComponent(STATE.period) +
+             "&date="   + encodeURIComponent(STATE.date);
+    if (STATE.staffType) qs += "&staffType=" + encodeURIComponent(STATE.staffType);
+    if (STATE.staffId)   qs += "&staffId="   + encodeURIComponent(STATE.staffId);
+
+    var cards       = root.querySelector(".su-cards");
+    var tbody       = root.querySelector(".su-tbody");
+    var insights    = root.querySelector(".su-insights");
+    var periodLabel = root.querySelector(".su-period-label");
+    var loading     = root.querySelector(".su-loading");
+
+    if (loading) loading.hidden = false;
+    if (cards) cards.innerHTML = '<div class="su-loading-text">Loading…</div>';
+
+    apiFetch("/staff-utilisation" + qs).then(function (data) {
+      if (loading) loading.hidden = true;
+      if (!data.ok) {
+        if (cards) cards.innerHTML = '<div class="su-error">Could not load utilisation: ' + esc(data.error || "Unknown error") + '</div>';
+        return;
+      }
+      STATE.util = data;
+      if (periodLabel) periodLabel.textContent = data.label + " (" + data.start + " – " + data.end + ")";
+      renderSummaryCards(data.summary, cards);
+      if (tbody)    renderUtilTable(data.rows, tbody);
+      if (insights) renderInsights(data.insights, insights);
+    }).catch(function (e) {
+      if (loading) loading.hidden = true;
+      if (cards) cards.innerHTML = '<div class="su-error">Network error: ' + esc(e.message) + '</div>';
+    });
+  }
+
+  // ── staff CRUD helpers ────────────────────────────────────────────
+
+  // Show/hide the inline add-edit form
+  function showStaffForm(wrap, member, onSaved) {
+    var existing = wrap.querySelector(".sr-form");
+    if (existing) existing.remove();
+
+    var form = el("div", "sr-form");
+    form.innerHTML = (
+      '<div class="sr-form-row">' +
+        '<label class="sr-form-lbl">Name *<input class="sr-form-input" name="name" type="text" value="' + esc(member ? member.name : "") + '" placeholder="Full name" /></label>' +
+        '<label class="sr-form-lbl">Role<input class="sr-form-input" name="role" type="text" value="' + esc(member ? (member.role || "") : "") + '" placeholder="e.g. Technician" /></label>' +
+      '</div>' +
+      '<div class="sr-form-row">' +
+        '<label class="sr-form-lbl">Email<input class="sr-form-input" name="email" type="email" value="' + esc(member ? (member.email || "") : "") + '" placeholder="email@example.com" /></label>' +
+        '<label class="sr-form-lbl">Type<select class="sr-form-select" name="staff_type">' +
+          '<option value="employee"' + ((!member || member.staff_type === "employee") ? " selected" : "") + '>Employee</option>' +
+          '<option value="contractor"' + ((member && member.staff_type === "contractor") ? " selected" : "") + '>Contractor</option>' +
+        '</select></label>' +
+      '</div>' +
+      (member ? (
+        '<div class="sr-form-row">' +
+          '<label class="sr-form-lbl">Status<select class="sr-form-select" name="status">' +
+            '<option value="active"' + (member.status !== "inactive" ? " selected" : "") + '>Active</option>' +
+            '<option value="inactive"' + (member.status === "inactive" ? " selected" : "") + '>Inactive</option>' +
+          '</select></label>' +
+        '</div>'
+      ) : "") +
+      '<div class="sr-form-actions">' +
+        '<button class="sr-form-save" type="button">' + (member ? "Save changes" : "Add staff member") + '</button>' +
+        '<button class="sr-form-cancel" type="button">Cancel</button>' +
+        '<span class="sr-form-err"></span>' +
+      '</div>'
+    );
+
+    var saveBtn   = form.querySelector(".sr-form-save");
+    var cancelBtn = form.querySelector(".sr-form-cancel");
+    var errSpan   = form.querySelector(."sr-form-err");
+
+    cancelBtn.addEventListener("click", function () { form.remove(); });
+
+    saveBtn.addEventListener("click", function () {
+      var name = form.querySelector('[name="name"]').value.trim();
+      if (!name) { errSpan.textContent = "Name is required."; return; }
+      saveBtn.disabled = true;
+      errSpan.textContent = "";
+
+      var body = {
+        name:       name,
+        role:       form.querySelector('[name="role"]').value.trim(),
+        email:      form.querySelector('[name="email"]').value.trim(),
+        staff_type: form.querySelector('[name="staff_type"]').value
+      };
+      if (member) {
+        body.staff_id = member.staff_id;
+        body.status   = form.querySelector('[name="status"]').value;
+      }
+
+      var action = member ? "update-staff" : "create-staff";
+      apiFetch("/staff?action=" + action, { method: "POST", body: JSON.stringify(body) })
+        .then(function (data) {
+          if (!data.ok) { errSpan.textContent = data.error || "Save failed."; saveBtn.disabled = false; return; }
+          form.remove();
+          if (onSaved) onSaved();
+        })
+        .catch(function (e) {
+          errSpan.textContent = "Network error: " + e.message;
+          saveBtn.disabled = false;
+        });
+    });
+
+    // Insert form at top of list (for add), or just after the card (for edit)
+    wrap.insertBefore(form, wrap.firstChild);
+    form.querySelector('[name="name"]').focus();
+  }
+
+  // ── load staff roster ─────────────────────────────────────────────
+  function loadRoster(rootEl) {
+    var wrap  = rootEl.querySelector(".sr-wrap");
+    var list  = rootEl.querySelector(".sr-list");
+    if (!list || !wrap) return;
+    list.innerHTML = '<div class="su-loading-text">Loading staff…</div>';
+
+    var qs = STATE.staffType ? "?staffType=" + encodeURIComponent(STATE.staffType) + "&showInactive=1" : "?showInactive=1";
+
+    apiFetch("/staff" + qs)
+      .then(function (data) {
+        list.innerHTML = "";
+        if (!data.ok || !data.staff || !data.staff.length) {
+          list.innerHTML = '<div class="su-error">No staff found. Add a staff member to get started.</div>';
+          return;
+        }
+        STATE.staff = data.staff;
+        var writesEnabled = data.writesEnabled;
+
+        data.staff.forEach(function (m) {
+          var card = el("div", "sr-card" + (m.status === "inactive" ? " sr-card-inactive" : ""));
+          var cardInfo = '<div class="sr-card-top">' +
+            '<div class="sr-card-info">' +
+              '<span class="sr-name">' + esc(m.name) + '</span>' +
+              (m.status === "inactive" ? ' <span class="sr-inactive-pill">Inactive</span>' : '') +
+            '</div>' +
+            '<span class="staff-type-badge st-' + esc(m.staff_type) + '">' + esc(m.staff_type) + '</span>' +
+          '</div>' +
+          '<div class="sr-role">' + esc(m.role || "—") + '</div>' +
+          (m.email ? '<div class="sr-email">' + esc(m.email) + '</div>' : '');
+
+          if (writesEnabled) {
+            cardInfo += '<div class="sr-card-actions">' +
+              '<button class="sr-card-edit" data-id="' + esc(m.staff_id) + '">Edit</button>' +
+              '<button class="sr-card-remove" data-id="' + esc(m.staff_id) + '">' +
+                (m.status === "inactive" ? "Reactivate" : "Deactivate") +
+              '</button>' +
+            '</div>';
+          }
+
+          card.innerHTML = cardInfo;
+
+          if (writesEnabled) {
+            card.querySelector(".sr-card-edit").addEventListener("click", function () {
+              showStaffForm(wrap, m, function () { loadRoster(rootEl); });
+            });
+            card.querySelector(".sr-card-remove").addEventListener("click", function () {
+              var newStatus = m.status === "inactive" ? "active" : "inactive";
+              var label = newStatus === "inactive" ? "deactivate" : "reactivate";
+              if (!confirm("Are you sure you want to " + label + " " + m.name + "?")) return;
+              apiFetch("/staff?action=update-staff", {
+                method: "POST",
+                body: JSON.stringify({ staff_id: m.staff_id, status: newStatus })
+              }).then(function (data) {
+                if (!data.ok) { alert("Error: " + (data.error || "Unknown error")); return; }
+                loadRoster(rootEl);
+              }).catch(function (e) { alert("Network error: " + e.message); });
+            });
+          }
+
+          list.appendChild(card);
+        });
+      })
+      .catch(function (e) {
+        list.innerHTML = '<div class="su-error">Network error: ' + esc(e.message) + '</div>';
+      });
+  }
+
+  // ── render full staff page ─────────────────────────────────────────
+  function renderStaffPage(root) {
+    root.innerHTML = "";
+
+    // ── tab bar ──
+    var tabBar = el("div", "su-tab-bar");
+    ["utilisation", "team"].forEach(function (tab) {
+      var btn = el("button", "su-tab" + (STATE.tab === tab ? " active" : ""), tab === "utilisation" ? "Utilisation" : "Team");
+      btn.setAttribute("data-tab", tab);
+      btn.addEventListener("click", function () {
+        STATE.tab = tab;
+        renderStaffPage(root);
+      });
+      tabBar.appendChild(btn);
+    });
+    root.appendChild(tabBar);
+
+    if (STATE.tab === "utilisation") {
+      renderUtilisationTab(root);
+    } else {
+      renderTeamTab(root);
+    }
+  }
+
+  // ── utilisation tab ───────────────────────────────────────────────
+  function renderUtilisationTab(root) {
+    // filters row
+    var filters = el("div", "su-filters");
+    filters.innerHTML = (
+      '<label class="su-filter-lbl">Period' +
+        '<select id="suPeriod" class="su-select">' +
+          ['day','week','month','year'].map(function (p) {
+            return '<option value="' + p + '"' + (STATE.period === p ? " selected" : "") + '>' +
+              p.charAt(0).toUpperCase() + p.slice(1) + '</option>';
+          }).join("") +
+        '</select>' +
+      '</label>' +
+      '<label class="su-filter-lbl">Date' +
+        '<input type="date" id="suDate" class="su-input-date" value="' + esc(STATE.date) + '" />' +
+      '</label>' +
+      '<button class="btn ghost su-nav-btn" id="suPrev" title="Previous period">&#8592;</button>' +
+      '<button class="btn ghost su-nav-btn" id="suToday">Today</button>' +
+      '<button class="btn ghost su-nav-btn" id="suNext" title="Next period">&#8594;</button>' +
+      '<label class="su-filter-lbl">Staff type' +
+        '<select id="suStaffType" class="su-select">' +
+          '<option value="">All</option>' +
+          '<option value="employee"' + (STATE.staffType === "employee" ? " selected" : "") + '>Employees</option>' +
+          '<option value="contractor"' + (STATE.staffType === "contractor" ? " selected" : "") + '>Contractors</option>' +
+        '</select>' +
+      '</label>'
+    );
+    root.appendChild(filters);
+
+    // period label
+    var periodRow = el("div", "su-period-row");
+    var periodLabel = el("span", "su-period-label", "Loading…");
+    periodRow.appendChild(periodLabel);
+    root.appendChild(periodRow);
+
+    // summary cards
+    var cards = el("div", "su-cards");
+    root.appendChild(cards);
+
+    // insights
+    var insights = el("div", "su-insights");
+    root.appendChild(insights);
+
+    // table
+    var tableWrap = el("div", "su-table-wrap");
+    tableWrap.innerHTML = (
+      '<table class="su-table fleet-table">' +
+        '<thead><tr>' +
+          '<th>Name</th><th>Role</th><th>Type</th>' +
+          '<th>Available</th><th>Allocated</th><th>Billable</th>' +
+          '<th style="min-width:160px">Utilisation</th><th>Bill. util.</th>' +
+          '<th>Unavail.</th><th>Jobs</th><th>Conflicts</th><th>Status</th>' +
+        '</tr></thead>' +
+        '<tbody class="su-tbody"></tbody>' +
+      '</table>'
+    );
+    root.appendChild(tableWrap);
+
+    // wire filters
+    var periodSel  = root.querySelector("#suPeriod");
+    var datePicker = root.querySelector("#suDate");
+    var typeSel    = root.querySelector("#suStaffType");
+    if (periodSel)  periodSel.addEventListener("change",  function () { STATE.period = this.value; loadUtilisation(root); });
+    if (datePicker) datePicker.addEventListener("change", function () { STATE.date   = this.value; loadUtilisation(root); });
+    if (typeSel)    typeSel.addEventListener("change",    function () { STATE.staffType = this.value; loadUtilisation(root); });
+    var prevBtn  = root.querySelector("#suPrev");
+    var nextBtn  = root.querySelector("#suNext");
+    var todayBtn = root.querySelector("#suToday");
+    if (prevBtn)  prevBtn.addEventListener("click",  function () { STATE.date = shiftDate(STATE.date, STATE.period, -1); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
+    if (nextBtn)  nextBtn.addEventListener("click",  function () { STATE.date = shiftDate(STATE.date, STATE.period, +1); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
+    if (todayBtn) todayBtn.addEventListener("click", function () { STATE.date = new Date().toISOString().slice(0,10);   if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
+
+    loadUtilisation(root);
+  }
+
+  // ── team tab ──────────────────────────────────────────────────────
+  function renderTeamTab(root) {
+    var wrap = el("div", "sr-wrap");
+
+    // header row with "Add Staff" button
+    var header = el("div", "sr-header");
+    var title  = el("span", "sr-title", "Team Roster");
+    header.appendChild(title);
+
+    var addBtn = el("button", "sr-add-btn", "+ Add Staff");
+    addBtn.addEventListener("click", function () {
+      showStaffForm(wrap, null, function () { loadRoster(root); });
+    });
+    header.appendChild(addBtn);
+    wrap.appendChild(header);
+
+    var list = el("div", "sr-list");
+    wrap.appendChild(list);
+    root.appendChild(wrap);
+    loadRoster(root);
+  }
+
+  // ── public API ────────────────────────────────────────────────────
+  var api = {
+    render: renderStaffPage,
+    reload: function (root) { if (STATE.tab === "utilisation") loadUtilisation(root); else loadRoster(root); }
+  };
+
+  if (typeof window !== "undefined") window.NexusStaff = api;
+})();
