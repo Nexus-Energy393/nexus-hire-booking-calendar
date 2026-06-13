@@ -115,7 +115,9 @@ module.exports = async function handler(req, res) {
         const store = require('../lib/store-fleet');
         store.syncAllocationDates(bookings)
           .then(function (n) { if (n) console.log('[api/bookings] re-synced hire dates on ' + n + ' allocation(s)'); })
-          .catch(function (e2) { console.warn('[api/bookings] allocation date sync skipped:', e2.message); });
+          .then(function () { return store.releaseOrphanAllocations(bookings); })
+          .then(function (n) { if (n) console.log('[api/bookings] auto-released ' + n + ' orphaned allocation(s)'); })
+          .catch(function (e2) { console.warn('[api/bookings] allocation reconciliation skipped:', e2.message); });
       }
     } catch (e2) { /* fleet db optional */ }
     res.setHeader('X-Cache', 'MISS');

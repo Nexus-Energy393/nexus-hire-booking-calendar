@@ -1046,10 +1046,13 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       if (conf.length) {
         html += '<div class="alloc-conf"><strong>Unavailable:</strong>';
         conf.forEach(function (c) {
-          var why;
-          if (c.conflicts && c.conflicts.length) why = c.conflicts.map(fmtConflict).join(", ");
+          var why, act = "";
+          if (c.conflicts && c.conflicts.length) {
+            why = c.conflicts.map(fmtConflict).join(", ");
+            act = '<button class="fleet-btn sm warn" data-release-alloc="' + esc(c.conflicts[0].allocation_id) + '" title="Release the blocking allocation (use when that deal is cancelled/deleted)">Release</button>';
+          }
           else why = "fleet status: " + esc(c.status || c.asset.status || "unavailable");
-          html += '<div class="alloc-opt conf"><span>#' + esc(c.asset.fleet_number) + " " + esc(c.asset.asset_name) + " &mdash; " + why + "</span></div>";
+          html += '<div class="alloc-opt conf"><span>#' + esc(c.asset.fleet_number) + " " + esc(c.asset.asset_name) + " &mdash; " + why + "</span>" + act + "</div>";
         });
         html += "</div>";
       }
@@ -1058,6 +1061,17 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       listEl.addEventListener("click", function (e) {
         var b = e.target.closest && e.target.closest("[data-alloc]");
         var x = e.target.closest && e.target.closest("[data-xhire]");
+        var rel = e.target.closest && e.target.closest("[data-release-alloc]");
+        if (rel) {
+          if (!window.confirm("Release this allocation?\n\nOnly do this if the blocking deal is cancelled, deleted or no longer needs the machine.")) return;
+          apiSend("PATCH", "/allocations?id=" + encodeURIComponent(rel.getAttribute("data-release-alloc")), { allocation_status: "released", notes: "released from conflict list" })
+            .then(function (r2) {
+              if (!r2.body.ok) { alert(r2.body.error || "Release failed"); return; }
+              m.close();
+              openAllocateModal(booking); /* re-query availability */
+            }).catch(function (er) { alert(er.message); });
+          return;
+        }
         if (b) doAllocate(booking, b.getAttribute("data-alloc"), null, m);
         else if (x) {
           var note = window.prompt("Cross-hire supplier name + notes (required):", "");
