@@ -4,7 +4,7 @@
  * Loaded after app.js. Exposes window.NexusStaff.
  *
  * Views:
- *   #team        - staff roster list with add/edit/remove
+ *   #team        - staff roster list
  *   #utilisation - utilisation report with filters, summary cards, table
  */
 (function () {
@@ -16,7 +16,7 @@
   // ── tiny DOM helpers ──────────────────────────────────────────────
   function el(tag, cls, text) {
     var n = document.createElement(tag);
-    if (cls) n.className = cls;
+    if (cls)  n.className = cls;
     if (text != null) n.textContent = text;
     return n;
   }
@@ -42,13 +42,13 @@
 
   // ── state ─────────────────────────────────────────────────────────
   var STATE = {
-    tab: "utilisation",
-    period: "week",
-    date: new Date().toISOString().slice(0, 10),
-    staffType: "",
-    staffId: "",
-    util: null,   // last utilisation response
-    staff: []     // roster
+    tab:        "utilisation",
+    period:     "week",
+    date:       new Date().toISOString().slice(0, 10),
+    staffType:  "",
+    staffId:    "",
+    util:       null,   // last utilisation response
+    staff:      []      // roster
   };
 
   // ── period navigation helpers ─────────────────────────────────────
@@ -71,12 +71,12 @@
   }
   function statusPillClass(label) {
     var map = {
-      "Overloaded":        "sp-over",
-      "Near capacity":     "sp-near",
-      "Good utilisation":  "sp-good",
-      "Available capacity":"sp-low",
-      "No available hours":"sp-none",
-      "Missing data":      "sp-missing"
+      "Overloaded":          "sp-over",
+      "Near capacity":       "sp-near",
+      "Good utilisation":    "sp-good",
+      "Available capacity":  "sp-low",
+      "No available hours":  "sp-none",
+      "Missing data":        "sp-missing"
     };
     return "staff-status-pill " + (map[label] || "sp-missing");
   }
@@ -85,9 +85,9 @@
   function utilBar(row) {
     var avail = row.available_hours || 0;
     if (!avail) return '<div class="su-bar-wrap"><span class="su-bar-na">No hours</span></div>';
-    var allocPct = Math.min(100, Math.round((row.allocated_hours / avail) * 100));
-    var billPct  = Math.min(allocPct, Math.round((row.billable_hours  / avail) * 100));
-    var cls = utilClass(row.utilisation_pct);
+    var allocPct  = Math.min(100, Math.round((row.allocated_hours / avail) * 100));
+    var billPct   = Math.min(allocPct, Math.round((row.billable_hours / avail) * 100));
+    var cls       = utilClass(row.utilisation_pct);
     return (
       '<div class="su-bar-wrap" title="' + esc(num(row.allocated_hours,1)) + 'h allocated / ' + esc(num(avail,0)) + 'h available">' +
         '<div class="su-bar-track">' +
@@ -104,15 +104,15 @@
   function renderSummaryCards(s, container) {
     container.innerHTML = "";
     var cards = [
-      { label: "Available hours",    value: num(s.total_available_hours, 0) + "h", sub: "" },
-      { label: "Allocated hours",    value: num(s.total_allocated_hours, 1) + "h", sub: "" },
-      { label: "Billable hours",     value: num(s.total_billable_hours,  1) + "h", sub: "" },
-      { label: "Avg utilisation",    value: s.avg_utilisation_pct  !== null ? s.avg_utilisation_pct  + "%" : "—",
+      { label: "Available hours",   value: num(s.total_available_hours, 0) + "h", sub: "" },
+      { label: "Allocated hours",   value: num(s.total_allocated_hours, 1) + "h", sub: "" },
+      { label: "Billable hours",    value: num(s.total_billable_hours, 1) + "h",  sub: "" },
+      { label: "Avg utilisation",   value: s.avg_utilisation_pct !== null ? s.avg_utilisation_pct + "%" : "—",
         cls: utilClass(s.avg_utilisation_pct) },
       { label: "Billable utilisation", value: s.avg_billable_util_pct !== null ? s.avg_billable_util_pct + "%" : "—",
         cls: utilClass(s.avg_billable_util_pct) },
-      { label: "Overloaded",         value: String(s.overloaded_count), cls: s.overloaded_count ? "util-over" : "" },
-      { label: "Spare capacity",     value: String(s.under_util_count), cls: "" }
+      { label: "Overloaded",        value: String(s.overloaded_count),  cls: s.overloaded_count ? "util-over" : "" },
+      { label: "Spare capacity",    value: String(s.under_util_count),  cls: "" }
     ];
     cards.forEach(function (c) {
       var card = el("div", "su-card");
@@ -141,7 +141,7 @@
         '<td><span class="staff-type-badge st-' + esc(r.staff_type) + '">' + esc(r.staff_type) + '</span></td>' +
         '<td class="su-num">' + num(r.available_hours, 0) + 'h</td>' +
         '<td class="su-num">' + num(r.allocated_hours, 1) + 'h</td>' +
-        '<td class="su-num">' + num(r.billable_hours,  1) + 'h</td>' +
+        '<td class="su-num">' + num(r.billable_hours, 1) + 'h</td>' +
         '<td>' + utilBar(r) + '</td>' +
         '<td class="su-num ' + utilClass(r.billable_util_pct) + '">' + (r.billable_util_pct !== null ? r.billable_util_pct + "%" : "—") + '</td>' +
         '<td class="su-num">' + num(r.unavailable_hours, 1) + 'h</td>' +
@@ -173,14 +173,14 @@
     if (STATE.staffType) qs += "&staffType=" + encodeURIComponent(STATE.staffType);
     if (STATE.staffId)   qs += "&staffId="   + encodeURIComponent(STATE.staffId);
 
-    var cards       = root.querySelector(".su-cards");
-    var tbody       = root.querySelector(".su-tbody");
-    var insights    = root.querySelector(".su-insights");
+    var cards   = root.querySelector(".su-cards");
+    var tbody   = root.querySelector(".su-tbody");
+    var insights = root.querySelector(".su-insights");
     var periodLabel = root.querySelector(".su-period-label");
-    var loading     = root.querySelector(".su-loading");
+    var loading = root.querySelector(".su-loading");
 
     if (loading) loading.hidden = false;
-    if (cards) cards.innerHTML = '<div class="su-loading-text">Loading…</div>';
+    if (cards)   cards.innerHTML = '<div class="su-loading-text">Loading…</div>';
 
     apiFetch("/staff-utilisation" + qs).then(function (data) {
       if (loading) loading.hidden = true;
@@ -191,7 +191,7 @@
       STATE.util = data;
       if (periodLabel) periodLabel.textContent = data.label + " (" + data.start + " – " + data.end + ")";
       renderSummaryCards(data.summary, cards);
-      if (tbody)    renderUtilTable(data.rows, tbody);
+      if (tbody) renderUtilTable(data.rows, tbody);
       if (insights) renderInsights(data.insights, insights);
     }).catch(function (e) {
       if (loading) loading.hidden = true;
@@ -199,146 +199,164 @@
     });
   }
 
-  // ── staff CRUD helpers ────────────────────────────────────────────
-
-  // Show/hide the inline add-edit form
-  function showStaffForm(wrap, member, onSaved) {
-    var existing = wrap.querySelector(".sr-form");
-    if (existing) existing.remove();
-
+  // ── build add/edit form ───────────────────────────────────────────
+  function buildStaffForm(existing, onSave, onCancel) {
     var form = el("div", "sr-form");
-    form.innerHTML = (
+    var e = existing || {};
+    form.innerHTML =
       '<div class="sr-form-row">' +
-        '<label class="sr-form-lbl">Name *<input class="sr-form-input" name="name" type="text" value="' + esc(member ? member.name : "") + '" placeholder="Full name" /></label>' +
-        '<label class="sr-form-lbl">Role<input class="sr-form-input" name="role" type="text" value="' + esc(member ? (member.role || "") : "") + '" placeholder="e.g. Technician" /></label>' +
+        '<label class="sr-form-lbl">Name *<input type="text" class="sr-form-input" data-f="name" value="' + esc(e.name || "") + '" placeholder="Full name"></label>' +
+        '<label class="sr-form-lbl">Role<input type="text" class="sr-form-input" data-f="role" value="' + esc(e.role || "") + '" placeholder="e.g. Electrician"></label>' +
+        '<label class="sr-form-lbl">Email<input type="email" class="sr-form-input" data-f="email" value="' + esc(e.email || "") + '" placeholder="email@nexusenergy.au"></label>' +
       '</div>' +
       '<div class="sr-form-row">' +
-        '<label class="sr-form-lbl">Email<input class="sr-form-input" name="email" type="email" value="' + esc(member ? (member.email || "") : "") + '" placeholder="email@example.com" /></label>' +
-        '<label class="sr-form-lbl">Type<select class="sr-form-select" name="staff_type">' +
-          '<option value="employee"' + ((!member || member.staff_type === "employee") ? " selected" : "") + '>Employee</option>' +
-          '<option value="contractor"' + ((member && member.staff_type === "contractor") ? " selected" : "") + '>Contractor</option>' +
-        '</select></label>' +
+        '<label class="sr-form-lbl">Type' +
+          '<select class="sr-form-select" data-f="staff_type">' +
+            '<option value="employee"' + (e.staff_type !== "contractor" ? " selected" : "") + '>Employee</option>' +
+            '<option value="contractor"' + (e.staff_type === "contractor" ? " selected" : "") + '>Contractor</option>' +
+          '</select>' +
+        '</label>' +
+        (existing ?
+          '<label class="sr-form-lbl">Status' +
+            '<select class="sr-form-select" data-f="status">' +
+              '<option value="active"' + (e.status !== "inactive" ? " selected" : "") + '>Active</option>' +
+              '<option value="inactive"' + (e.status === "inactive" ? " selected" : "") + '>Inactive</option>' +
+            '</select>' +
+          '</label>'
+        : '') +
+        '<label class="sr-form-lbl" style="flex:2">Notes<input type="text" class="sr-form-input" data-f="notes" value="' + esc(e.notes || "") + '" placeholder="Optional notes"></label>' +
       '</div>' +
-      (member ? (
-        '<div class="sr-form-row">' +
-          '<label class="sr-form-lbl">Status<select class="sr-form-select" name="status">' +
-            '<option value="active"' + (member.status !== "inactive" ? " selected" : "") + '>Active</option>' +
-            '<option value="inactive"' + (member.status === "inactive" ? " selected" : "") + '>Inactive</option>' +
-          '</select></label>' +
-        '</div>'
-      ) : "") +
       '<div class="sr-form-actions">' +
-        '<button class="sr-form-save" type="button">' + (member ? "Save changes" : "Add staff member") + '</button>' +
-        '<button class="sr-form-cancel" type="button">Cancel</button>' +
+        '<button class="sr-form-save">' + (existing ? 'Save changes' : 'Add staff member') + '</button>' +
+        '<button class="sr-form-cancel">Cancel</button>' +
         '<span class="sr-form-err"></span>' +
-      '</div>'
-    );
+      '</div>';
 
-    var saveBtn   = form.querySelector(".sr-form-save");
-    var cancelBtn = form.querySelector(".sr-form-cancel");
-    var errSpan   = form.querySelector(."sr-form-err");
+    function getVal(f) {
+      var node = form.querySelector('[data-f="' + f + '"]');
+      return node ? node.value.trim() : "";
+    }
 
-    cancelBtn.addEventListener("click", function () { form.remove(); });
-
-    saveBtn.addEventListener("click", function () {
-      var name = form.querySelector('[name="name"]').value.trim();
-      if (!name) { errSpan.textContent = "Name is required."; return; }
+    form.querySelector(".sr-form-save").addEventListener("click", function () {
+      var name = getVal("name");
+      var errEl = form.querySelector(".sr-form-err");
+      errEl.textContent = "";
+      if (!name) { errEl.textContent = "Name is required."; return; }
+      var saveBtn = form.querySelector(".sr-form-save");
       saveBtn.disabled = true;
-      errSpan.textContent = "";
-
-      var body = {
+      saveBtn.textContent = "Saving…";
+      var payload = {
         name:       name,
-        role:       form.querySelector('[name="role"]').value.trim(),
-        email:      form.querySelector('[name="email"]').value.trim(),
-        staff_type: form.querySelector('[name="staff_type"]').value
+        role:       getVal("role") || null,
+        email:      getVal("email") || null,
+        staff_type: getVal("staff_type") || "employee",
+        notes:      getVal("notes") || null
       };
-      if (member) {
-        body.staff_id = member.staff_id;
-        body.status   = form.querySelector('[name="status"]').value;
+      if (existing) {
+        payload.staff_id = existing.staff_id;
+        payload.status   = getVal("status") || "active";
+      } else {
+        payload.status = "active";
       }
-
-      var action = member ? "update-staff" : "create-staff";
-      apiFetch("/staff?action=" + action, { method: "POST", body: JSON.stringify(body) })
-        .then(function (data) {
-          if (!data.ok) { errSpan.textContent = data.error || "Save failed."; saveBtn.disabled = false; return; }
-          form.remove();
-          if (onSaved) onSaved();
-        })
-        .catch(function (e) {
-          errSpan.textContent = "Network error: " + e.message;
-          saveBtn.disabled = false;
-        });
+      onSave(payload).catch(function (err) {
+        errEl.textContent = err.message || "Save failed.";
+        saveBtn.disabled = false;
+        saveBtn.textContent = existing ? "Save changes" : "Add staff member";
+      });
     });
 
-    // Insert form at top of list (for add), or just after the card (for edit)
-    wrap.insertBefore(form, wrap.firstChild);
-    form.querySelector('[name="name"]').focus();
+    form.querySelector(".sr-form-cancel").addEventListener("click", onCancel);
+    return form;
+  }
+
+  // ── build staff card ──────────────────────────────────────────────
+  function buildStaffCard(m, root) {
+    var card = el("div", "sr-card" + (m.status === "inactive" ? " sr-card-inactive" : ""));
+
+    var top = el("div", "sr-card-top");
+    top.innerHTML =
+      '<span class="sr-name">' + esc(m.name) + '</span>' +
+      '<div style="display:flex;gap:6px;align-items:center">' +
+        '<span class="staff-type-badge st-' + esc(m.staff_type) + '">' + esc(m.staff_type) + '</span>' +
+        (m.status === "inactive" ? '<span class="sr-inactive-pill">Inactive</span>' : '') +
+      '</div>';
+
+    var info = el("div", "sr-card-info");
+    info.innerHTML =
+      '<div class="sr-role">' + esc(m.role || "—") + '</div>' +
+      (m.email ? '<div class="sr-email">' + esc(m.email) + '</div>' : '') +
+      (m.notes ? '<div class="sr-notes">' + esc(m.notes) + '</div>' : '');
+
+    var actions = el("div", "sr-card-actions");
+    var editBtn   = el("button", "sr-card-edit", "Edit");
+    var toggleBtn = el("button", "sr-card-remove", m.status === "inactive" ? "Reactivate" : "Deactivate");
+    actions.appendChild(editBtn);
+    actions.appendChild(toggleBtn);
+
+    // inline edit form (hidden by default)
+    var editForm = buildStaffForm(m, function onSave(payload) {
+      return apiFetch("/staff?action=update-staff", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }).then(function (d) {
+        if (!d.ok) throw new Error(d.error || "Failed to update");
+        loadRoster(root);
+      });
+    }, function onCancel() {
+      editForm.hidden = true;
+      editBtn.textContent = "Edit";
+    });
+    editForm.hidden = true;
+
+    editBtn.addEventListener("click", function () {
+      editForm.hidden = !editForm.hidden;
+      editBtn.textContent = editForm.hidden ? "Edit" : "Cancel";
+    });
+
+    toggleBtn.addEventListener("click", function () {
+      var newStatus = m.status === "inactive" ? "active" : "inactive";
+      var msg = newStatus === "inactive"
+        ? "Deactivate " + m.name + "? They won't appear in allocation dropdowns."
+        : "Reactivate " + m.name + "?";
+      if (!confirm(msg)) return;
+      toggleBtn.disabled = true;
+      apiFetch("/staff?action=update-staff", {
+        method: "POST",
+        body: JSON.stringify({ staff_id: m.staff_id, status: newStatus })
+      }).then(function (d) {
+        if (!d.ok) throw new Error(d.error || "Failed");
+        loadRoster(root);
+      }).catch(function (err) {
+        alert(err.message);
+        toggleBtn.disabled = false;
+      });
+    });
+
+    card.appendChild(top);
+    card.appendChild(info);
+    card.appendChild(actions);
+    card.appendChild(editForm);
+    return card;
   }
 
   // ── load staff roster ─────────────────────────────────────────────
-  function loadRoster(rootEl) {
-    var wrap  = rootEl.querySelector(".sr-wrap");
-    var list  = rootEl.querySelector(".sr-list");
-    if (!list || !wrap) return;
+  function loadRoster(root) {
+    var list = root.querySelector(".sr-list");
+    if (!list) return;
     list.innerHTML = '<div class="su-loading-text">Loading staff…</div>';
 
-    var qs = STATE.staffType ? "?staffType=" + encodeURIComponent(STATE.staffType) + "&showInactive=1" : "?showInactive=1";
-
-    apiFetch("/staff" + qs)
+    apiFetch("/staff")
       .then(function (data) {
         list.innerHTML = "";
         if (!data.ok || !data.staff || !data.staff.length) {
-          list.innerHTML = '<div class="su-error">No staff found. Add a staff member to get started.</div>';
+          list.innerHTML = '<div class="su-error">No staff found.</div>';
           return;
         }
         STATE.staff = data.staff;
-        var writesEnabled = data.writesEnabled;
-
         data.staff.forEach(function (m) {
-          var card = el("div", "sr-card" + (m.status === "inactive" ? " sr-card-inactive" : ""));
-          var cardInfo = '<div class="sr-card-top">' +
-            '<div class="sr-card-info">' +
-              '<span class="sr-name">' + esc(m.name) + '</span>' +
-              (m.status === "inactive" ? ' <span class="sr-inactive-pill">Inactive</span>' : '') +
-            '</div>' +
-            '<span class="staff-type-badge st-' + esc(m.staff_type) + '">' + esc(m.staff_type) + '</span>' +
-          '</div>' +
-          '<div class="sr-role">' + esc(m.role || "—") + '</div>' +
-          (m.email ? '<div class="sr-email">' + esc(m.email) + '</div>' : '');
-
-          if (writesEnabled) {
-            cardInfo += '<div class="sr-card-actions">' +
-              '<button class="sr-card-edit" data-id="' + esc(m.staff_id) + '">Edit</button>' +
-              '<button class="sr-card-remove" data-id="' + esc(m.staff_id) + '">' +
-                (m.status === "inactive" ? "Reactivate" : "Deactivate") +
-              '</button>' +
-            '</div>';
-          }
-
-          card.innerHTML = cardInfo;
-
-          if (writesEnabled) {
-            card.querySelector(".sr-card-edit").addEventListener("click", function () {
-              showStaffForm(wrap, m, function () { loadRoster(rootEl); });
-            });
-            card.querySelector(".sr-card-remove").addEventListener("click", function () {
-              var newStatus = m.status === "inactive" ? "active" : "inactive";
-              var label = newStatus === "inactive" ? "deactivate" : "reactivate";
-              if (!confirm("Are you sure you want to " + label + " " + m.name + "?")) return;
-              apiFetch("/staff?action=update-staff", {
-                method: "POST",
-                body: JSON.stringify({ staff_id: m.staff_id, status: newStatus })
-              }).then(function (data) {
-                if (!data.ok) { alert("Error: " + (data.error || "Unknown error")); return; }
-                loadRoster(rootEl);
-              }).catch(function (e) { alert("Network error: " + e.message); });
-            });
-          }
-
-          list.appendChild(card);
+          list.appendChild(buildStaffCard(m, root));
         });
-      })
-      .catch(function (e) {
+      }).catch(function (e) {
         list.innerHTML = '<div class="su-error">Network error: ' + esc(e.message) + '</div>';
       });
   }
@@ -430,14 +448,14 @@
     var datePicker = root.querySelector("#suDate");
     var typeSel    = root.querySelector("#suStaffType");
     if (periodSel)  periodSel.addEventListener("change",  function () { STATE.period = this.value; loadUtilisation(root); });
-    if (datePicker) datePicker.addEventListener("change", function () { STATE.date   = this.value; loadUtilisation(root); });
+    if (datePicker) datePicker.addEventListener("change", function () { STATE.date = this.value;   loadUtilisation(root); });
     if (typeSel)    typeSel.addEventListener("change",    function () { STATE.staffType = this.value; loadUtilisation(root); });
     var prevBtn  = root.querySelector("#suPrev");
     var nextBtn  = root.querySelector("#suNext");
     var todayBtn = root.querySelector("#suToday");
     if (prevBtn)  prevBtn.addEventListener("click",  function () { STATE.date = shiftDate(STATE.date, STATE.period, -1); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
     if (nextBtn)  nextBtn.addEventListener("click",  function () { STATE.date = shiftDate(STATE.date, STATE.period, +1); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
-    if (todayBtn) todayBtn.addEventListener("click", function () { STATE.date = new Date().toISOString().slice(0,10);   if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
+    if (todayBtn) todayBtn.addEventListener("click", function () { STATE.date = new Date().toISOString().slice(0,10); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
 
     loadUtilisation(root);
   }
@@ -446,18 +464,37 @@
   function renderTeamTab(root) {
     var wrap = el("div", "sr-wrap");
 
-    // header row with "Add Staff" button
-    var header = el("div", "sr-header");
-    var title  = el("span", "sr-title", "Team Roster");
-    header.appendChild(title);
+    // header row: title + Add button
+    var hdr = el("div", "sr-header");
+    var addBtn = el("button", "sr-add-btn", "+ Add staff");
+    hdr.appendChild(el("span", "sr-title", "Team"));
+    hdr.appendChild(addBtn);
+    wrap.appendChild(hdr);
 
-    var addBtn = el("button", "sr-add-btn", "+ Add Staff");
-    addBtn.addEventListener("click", function () {
-      showStaffForm(wrap, null, function () { loadRoster(root); });
+    // inline add form (hidden by default)
+    var addForm = buildStaffForm(null, function onSave(payload) {
+      return apiFetch("/staff?action=create-staff", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }).then(function (d) {
+        if (!d.ok) throw new Error(d.error || "Failed to create staff");
+        addForm.hidden = true;
+        addBtn.textContent = "+ Add staff";
+        loadRoster(root);
+      });
+    }, function onCancel() {
+      addForm.hidden = true;
+      addBtn.textContent = "+ Add staff";
     });
-    header.appendChild(addBtn);
-    wrap.appendChild(header);
+    addForm.hidden = true;
+    wrap.appendChild(addForm);
 
+    addBtn.addEventListener("click", function () {
+      addForm.hidden = !addForm.hidden;
+      addBtn.textContent = addForm.hidden ? "+ Add staff" : "✕ Cancel";
+    });
+
+    // staff list
     var list = el("div", "sr-list");
     wrap.appendChild(list);
     root.appendChild(wrap);
