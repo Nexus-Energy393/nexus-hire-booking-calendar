@@ -128,7 +128,9 @@
     }
     var hoursOut = engineHours.some(function (r) { return r.hours_out != null; });
     var hoursIn = engineHours.some(function (r) { return r.hours_in != null; });
+    var fuelRecorded = engineHours.some(function (r) { return /fuel out:\s*\d/i.test(r.notes || ""); });
     if (covered && !hoursOut) missing.push("Engine hours out not recorded");
+    if (covered && !fuelRecorded) missing.push("Fuel level not checked / recorded");
     if (!booking.contactPhone && !booking.sitePhone) missing.push("Site contact phone missing");
 
     var ended = false;
@@ -165,7 +167,9 @@
       allOk: allOk,
       allPicked: allPicked,
       hoursOutRecorded: hoursOut,
-      hoursInRecorded: hoursIn
+      hoursInRecorded: hoursIn,
+      fuelRecorded: fuelRecorded,
+      dispatchReady: allOk && allPicked && hoursOut && fuelRecorded
     };
   }
 

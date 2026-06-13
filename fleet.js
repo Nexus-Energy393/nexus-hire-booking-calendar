@@ -930,13 +930,18 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
 
       /* engine hours */
       var latest = engineHours[0] || {};
+      var fuelM = /fuel out:\s*([0-9]{1,3})\s*%/i.exec(latest.notes || "");
+      var refuelReq = /ongoing refuelling required/i.test(latest.notes || "");
       html += '<div class="rs-hours"' + (genAlloc && genAlloc.asset ? "" : ' data-noasset="1"') + '>' +
         '<div class="rs-hcell"><label>Engine hours OUT</label><input type="number" min="0" id="rsHoursOut" value="' + esc(latest.hours_out != null ? latest.hours_out : "") + '"' + (can && genAlloc ? "" : " disabled") + ' /></div>' +
         '<div class="rs-hcell"><label>Engine hours IN</label><input type="number" min="0" id="rsHoursIn" value="' + esc(latest.hours_in != null ? latest.hours_in : "") + '"' + (can && genAlloc ? "" : " disabled") + ' /></div>' +
         '<div class="rs-hcell"><label>Runtime</label><output id="rsRuntime">' + esc(latest.runtime_hours != null ? latest.runtime_hours : "—") + '</output></div>' +
         '<div class="rs-hcell"><label>Asset hours (current)</label><output>' + (genAlloc && genAlloc.asset ? esc(genAlloc.asset.current_engine_hours) : "—") + '</output></div>' +
+        '<div class="rs-hcell"><label>Fuel level out (% full)</label><input type="number" min="0" max="100" step="5" id="rsFuelOut" value="' + esc(fuelM ? fuelM[1] : "") + '"' + (can && genAlloc ? "" : " disabled") + ' /></div>' +
+        '<label class="rs-refuel"><input type="checkbox" id="rsRefuel"' + (refuelReq ? " checked" : "") + (can && genAlloc ? "" : " disabled") + ' /> Nexus to program ongoing onsite refuelling for this hire</label>' +
         '<div class="rs-herr" id="rsHoursErr" hidden></div>' +
-        (can && genAlloc ? '<button class="fleet-btn sm" id="rsHoursSave">Record hours</button>' : "") + "</div>";
+        (can && genAlloc ? '<button class="fleet-btn sm" id="rsHoursSave">Record hours &amp; fuel</button>' : "") + "</div>";
+      if (refuelReq) html += '<div class="rs-alert warn">Ongoing onsite refuelling required — schedule refuelling visits for this hire.</div>';
 
       box.innerHTML = html;
       wireResourcing(box, bk || booking, genAlloc, st);
@@ -982,26 +987,34 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     /* engine hours validation + save */
     var outEl = box.querySelector("#rsHoursOut"), inEl = box.querySelector("#rsHoursIn"),
         rt = box.querySelector("#rsRuntime"), errEl = box.querySelector("#rsHoursErr");
+    var fuelEl = box.querySelector("#rsFuelOut"), refuelEl = box.querySelector("#rsRefuel");
     function recalc() {
       if (!outEl || !inEl) return true;
       var o = outEl.value === "" ? null : parseFloat(outEl.value);
       var i = inEl.value === "" ? null : parseFloat(inEl.value);
+      var fu = fuelEl && fuelEl.value !== "" ? parseFloat(fuelEl.value) : null;
       var msg = "";
       if (o != null && o < 0) msg = "Engine hours out cannot be negative.";
       else if (i != null && i < 0) msg = "Engine hours in cannot be negative.";
       else if (o != null && i != null && i < o) msg = "Engine hours in cannot be less than engine hours out.";
+      else if (fu != null && (fu < 0 || fu > 100)) msg = "Fuel level must be between 0 and 100%.";
       if (errEl) { errEl.hidden = !msg; errEl.textContent = msg; }
       if (rt) rt.textContent = (!msg && o != null && i != null) ? String(i - o) : "—";
       return !msg;
     }
     if (outEl) outEl.addEventListener("input", recalc);
     if (inEl) inEl.addEventListener("input", recalc);
+    if (fuelEl) fuelEl.addEventListener("input", recalc);
     var saveBtn = box.querySelector("#rsHoursSave");
     if (saveBtn && genAlloc) saveBtn.addEventListener("click", function () {
       if (!recalc()) return;
       if (!ensureToken()) return;
+      var noteParts = [];
+      if (fuelEl && fuelEl.value !== "") noteParts.push("Fuel out: " + Math.round(parseFloat(fuelEl.value)) + "%");
+      noteParts.push(refuelEl && refuelEl.checked ? "Ongoing refuelling REQUIRED" : "No ongoing refuelling");
       var payload = { asset_id: genAlloc.asset_id, pipedrive_deal_id: booking.pipedriveDealId,
-                      hours_out: num(outEl.value), hours_in: num(inEl.value) };
+                      hours_out: num(outEl.value), hours_in: num(inEl.value),
+                      notes: noteParts.join(" | ") };
       saveBtn.disabled = true; saveBtn.textContent = "Saving…";
       apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
         saveBtn.disabled = false; saveBtn.textContent = "Record hours";

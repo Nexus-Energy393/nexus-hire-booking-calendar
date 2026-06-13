@@ -857,11 +857,11 @@ function jsSetReadyState(btn, st) {
     btn.textContent = "✓ Ready for dispatch";
     btn.classList.add("on");
     btn.title = "Click to take this job out of ready state";
-  } else if (st.allOk && st.allPicked && st.key !== "conflict") {
+  } else if (st.dispatchReady && st.key !== "conflict") {
     btn.disabled = false;
     btn.textContent = "Mark ready for dispatch";
     btn.classList.remove("on");
-    btn.title = "All equipment allocated and picked — mark ready";
+    btn.title = "Equipment allocated + picked, hours and fuel recorded — mark ready";
   } else {
     btn.disabled = false; /* clickable so it can EXPLAIN what's missing */
     btn.textContent = "Mark ready for dispatch";
@@ -1019,8 +1019,8 @@ function jsWire(m, b) {
     var st = jsComputeStatus(b);
     var dbMode = readyBtn.getAttribute("data-mode") === "db" && window.NexusFleet && window.NexusFleet.setDispatchReady;
     if (st.key === "conflict") { alert("Cannot mark ready: the allocated generator conflicts with another booking. Choose another fleet # or record a cross-hire."); return; }
-    if ((!st.allOk || !st.allPicked) && st.key !== "ready") {
-      alert("Cannot mark ready for dispatch yet. Outstanding:\n• " + (st.missing.length ? st.missing.join("\n• ") : "every item must be allocated AND ticked as picked"));
+    if (!st.dispatchReady && st.key !== "ready") {
+      alert("Cannot mark ready for dispatch yet. Outstanding:\n• " + (st.missing.length ? st.missing.join("\n• ") : "items must be allocated + picked, with engine hours out and fuel level recorded"));
       return;
     }
     if (dbMode) {
