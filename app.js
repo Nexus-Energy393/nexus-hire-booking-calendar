@@ -355,7 +355,32 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
       if (opts.monthInLabel && (date.getDate() === 1 || (w === 0 && d === 0))) {
         label = date.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
       }
-      cell.appendChild(el("div", "mc-num", label));
+      var head = el("div", "mc-head");
+      head.appendChild(el("span", "mc-num", label));
+      var starts = 0, ends = 0;
+      bookings.forEach(function (b) {
+        if (b.status === "cancelled") return;
+        var s = bStart(b);
+        if (!s) return;
+        if (sameDay(date, s)) starts++;
+        var e2 = bEnd(b) || s;
+        if (sameDay(date, e2)) ends++;
+      });
+      if (starts || ends) {
+        var ops = el("span", "mc-ops");
+        if (starts) {
+          var oOut = el("span", "mc-op out", "\u2197 " + starts + " out");
+          oOut.title = starts + " hire" + (starts > 1 ? "s" : "") + " start" + (starts > 1 ? "" : "s") + " this day (delivery / pickup out)";
+          ops.appendChild(oOut);
+        }
+        if (ends) {
+          var oBack = el("span", "mc-op back", "\u2198 " + ends + " back");
+          oBack.title = ends + " hire" + (ends > 1 ? "s" : "") + " end" + (ends > 1 ? "" : "s") + " this day (equipment due back)";
+          ops.appendChild(oBack);
+        }
+        head.appendChild(ops);
+      }
+      cell.appendChild(head);
       dayRow.appendChild(cell);
     }
     var rowStart = startOfDay(addDays(gridStart, w * 7));

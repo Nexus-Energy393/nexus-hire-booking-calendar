@@ -1073,3 +1073,19 @@ details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: v
 .js-xhire-note.missing { color: var(--danger); }
 .fm-optional { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
 @media print { .js-xhire-note { font-size: 8.5px; } }
+
+/* ===================== day-cell header strip with ops counts ===================== */
+.month-grid-spans .month-cell { padding: 0; }
+.month-grid-spans .mc-head { display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  background: var(--column-bg); border-bottom: 1px solid var(--border); padding: 3px 8px; min-height: 25px; }
+.month-grid-spans .mc-head .mc-num { padding: 0; margin: 0; font-size: 12.5px; font-weight: 700; color: #3c4554; }
+.month-grid-spans .month-cell.today .mc-head { background: #e7effd; border-bottom-color: #cfdffb; }
+.month-grid-spans .month-cell.other-month .mc-head { background: transparent; border-bottom-color: var(--border); }
+.mc-ops { display: flex; gap: 4px; min-width: 0; }
+.mc-op { font-size: 10px; font-weight: 700; line-height: 16px; padding: 0 7px; border-radius: 999px; white-space: nowrap; }
+.mc-op.out  { background: var(--success-bg); color: var(--status-allocated-text); }
+.mc-op.back { background: #e6f1fb; color: #0c447c; }
+body[data-mode="tv"] .mc-op { font-size: 13px; line-height: 20px; }
+body[data-mode="tv"] .month-grid-spans .mc-head { min-height: 32px; }
+@media (max-width: 640px) { .mc-op { font-size: 9px; padding: 0 5px; } }
+@media print { .mc-ops { display: none !important; } }
