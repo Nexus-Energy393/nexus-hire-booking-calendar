@@ -1094,3 +1094,12 @@ body[data-mode="tv"] .month-grid-spans .mc-head { min-height: 32px; }
    margin next to its label instead of being pushed to the right edge */
 .jobsheet .js-field.full { justify-content: flex-start; }
 .jobsheet .js-field.full .v { text-align: left; margin-left: 0; flex: 0 1 auto; }
+
+/* ops badges: proper button-style pills (per approved mockup) */
+.month-grid-spans .mc-op { display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10.5px; font-weight: 700; line-height: 1; padding: 3px 8px;
+  border-radius: 999px; border: 1px solid transparent; cursor: default; }
+.month-grid-spans .mc-op.out  { background: var(--success-bg); border-color: #bfe3cd; color: #15703f; }
+.month-grid-spans .mc-op.back { background: #e6f1fb; border-color: #cfdffb; color: #0c447c; }
+.month-grid-spans .mc-head .mc-num { white-space: nowrap; }
+@media (max-width: 900px) { .month-grid-spans .mc-head .mc-num { font-size: 11.5px; } }

@@ -351,9 +351,10 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
       var cell = el("div", "month-cell" + (opts.cellCls ? " " + opts.cellCls : ""));
       if (opts.month != null && date.getMonth() !== opts.month) cell.classList.add("other-month");
       if (sameDay(date, new Date())) cell.classList.add("today");
-      var label = String(date.getDate());
+      var dow = date.toLocaleDateString("en-AU", { weekday: "short" });
+      var label = dow + " " + date.getDate();
       if (opts.monthInLabel && (date.getDate() === 1 || (w === 0 && d === 0))) {
-        label = date.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+        label = dow + " " + date.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
       }
       var head = el("div", "mc-head");
       head.appendChild(el("span", "mc-num", label));
