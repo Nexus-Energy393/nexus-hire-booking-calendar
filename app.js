@@ -226,8 +226,11 @@ window.NexusJobsheetSync = function (dealId, allocations, engineHours) {
 };
 
 function refresh() {
+  STATE.updating = true;
+  if (typeof syncDbIndicator === "function") { try { syncDbIndicator(); } catch (e) {} }
   updateDataSourceNote();
   return loadBookings().then(function (bookings) {
+    STATE.updating = false;
     STATE.bookings = bookings;
     STATE.lastUpdated = new Date();
     STATE.loaded = true;
@@ -1063,10 +1066,13 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
       var txt = document.getElementById("dbIndicatorText");
       var note = document.getElementById("dataSourceNote");
       if (!ind || !txt || !note) return;
+      ind.classList.remove("off", "updating", "sample");
+      if (STATE.updating) { ind.classList.add("updating"); txt.textContent = "Updating\u2026"; return; }
       var n = (note.textContent || "").toLowerCase();
-      if (n.indexOf("live data") > -1) { ind.classList.remove("off"); txt.textContent = "Live data"; }
-      else if (n.indexOf("loading") > -1) { ind.classList.remove("off"); txt.textContent = "Connecting\u2026"; }
-      else { ind.classList.add("off"); txt.textContent = "Sample data"; }
+      if (n.indexOf("live data") > -1) { txt.textContent = "Live data"; }
+      else if (n.indexOf("loading") > -1) { ind.classList.add("updating"); txt.textContent = "Connecting\u2026"; }
+      else if (n.indexOf("couldn") > -1 || n.indexOf("retry") > -1) { ind.classList.add("off"); txt.textContent = "Update issue"; }
+      else { ind.classList.add("sample"); txt.textContent = "Sample data"; }
     } catch (e) {}
   }
   /* Inject a compact summary strip at the top of the jobsheet body. */

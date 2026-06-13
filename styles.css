@@ -1045,3 +1045,25 @@ details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: v
   .modal.jobsheet-modal { margin: 0 !important; }
   details.js-notes:not([open]), details.js-notes .js-notes-body:empty { display: none !important; } /* no empty NOTES header */
 }
+
+/* ===================== header: logo flush right, live-state indicator ===================== */
+.header-actions { margin-left: auto; }
+.app-header .brand-logo { margin-left: 14px; }
+
+/* live data indicator: pulsing states */
+.db-indicator .db-dot { animation: dbPulseGreen 2.2s ease-out infinite; }
+@keyframes dbPulseGreen {
+  0% { box-shadow: 0 0 0 0 rgba(32,160,82,.45); }
+  70%, 100% { box-shadow: 0 0 0 7px rgba(32,160,82,0); }
+}
+.db-indicator.off .db-dot { animation: dbPulseRed 1.1s ease-out infinite; }
+@keyframes dbPulseRed {
+  0% { box-shadow: 0 0 0 0 rgba(210,63,63,.5); }
+  70%, 100% { box-shadow: 0 0 0 7px rgba(210,63,63,0); }
+}
+.db-indicator.updating { color: var(--status-needs-text); background: var(--warning-bg); border-color: #f0d9ab; }
+.db-indicator.updating .db-dot { background: var(--warning); animation: dbBlink .9s ease-in-out infinite; }
+@keyframes dbBlink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.db-indicator.sample { color: var(--muted); background: var(--column-bg); border-color: var(--border-strong); }
+.db-indicator.sample .db-dot { background: var(--muted); animation: none; }
+@media (prefers-reduced-motion: reduce) { .db-indicator .db-dot { animation: none !important; } }
