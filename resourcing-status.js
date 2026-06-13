@@ -121,6 +121,11 @@
     var ready = !!(genAlloc && String(genAlloc.dispatch_status || "").toLowerCase() === "ready");
 
     noteMissing.forEach(function (msg) { missing.push(msg); });
+    if (covered && noteMissing.length === 0) {
+      reqs.forEach(function (r) {
+        if (reqSatisfied(r) && !reqPicked(r)) missing.push('"' + r.label + '" allocated but not yet picked');
+      });
+    }
     var hoursOut = engineHours.some(function (r) { return r.hours_out != null; });
     var hoursIn = engineHours.some(function (r) { return r.hours_in != null; });
     if (covered && !hoursOut) missing.push("Engine hours out not recorded");
