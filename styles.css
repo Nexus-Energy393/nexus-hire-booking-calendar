@@ -991,3 +991,32 @@ details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: v
   .fleet-modal .fm-body { padding: 14px; }
   .alloc-opt { flex-wrap: wrap; }
 }
+
+/* ===================== jobsheet toolbar refinement ===================== */
+.js-toolbar { gap: 10px; padding: 12px 16px 12px 24px; }
+.js-btn { transition: background .12s, border-color .12s, box-shadow .12s, color .12s; }
+.js-btn:hover { box-shadow: var(--shadow-sm); }
+.js-btn:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+
+/* ready-for-dispatch: a real stateful action button */
+.js-btn.ready { border: 1.5px solid var(--brand-green); color: var(--brand-green-dark); background: #fff; font-weight: 700; }
+.js-btn.ready:hover { background: var(--success-bg); border-color: var(--brand-green-dark); }
+.js-btn.ready.on { background: var(--brand-green); border-color: var(--brand-green); color: #fff; }
+.js-btn.ready.on:hover { background: var(--brand-green-dark); }
+.js-btn.ready.blocked { border: 1px solid var(--border-strong); border-style: solid; color: var(--muted);
+  background: var(--column-bg); font-weight: 600; opacity: 1; cursor: pointer; }
+.js-btn.ready.blocked:hover { background: var(--column-bg); border-color: var(--border-strong); box-shadow: none; }
+.js-btn.ready.blocked::before { content: "•"; color: var(--warning); font-size: 18px; line-height: 0; margin-right: 2px; }
+
+/* close button: integrated circular control, not a floating × */
+.js-toolbar .modal-close { position: static; width: 38px; height: 38px; min-height: 38px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; border-radius: 999px;
+  font-size: 20px; line-height: 1; color: var(--muted); background: transparent; border: 1px solid transparent;
+  margin-left: 2px; cursor: pointer; transition: background .12s, color .12s; }
+.js-toolbar .modal-close:hover { background: rgba(16, 24, 40, .08); color: var(--text); }
+.js-toolbar .modal-close:focus-visible { outline: 2px solid var(--accent-blue); }
+
+@media (max-width: 640px) {
+  .js-toolbar { padding: 10px 12px; }
+  .js-toolbar .js-title-min { flex-basis: 100%; }
+}

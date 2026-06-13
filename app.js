@@ -807,6 +807,7 @@ function jsUpdateStatusUI(b) {
 function jsSetReadyState(btn, st) {
   var dbMode = !!(STATE.allocationsByDeal && window.NexusFleet && CONFIG.apiBase);
   btn.setAttribute("data-mode", dbMode ? "db" : "local");
+  btn.classList.remove("on", "blocked");
   if (st.key === "ready") {
     btn.disabled = false;
     btn.textContent = "✓ Ready for dispatch";
