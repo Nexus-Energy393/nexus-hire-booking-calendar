@@ -30,14 +30,38 @@
     if (isNaN(n)) return "—";
     return dec != null ? n.toFixed(dec) : String(n);
   }
+  /* admin-token auth: share the SAME token storage as the Fleet page so a token
+     entered on either page works on both; prompt for it before any write. */
+  var TOKEN_KEY = "nexusFleetAdminToken";
+  function getToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || TOKEN || (window.CONFIG && window.CONFIG.adminToken) || ""; }
+    catch (e) { return TOKEN || (window.CONFIG && window.CONFIG.adminToken) || ""; }
+  }
+  function setToken(t) { try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+  function ensureToken() {
+    if (getToken()) return true;
+    var t = window.prompt("Enter the Fleet admin token to make staff changes.\n(Stored only in this browser; never committed. Same token as the Fleet page.)");
+    if (t && t.trim()) { setToken(t.trim()); return true; }
+    return false;
+  }
   function apiHeaders() {
     var h = { "Accept": "application/json", "Content-Type": "application/json" };
-    var tok = TOKEN || (window.CONFIG && window.CONFIG.adminToken) || localStorage.getItem("nexus_admin_token");
+    var tok = getToken();
     if (tok) { h["Authorization"] = "Bearer " + tok; h["x-fleet-admin-token"] = tok; }
     return h;
   }
   function apiFetch(path, opts) {
-    return fetch(API + path, Object.assign({ headers: apiHeaders() }, opts || {})).then(function (r) { return r.json(); });
+    opts = opts || {};
+    var isWrite = opts.method && String(opts.method).toUpperCase() !== "GET";
+    if (isWrite && !ensureToken()) {
+      return Promise.resolve({ ok: false, error: "Admin token required to make changes." });
+    }
+    return fetch(API + path, Object.assign({ headers: apiHeaders() }, opts)).then(function (r) {
+      return r.json().then(function (j) {
+        if (r.status === 401) { setToken(""); }  /* wrong token: clear so the next change re-prompts */
+        return j;
+      });
+    });
   }
 
   // ── state ─────────────────────────────────────────────────────────
