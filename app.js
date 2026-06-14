@@ -1434,3 +1434,74 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
     try { setSubtitle(window.STATE && STATE.view); } catch(e) {}
   });
 })();
+
+/* ============================================================
+   TABLET / iPad ORIENTATION ENHANCEMENTS  (nexus-tablet)
+   Pairs with tablet.css. Two behaviours, both no-ops on desktop:
+
+   1. Re-render on rotate/resize so view layouts (fortnight rows,
+      office screen, calendar cells) recompute instead of staying
+      sized for the previous orientation. The app otherwise only
+      re-renders on user actions.
+
+   2. On a touch tablet, default PORTRAIT to a readable agenda
+      (the List view) and LANDSCAPE to the Calendar — but only
+      until the user manually taps a view tab, after which their
+      choice is always respected. Office-screen (tv) mode is left
+      on the calendar as before.
+
+   To always open on the calendar, set PORTRAIT_DEFAULT_VIEW = "month".
+   ============================================================ */
+(function () {
+  var PORTRAIT_DEFAULT_VIEW  = "list";
+  var LANDSCAPE_DEFAULT_VIEW = "month";
+
+  function isTouchTablet() {
+    return window.matchMedia("(pointer: coarse)").matches && window.innerWidth >= 700;
+  }
+  function isPortrait() {
+    return window.matchMedia("(orientation: portrait)").matches;
+  }
+  function setView(view) {
+    if (!window.STATE) return;
+    STATE.view = view;
+    document.querySelectorAll(".tab").forEach(function (x) {
+      x.classList.toggle("active", x.getAttribute("data-view") === view);
+    });
+    if (typeof render === "function") render();
+  }
+
+  // Respect a deliberate choice: once the user taps a view tab, stop auto-switching.
+  var userPicked = false;
+  var tabs = document.getElementById("viewTabs");
+  if (tabs) {
+    tabs.addEventListener("click", function (e) {
+      if (e.target.closest && e.target.closest(".tab")) userPicked = true;
+    });
+  }
+
+  function applyOrientationDefault() {
+    if (!window.STATE || STATE.tv || userPicked || !isTouchTablet()) return;
+    var want = isPortrait() ? PORTRAIT_DEFAULT_VIEW : LANDSCAPE_DEFAULT_VIEW;
+    if (STATE.view !== want) setView(want);
+  }
+
+  var timer;
+  function onOrientationChange() {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      applyOrientationDefault();
+      if (window.STATE && typeof render === "function") render();
+    }, 150);
+  }
+  window.addEventListener("resize", onOrientationChange);
+  window.addEventListener("orientationchange", onOrientationChange);
+
+  // Apply the orientation default once the app has booted (STATE exists here
+  // because this block runs after app.js has defined it and called init()).
+  function boot(tries) {
+    if (window.STATE) { applyOrientationDefault(); return; }
+    if ((tries || 0) < 25) setTimeout(function () { boot((tries || 0) + 1); }, 120);
+  }
+  boot(0);
+})();
