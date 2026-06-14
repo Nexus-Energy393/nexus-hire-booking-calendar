@@ -1092,8 +1092,14 @@ function jsInspectorSentence(b) {
   var open = jsParseTimeMins(b.tradingHoursOpen);
   var insMin = jsParseTimeMins(jsInspectorVal(b));
   var ins12 = insMin != null ? jsFmt12(insMin) : "";
-  if (open != null) return "Inspector booked for " + ins12 + ", 1 hour before store opening at " + jsFmt12(open) + ".";
-  return "Inspector booked for " + ins12 + " (1 hour before store opening).";
+  if (open == null || insMin == null) return "Inspector booked for " + ins12 + " (1 hour before store opening).";
+  var diff = open - insMin;
+  if (diff === 60) return "Inspector booked for " + ins12 + ", 1 hour before store opening at " + jsFmt12(open) + ".";
+  if (diff > 0) {
+    var hrs = Math.round((diff / 60) * 10) / 10;
+    return "Inspector booked for " + ins12 + ", " + hrs + (hrs === 1 ? " hour" : " hours") + " before store opening at " + jsFmt12(open) + ".";
+  }
+  return "Inspector booked for " + ins12 + ". Store opens at " + jsFmt12(open) + ".";
 }
 function jsFmtDTAU(iso) {
   if (!iso) return "To be set";
