@@ -1205,35 +1205,21 @@ function renderJobSheet(b) {
   html += '<div class="js-warning" id="jsWarning"' + (st.missing.length ? "" : " hidden") + '>' +
           (st.missing.length ? jsWarningInner(st) : "") + '</div>';
 
-  /* CRITICAL DISPATCH SUMMARY */
-  html += jsCard("Critical dispatch summary", "js-card-summary", '<div class="js-grid js-grid-3">' +
-    jsField("Job", "#" + dealId) +
-    jsField("Customer", b.customer, {required:true}) +
-    jsSiteAddressField(b, {label:"Site", full:true}) +
-    jsField("Site contact", b.contact, {required:true}) +
-    jsField("Contact phone", jsFmtPhone(b.contactPhone || b.sitePhone), {required:true}) +
-    jsField("Hire date", bStart(b) ? jsFmtDateAU(bStart(b)) : null, {required:true}) +
-    jsField("Outage window", jsFmtTimeRange(b.outageWindow)) +
-    jsField("Generator size", jsFmtKva(b.generatorSize)) +
-    jsField("Electrical connection", jsReqLabel(b.electricalConnectionRequired)) +
-    jsField("Delivery", jsDeliveryShort(b)) +
-    jsField("Refuelling", jsRefuelShort(b)) +
-    '<div class="js-field"><span class="k">Staff allocated</span><span class="v" id="jsStaffSummary">To be confirmed</span></div>' +
-  '</div>');
-
-  /* SITE & CONTACT */
-  html += jsCard("Site & contact", "", '<div class="js-grid js-grid-2">' +
+  /* 1. SITE DETAILS */
+  html += jsCard("Site details", "", '<div class="js-grid js-grid-2">' +
     jsField("Customer", b.customer, {required:true}) +
     jsField("Deal owner", b.dealOwner) +
     jsField("Site contact", b.contact, {required:true}) +
     jsField("Contact phone", jsFmtPhone(b.contactPhone || b.sitePhone), {required:true}) +
     jsField("Contact email", b.contactEmail, {full:true}) +
-    jsField("Suburb / state", [b.suburb, b.state].filter(Boolean).join(" ")) +
     jsSiteAddressField(b, {label:"Site address", full:true}) +
+    jsField("Suburb / state", [b.suburb, b.state].filter(Boolean).join(" ")) +
+    '<div class="js-field full"><span class="k">Site access notes</span><span class="v"><span class="js-blank"></span></span></div>' +
+    '<div class="js-field full"><span class="k">Site hazards / instructions</span><span class="v"><span class="js-blank"></span></span></div>' +
   '</div>');
 
-  /* HIRE TIMING & OUTAGE */
-  html += jsCard("Hire timing & outage", "", '<div class="js-grid js-grid-2">' +
+  /* 2. HIRE PERIOD & OUTAGE */
+  html += jsCard("Hire period & outage", "", '<div class="js-grid js-grid-2">' +
     jsField("Hire start", bStart(b) ? jsFmtDateAU(bStart(b)) : null, {required:true}) +
     jsField("Hire end", bEnd(b) ? jsFmtDateAU(bEnd(b)) : null) +
     jsField("Duration", jsFmtDuration(b.durationDays)) +
@@ -1241,7 +1227,17 @@ function renderJobSheet(b) {
     jsTradingHoursField(dealId, b) +
   '</div>');
 
-  /* ELECTRICAL WORKS (single grouped section) */
+  /* 3. EQUIPMENT REQUIRED & PICKING LIST */
+  html += jsCard("Equipment required & picking list", "js-card-alloc",
+    '<div class="js-grid js-grid-2">' +
+      jsField("Generator size required", jsFmtKva(b.generatorSize)) +
+      jsField("Cable set required", jsFmtCable(b.cableSet)) +
+      jsField("Additional equipment required", b.additionalEquipment, {full:true}) +
+      jsField("Safety items required", b.safetyItems, {full:true}) +
+    '</div>' +
+    '<div id="jsEquipmentHolder" class="js-picking">' + jsStaticEquipmentTable(b, st) + '</div>');
+
+  /* 4. ELECTRICAL CONNECT / DISCONNECT */
   var elecBody = '';
   if (b.electricalConnectionRequired) {
     elecBody += jsAlertBox("warn", '<strong>Electrical connection required.</strong> Confirm electrician booking, isolation plan and inspection requirements before dispatch.');
@@ -1258,44 +1254,30 @@ function renderJobSheet(b) {
     elecBody += '<p class="js-elec-sentence">' + escapeHtml(jsInspectorSentence(b)) + '</p>';
   }
   elecBody += '<div class="js-write-line"><span class="lbl">Connection / isolation notes</span><div class="rule"></div></div>';
-  html += jsCard("Electrical works", "js-card-elec", elecBody);
+  html += jsCard("Electrical connect / disconnect", "js-card-elec", elecBody);
 
-  /* EQUIPMENT REQUIRED */
-  html += jsCard("Equipment required", "", '<div class="js-grid js-grid-2">' +
-    jsField("Generator size required", jsFmtKva(b.generatorSize)) +
-    jsField("Cable set required", jsFmtCable(b.cableSet)) +
-    jsField("Additional equipment required", b.additionalEquipment, {full:true}) +
-  '</div>');
-
-  /* EQUIPMENT ALLOCATION (+ fuel/engine hours via fleet.js) */
-  html += jsCard("Equipment allocation", "js-card-alloc",
-    '<div id="jsEquipmentHolder">' + jsStaticEquipmentTable(b, st) + '</div>');
-
-  /* STAFF ALLOCATION */
+  /* 5. STAFF ALLOCATION */
   html += jsCard("Staff allocation", "js-card-staff",
     '<div id="jsStaffHolder"><div class="js-staff-placeholder">Loading staff&hellip;</div></div>');
 
-  /* SAFETY & SITE */
-  html += jsCard("Safety & site", "", '<div class="js-grid js-grid-2">' +
-    jsField("Safety items required", b.safetyItems, {full:true}) +
-    '<div class="js-field full"><span class="k">Site access notes</span><span class="v"><span class="js-blank"></span></span></div>' +
-    '<div class="js-field full"><span class="k">Site hazards / instructions</span><span class="v"><span class="js-blank"></span></span></div>' +
-  '</div>');
-
-  /* LOGISTICS */
-  html += jsCard("Logistics", "", '<div class="js-grid js-grid-2">' +
+  /* 6. DELIVERY & LOGISTICS */
+  html += jsCard("Delivery & logistics", "", '<div class="js-grid js-grid-2">' +
     jsField("Delivery / freight", jsDeliveryShort(b)) +
     jsField("Refuelling required", jsRefuelShort(b)) +
     '<div class="js-field full"><span class="k">Transport / collection notes</span><span class="v"><span class="js-blank"></span></span></div>' +
   '</div>');
 
-  /* NOTES */
+  /* 7. NOTES */
   if (jsVal(b.notes)) {
     html += jsCard("Notes", "js-card-notes", '<div class="js-notes-body">' + escapeHtml(b.notes) + '</div>' +
       '<div class="js-write-line"><span class="lbl">Internal dispatch notes</span><div class="rule"></div></div>');
+  } else {
+    html += jsCard("Notes", "js-card-notes",
+      '<div class="js-write-line"><span class="lbl">Job notes</span><div class="rule"></div></div>' +
+      '<div class="js-write-line"><span class="lbl">Internal dispatch notes</span><div class="rule"></div></div>');
   }
 
-  /* DISPATCH CHECKLIST & SIGN-OFF */
+  /* 8. DISPATCH CHECKLIST & SIGN-OFF */
   var checkItems = [
     {key:"chk_equip", label:"Equipment picked"},
     {key:"chk_cable", label:"Cable set picked"},

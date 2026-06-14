@@ -1781,18 +1781,18 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .js-card-head { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
   color: #33415c; background: #f4f6f8; padding: 8px 14px; margin: 0;
   border-bottom: 1px solid #e4e6eb; border-left: 3px solid var(--brand-green, #20a052); }
-.js-card-body { padding: 10px 14px; }
+.js-card-body { padding: 8px 14px; }
 .js-card-summary { border-color: #d4d7dd; }
 .js-card-summary .js-card-head { border-left-color: #21174f; background: #f0f1f6; }
 .js-card-elec .js-card-head { border-left-color: #e8920c; }
 
 /* label / value grid (stacked, aligned) */
-.jobsheet .js-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; }
+.jobsheet .js-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 30px; }
 .jobsheet .js-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.jobsheet .js-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 0; border: none; }
+.jobsheet .js-field { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; min-width: 0; padding: 4px 0; border: none; border-bottom: 1px dotted #e7eaee; }
 .jobsheet .js-field.full { grid-column: 1 / -1; }
-.jobsheet .js-field .k { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #8a93a3; }
-.jobsheet .js-field .v { font-size: 13.5px; font-weight: 600; color: #1f2733; text-align: left; word-break: break-word; overflow-wrap: anywhere; }
+.jobsheet .js-field .k { flex: 0 0 auto; font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0; color: #8a93a3; white-space: nowrap; }
+.jobsheet .js-field .v { flex: 0 1 auto; font-size: 12.5px; font-weight: 700; color: #1f2733; text-align: right; word-break: break-word; overflow-wrap: anywhere; }
 .jobsheet .js-field .v.missing { color: #d23f3f; font-style: italic; }
 .jobsheet .js-blank { display: inline-block; min-width: 130px; border-bottom: 1px solid #c8ccd2; height: 15px; }
 .jobsheet .js-time { font-size: 13px; padding: 3px 7px; border: 1px solid #d4d7dd; border-radius: 6px; min-height: 0; }
@@ -1874,3 +1874,10 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .js-maps-link { color: var(--accent-blue, #2f6fed); text-decoration: none; font-weight: 600; }
 .js-maps-link:hover { text-decoration: underline; }
 .js-maps-ico { display: inline-block; vertical-align: -1px; margin-left: 3px; }
+
+
+/* full-width fields: keep long values left-aligned; remove last dotted divider */
+.jobsheet .js-field.full .v { text-align: left; }
+.jobsheet .js-grid > .js-field:last-child,
+.jobsheet .js-grid > .js-field:nth-last-child(2):not(.full) { border-bottom: none; }
+.js-picking { margin-top: 8px; }
