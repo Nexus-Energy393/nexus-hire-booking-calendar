@@ -50,7 +50,8 @@ var STATE = {
   everLive: false,
   loaded: false,
   lastUpdated: null,
-  staffConflicts: {}   // deal id (string) → true when staff is double-booked
+  staffConflicts: {},          // deal id (string) → true when staff is double-booked
+  staffConflictPartners: {}    // deal id (string) → [conflicting deal ids]
 };
 
 // ---------- date helpers ----------
@@ -248,6 +249,7 @@ function loadStaffConflicts() {
       var map = {};
       (data.conflicted_deal_ids || []).forEach(function (id) { map[String(id)] = true; });
       STATE.staffConflicts = map;
+      STATE.staffConflictPartners = data.conflicts_by_deal || {};
       render();
     })
     .catch(function () { /* staff conflict feed unavailable — no icons shown */ });
@@ -907,7 +909,9 @@ function jsActiveAlerts(b) {
                title: "Delivery / transport required for this hire" });
   }
   if (STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)]) {
-    out.push({ cls: "al-conflict", icon: "&#9888;", text: "Labour conflict",
+    var partners = (STATE.staffConflictPartners || {})[String(b.pipedriveDealId)] || [];
+    var ctext = partners.length ? "Labour conflict with Job #" + partners.join(", #") : "Labour conflict";
+    out.push({ cls: "al-conflict", icon: "&#9888;", text: ctext,
                title: "Staff double-booked over this hire period" });
   }
   return out;
