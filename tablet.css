@@ -1,0 +1,155 @@
+/* ============================================================================
+   nexus-tablet.css  —  Tablet / iPad adaptation for the Nexus Hire Booking Board
+   ----------------------------------------------------------------------------
+   Drop-in, additive stylesheet. It does NOT edit any existing rule — it is
+   designed to load AFTER styles.css so it cascades last (same trick the
+   "Pipedrive-style" block already uses). Nothing here changes desktop/mouse
+   behaviour: the touch rules are gated on `(pointer: coarse)`, so a 1366px
+   laptop keeps the desktop layout while a 1366px iPad Pro gets touch tuning.
+
+   HOW TO INSTALL (pick one):
+     A) In index.html, add right AFTER the styles.css link:
+          <link rel="stylesheet" href="/nexus-tablet.css">
+     B) Or paste this whole file at the very end of styles.css.
+
+   Targets the app's real selectors: .app-shell, .side-rail, .app-main,
+   .rail-nav, .side-rail .tab, .toolbar, .filters, .calendar-root, .month-grid,
+   .month-cell, .booking-card(.compact), .week-grid, .data-table, .fortnight-*.
+
+   Device CSS widths this covers:
+     iPad mini 744 / 1133   iPad 10.9" 820 / 1180
+     iPad 11"  834 / 1194   iPad Pro 12.9" 1024 / 1366
+   ============================================================================ */
+
+
+/* ── 1. FOUNDATION (applies on all devices; safe on desktop too) ──────────── */
+
+/* iPad Safari's toolbar shows/hides and changes the viewport height. Using the
+   dynamic viewport unit stops the layout "jumping". Falls back to vh first. */
+.app-shell { min-height: 100vh; min-height: 100dvh; }
+.side-rail { height: 100vh; height: 100dvh; }
+
+/* Don't let iOS auto-inflate text; remove the 300ms double-tap delay. */
+html { -webkit-text-size-adjust: 100%; }
+.tab, .btn, .js-btn, .fleet-btn, .booking-card, .data-row,
+.month-cell, .su-tab, .row-link { touch-action: manipulation; }
+
+/* Respect the notch / home indicator, mostly relevant in landscape. */
+.app-header { padding-left: max(20px, env(safe-area-inset-left));
+              padding-right: max(20px, env(safe-area-inset-right)); }
+.calendar-root, .fleet-page, .toolbar {
+              padding-left: max(20px, env(safe-area-inset-left));
+              padding-right: max(20px, env(safe-area-inset-right)); }
+.side-rail  { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+
+
+/* ── 2. TABLET TOUCH TUNING (any iPad, either orientation) ────────────────── */
+/* Gated on a coarse pointer + tablet-ish width so laptops are untouched.      */
+@media (pointer: coarse) and (min-width: 700px) and (max-width: 1400px) {
+
+  /* 2a. Minimum 44×44 hit targets (Apple HIG). Filters were 38px; bump them,
+         and use 16px font so focusing a field doesn't trigger iOS zoom. */
+  .filters input,
+  .filters select        { min-height: 44px; font-size: 16px; }
+  .filters input[type="search"] { min-width: 200px; }
+
+  .btn,
+  .nav-group .btn,
+  .header-actions .btn,
+  .js-btn,
+  .fleet-btn             { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+
+  .side-rail .tab        { min-height: 56px; }          /* icon+label rail items */
+
+  /* 2b. Booking chips: legible + tappable (compact was 11px). */
+  .booking-card.compact  { font-size: 13px; padding: 7px 9px; min-height: 40px; }
+  .bc-status             { font-size: 12px; }
+
+  /* 2c. Touch has no hover — give a pressed state instead. */
+  .tab:active,
+  .btn:active,
+  .js-btn:active,
+  .fleet-btn:active,
+  .booking-card:active,
+  .data-row:active       { filter: brightness(0.94); }
+
+  /* 2d. Native <select> already opens the iOS picker — just make sure the
+         checkbox/toggle controls in fleet/jobsheet are finger-sized. */
+  .js-chk                { width: 30px; height: 30px; }
+  .rs-toggle-track       { width: 52px; height: 30px; }
+  .rs-toggle-thumb       { width: 24px; height: 24px; }
+  .rs-toggle input:checked ~ .rs-toggle-track .rs-toggle-thumb { left: 25px; }
+}
+
+
+/* ── 3. PORTRAIT (iPad held upright: ~744–834px, also 1024 Pro portrait) ──── */
+/* Seven day-columns are narrow here, so the priority is: stop truncation,
+   give cells height, and stack the secondary data tables.                     */
+@media (pointer: coarse) and (orientation: portrait) and (max-width: 1100px) {
+
+  /* Keep the office-screen ("tv") mode out of these density tweaks. */
+  body:not([data-mode="tv"]) .month-grid  { gap: 5px; }
+  body:not([data-mode="tv"]) .month-cell  { min-height: 104px; padding: 6px 7px; }
+
+  /* Let customer names wrap to a 2nd line instead of clipping to "ALDI Stor…". */
+  .booking-card.compact      { white-space: normal; line-height: 1.25;
+                               overflow: visible; text-overflow: clip; }
+  .bc-cust                   { white-space: normal; }
+  .bc-top                    { flex-wrap: wrap; row-gap: 2px; }
+
+  /* Day / List views are centred at max 900px — let them use the full width. */
+  .day-wrap, .list-wrap      { max-width: 100%; }
+
+  /* List view = the best portrait "agenda". Its 11-column table is too wide
+     upright, so drop the lower-priority columns and keep the essentials:
+     Status(1), Customer(2), When(6), Duration(7), Actions(11). The hidden ones
+     (Job type, Site, Suburb, Generator, Equipment, Deal owner) are all still on
+     the booking's detail sheet, one tap away. */
+  .data-table th:nth-child(3),  .data-table td:nth-child(3),   /* Job type   */
+  .data-table th:nth-child(4),  .data-table td:nth-child(4),   /* Site       */
+  .data-table th:nth-child(5),  .data-table td:nth-child(5),   /* Suburb     */
+  .data-table th:nth-child(8),  .data-table td:nth-child(8),   /* Generator  */
+  .data-table th:nth-child(9),  .data-table td:nth-child(9),   /* Equipment  */
+  .data-table th:nth-child(10), .data-table td:nth-child(10)   /* Deal owner */
+                             { display: none; }
+  .data-table td             { font-size: 14px; }
+
+  /* Other tables can still scroll horizontally if needed. */
+  .fleet-table-wrap,
+  .su-table-wrap             { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Week view: 7 columns get tight upright — relax the tall min-height so the
+     whole week fits without a huge scroll. */
+  .week-col                  { min-height: 150px; }
+  .fortnight-cell            { min-height: 120px; }
+}
+
+
+/* ── 4. LANDSCAPE (iPad on its side: ~1133–1366px) ───────────────────────── */
+/* There's room for the full month grid; make it touch-comfortable rather than
+   the dense desktop spacing it inherits above 1100px today.                   */
+@media (pointer: coarse) and (orientation: landscape) and (min-width: 1000px) and (max-width: 1400px) {
+
+  body:not([data-mode="tv"]) .month-cell      { min-height: 120px; }
+  body:not([data-mode="tv"]) .booking-card.compact { font-size: 13px; padding: 7px 9px; }
+
+  /* The toolbar packs a search + 4 selects + actions; it already wraps, just
+     give the wrapped rows a little breathing room. */
+  .toolbar                   { row-gap: 10px; }
+  .filters                   { gap: 10px; }
+
+  /* Comfortable side rail (keep it — landscape has the width for it). */
+  .side-rail .tab            { padding: 11px 4px; }
+}
+
+
+/* ── 5. NICE-TO-HAVE: smooth momentum scrolling on the scroll containers ──── */
+.calendar-root, .fleet-page, .modal, .fleet-modal,
+.data-table, .fleet-table-wrap, .su-table-wrap {
+  -webkit-overflow-scrolling: touch;
+}
+
+
+/* ============================================================================
+   NOTES — the two enhancements that need a small app.js change (not CSS):
+
