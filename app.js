@@ -1010,6 +1010,11 @@ function jsMinsToHHMM(mins) {
   var h = Math.floor(mins / 60), m = mins % 60;
   return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
 }
+function jsFmtTime(s) {
+  if (s == null || s === "") return s;
+  var mins = jsParseTimeMins(s);
+  return mins == null ? String(s) : jsMinsToHHMM(mins);
+}
 function jsDefaultInspectorTime(b) {
   var openMin = jsParseTimeMins(b.tradingHoursOpen);
   if (openMin == null) openMin = 7 * 60;
@@ -1019,15 +1024,15 @@ function jsInspectorTimeField(dealId, b) {
   var local = jsLoadLocal(dealId);
   var def = jsDefaultInspectorTime(b);
   var val = (local.elec_inspector_time != null && local.elec_inspector_time !== "") ? local.elec_inspector_time : def;
-  var hint = b.tradingHoursOpen ? ("1 hr before open (" + escapeHtml(b.tradingHoursOpen) + "), editable") : "1 hr before store open, editable";
+  var hint = b.tradingHoursOpen ? ("1 hr before open (" + escapeHtml(jsFmtTime(b.tradingHoursOpen)) + "), editable") : "1 hr before store open, editable";
   return '<div class="js-field"><span class="k">Electrical inspector booking time</span>' +
     '<span class="v"><input type="time" class="js-install-input js-time" data-deal="' + dealId + '" data-key="elec_inspector_time" value="' + escapeHtml(val) + '" />' +
     ' <small class="js-hint">' + hint + '</small></span></div>';
 }
 function jsTradingHoursField(dealId, b) {
   var local = jsLoadLocal(dealId);
-  var open = jsVal(b.tradingHoursOpen) ? String(b.tradingHoursOpen) : "";
-  var close = jsVal(b.tradingHoursClose) ? String(b.tradingHoursClose) : "";
+  var open = jsVal(b.tradingHoursOpen) ? jsFmtTime(String(b.tradingHoursOpen)) : "";
+  var close = jsVal(b.tradingHoursClose) ? jsFmtTime(String(b.tradingHoursClose)) : "";
   var is24 = (local.open_24h != null) ? !!local.open_24h : !!b.open24h;
   return '<div class="js-field full js-trading"><span class="k">Customer trading hours</span>' +
     '<span class="v">' +
