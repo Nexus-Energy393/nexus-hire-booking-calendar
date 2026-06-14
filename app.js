@@ -1042,6 +1042,96 @@ function jsTradingHoursField(dealId, b) {
     '</span></div>';
 }
 
+/* ---------- jobsheet formatting + component helpers ---------- */
+function jsFmtDateAU(d) {
+  var dt = (d instanceof Date) ? d : (d ? new Date(d) : null);
+  if (!dt || isNaN(dt.getTime())) return "";
+  return dt.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+}
+function jsFmt12(mins) {
+  if (mins == null) return "";
+  mins = ((mins % 1440) + 1440) % 1440;
+  var h = Math.floor(mins / 60), m = mins % 60, ap = h < 12 ? "am" : "pm";
+  var h12 = h % 12; if (h12 === 0) h12 = 12;
+  return h12 + ":" + (m < 10 ? "0" : "") + m + " " + ap;
+}
+function jsFmtTime12(s) { var mins = jsParseTimeMins(s); return mins == null ? (s || "") : jsFmt12(mins); }
+function jsFmtTimeRange(s) {
+  if (!s) return "";
+  var parts = String(s).split(/\s*(?:-|–|—|to)\s*/i);
+  if (parts.length === 2) {
+    var a = jsFmtTime12(parts[0]), b2 = jsFmtTime12(parts[1]);
+    return (a && b2) ? (a + " to " + b2) : String(s);
+  }
+  return jsFmtTime12(s) || String(s);
+}
+function jsFmtDuration(days) {
+  if (days == null || days === "") return "";
+  var n = parseInt(days, 10);
+  return isNaN(n) ? String(days) : (n + " day" + (n === 1 ? "" : "s"));
+}
+function jsFmtKva(s) { return s ? String(s).replace(/(\d)\s*kva/ig, "$1 kVA") : s; }
+function jsFmtCable(s) {
+  if (!s) return s;
+  return String(s).replace(/(\d)\s*mm/ig, "$1 mm").replace(/(\d)\s*mt\b/ig, "$1 m").replace(/\s*[xX]\s*/g, " x ");
+}
+function jsFmtPhone(s) {
+  if (!s) return s;
+  var d = String(s).replace(/\D/g, "");
+  if (d.length === 10 && d.charAt(0) === "0") return d.slice(0,4) + " " + d.slice(4,7) + " " + d.slice(7);
+  if (d.length === 8) return d.slice(0,4) + " " + d.slice(4);
+  return String(s);
+}
+function jsInspectorVal(b) {
+  var local = jsLoadLocal(b.pipedriveDealId);
+  if (local.elec_inspector_time != null && local.elec_inspector_time !== "") return local.elec_inspector_time;
+  var open = jsParseTimeMins(b.tradingHoursOpen);
+  return jsMinsToHHMM((open == null ? 7 * 60 : open) - 60);
+}
+function jsInspectorSentence(b) {
+  var open = jsParseTimeMins(b.tradingHoursOpen);
+  var insMin = jsParseTimeMins(jsInspectorVal(b));
+  var ins12 = insMin != null ? jsFmt12(insMin) : "";
+  if (open != null) return "Inspector booked for " + ins12 + ", 1 hour before store opening at " + jsFmt12(open) + ".";
+  return "Inspector booked for " + ins12 + " (1 hour before store opening).";
+}
+function jsFmtDTAU(iso) {
+  if (!iso) return "To be set";
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return "To be set";
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" }) + ", " + jsFmt12(d.getHours() * 60 + d.getMinutes());
+}
+function jsYesLabel(v) { return v == null ? null : (v ? "Yes" : "No"); }
+function jsReqLabel(v) { return v == null ? null : (v ? "Required" : "Not required"); }
+function jsDeliveryShort(b) {
+  if (jsVal(b.deliveryFreight)) return b.deliveryFreight;
+  return b.deliveryRequired == null ? null : (b.deliveryRequired ? "Required" : "Not required");
+}
+function jsRefuelShort(b) {
+  if (jsVal(b.refuellingDetail)) return b.refuellingDetail;
+  return b.refuellingRequired == null ? null : (b.refuellingRequired ? "Required" : "Not required");
+}
+function jsCard(title, cls, bodyHtml) {
+  return '<section class="js-card ' + (cls || "") + '"><h3 class="js-card-head">' + escapeHtml(title) + '</h3>' +
+         '<div class="js-card-body">' + bodyHtml + '</div></section>';
+}
+function jsAlertBox(kind, inner) { return '<div class="js-alertbox js-alertbox-' + kind + '">' + inner + '</div>'; }
+function jsChecklist(dealId, items) {
+  var local = jsLoadLocal(dealId);
+  return '<div class="js-checklist">' + items.map(function (it) {
+    var on = local[it.key] ? " checked" : "";
+    return '<label class="js-check-item"><input type="checkbox" class="js-install-input" data-deal="' + dealId +
+           '" data-key="' + escapeHtml(it.key) + '"' + on + '><span>' + escapeHtml(it.label) + '</span></label>';
+  }).join("") + '</div>';
+}
+function jsSignBlock(b) {
+  var fields = [ {lbl:"Dispatch checked by"}, {lbl:"Date / time"}, {lbl:"Site contact name"}, {lbl:"Site contact signature"} ];
+  if (b.electricalConnectionRequired) { fields.push({lbl:"Electrician name"}, {lbl:"Electrician signature"}); }
+  return '<div class="js-signgrid">' + fields.map(function (f) {
+    return '<div class="js-sign"><div class="rule"></div><span class="lbl">' + escapeHtml(f.lbl) + '</span></div>';
+  }).join("") + '</div>';
+}
+
 /* ---------- main jobsheet renderer (interactive dispatch sheet) ---------- */
 function renderJobSheet(b) {
   var tm = typeMeta(b);
@@ -1053,110 +1143,148 @@ function renderJobSheet(b) {
   var printStamp = now.toLocaleDateString("en-AU", {day:"numeric", month:"short", year:"numeric"}) + " " +
                    now.toLocaleTimeString("en-AU", {hour:"2-digit", minute:"2-digit"});
 
+  var custLine = escapeHtml(b.customer || "Unknown customer") + (jsVal(b.suburb) ? ' &middot; ' + escapeHtml(b.suburb) : '');
   var html = '<div class="jobsheet">';
 
-  /* toolbar (screen only) */
+  /* toolbar (screen only - excluded from print/PDF) */
   html += '<div class="js-toolbar">';
-  html += '<span class="js-title-min">Dispatch jobsheet — ' + escapeHtml(b.customer || "Unknown customer") + "</span>";
-  html += '<button class="js-btn primary" id="jsPrintBtn" type="button"><svg class="js-btn-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print jobsheet</button>';
-  html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Open Pipedrive deal #' + dealId + " →</a>";
+  html += '<span class="js-title-min">Dispatch jobsheet &mdash; ' + escapeHtml(b.customer || "Unknown customer") + '</span>';
+  html += '<button class="js-btn primary" id="jsPdfBtn" type="button">Download PDF</button>';
+  html += '<button class="js-btn" id="jsPrintBtn" type="button">Print</button>';
+  html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Pipedrive #' + dealId + ' &rarr;</a>';
   html += '<button class="js-btn ready" id="jsReadyBtn" type="button">Mark ready for dispatch</button>';
   html += '<button class="modal-close" id="modalClose" type="button">&times;</button>';
-  html += "</div>";
+  html += '</div>';
 
-  html += '<div class="js-body">';
+  html += '<div class="js-body" id="jsSheetBody">';
 
-  /* print/sheet header */
-  html += '<div class="js-sheet-head">';
-  html += '<div class="js-brand"><img src="nexus-logo.png" alt="Nexus Generator Hire &amp; Electrical" class="js-logo-img"></div>';
-  html += '<div class="js-headmeta"><div class="job-no">JOB #' + dealId + '</div>' +
-          '<div class="js-print-date">Printed: ' + printStamp + "</div></div>";
-  html += "</div>";
+  /* document header */
+  html += '<header class="js-doc-head">';
+  html += '<div class="js-doc-brand"><img src="nexus-logo.png" alt="Nexus Generator Hire &amp; Electrical" class="js-logo-img"></div>';
+  html += '<div class="js-doc-title"><div class="job-no">JOB #' + dealId + '</div>';
+  html += '<div class="js-doc-cust">' + custLine + '</div>';
+  html += '<div class="js-print-date">Printed ' + printStamp + '</div></div>';
+  html += '</header>';
 
-  /* status line */
-  html += '<div class="js-statusline">';
-  html += '<span class="js-tag ' + tm.cls + '">' + tm.label + "</span>";
-  html += '<span class="js-tag js-status-pill ' + (JS_STATUS_CLS[st.key] || "") + '" id="jsStatusPill">' + escapeHtml(st.label) + "</span>";
+  /* status chips */
+  html += '<div class="js-chips">';
+  html += '<span class="js-chip ' + tm.cls + '">' + tm.label + '</span>';
+  html += '<span class="js-chip js-status-pill ' + (JS_STATUS_CLS[st.key] || "") + '" id="jsStatusPill">' + escapeHtml(st.label) + '</span>';
+  if (b.electricalConnectionRequired) html += '<span class="js-chip js-chip-elec">&#9889; Electrical connection required</span>';
   jsActiveAlerts(b).forEach(function (al) {
-    html += '<span class="js-tag js-alert ' + al.cls + '" title="' + escapeHtml(al.title) + '">' + al.icon + ' ' + escapeHtml(al.text) + '</span>';
+    html += '<span class="js-chip js-alert ' + al.cls + '">' + al.icon + ' ' + escapeHtml(al.text) + '</span>';
   });
-  html += "</div>";
+  html += '</div>';
 
-  /* specific missing-item warning (hidden when complete) */
-  html += '<div class="js-warning" id="jsWarning"' + (st.missing.length ? "" : " hidden") + ">" +
-          (st.missing.length ? jsWarningInner(st) : "") + "</div>";
+  /* missing-item warning */
+  html += '<div class="js-warning" id="jsWarning"' + (st.missing.length ? "" : " hidden") + '>' +
+          (st.missing.length ? jsWarningInner(st) : "") + '</div>';
 
-  /* job summary: only fields with data (or operationally required) */
-  html += '<div class="js-section"><h3>Job &amp; Site</h3><div class="js-section-body"><div class="js-grid">';
-  html += jsField("Customer", b.customer, {required:true});
-  html += jsField("Site contact", b.contact, {required:true});
-  html += jsField("Contact phone", b.contactPhone || b.sitePhone, {required:true});
-  html += jsField("Contact email", b.contactEmail);
-  html += jsField("Deal owner", b.dealOwner);
-  html += jsField("Suburb / state", [b.suburb, b.state].filter(Boolean).join(" "));
-  html += jsField("Site address", b.site, {full:true, required:true});
-  html += jsField("Hire start", bStart(b) ? fmt(bStart(b)) : null, {required:true});
-  html += jsField("Hire end", bEnd(b) ? fmt(bEnd(b)) : null);
-  html += jsField("Duration", b.durationDays ? b.durationDays + " day(s)" : null);
-  html += jsField("Outage window", b.outageWindow);
-  html += jsField("Delivery", b.deliveryRequired == null ? null : jsYesNo(b.deliveryRequired));
-  html += jsField("Electrical connection", b.electricalConnectionRequired == null ? null : jsYesNo(b.electricalConnectionRequired));
-  html += "</div></div></div>";
+  /* CRITICAL DISPATCH SUMMARY */
+  html += jsCard("Critical dispatch summary", "js-card-summary", '<div class="js-grid js-grid-3">' +
+    jsField("Job", "#" + dealId) +
+    jsField("Customer", b.customer, {required:true}) +
+    jsField("Site", b.site, {required:true, full:true}) +
+    jsField("Site contact", b.contact, {required:true}) +
+    jsField("Contact phone", jsFmtPhone(b.contactPhone || b.sitePhone), {required:true}) +
+    jsField("Hire date", bStart(b) ? jsFmtDateAU(bStart(b)) : null, {required:true}) +
+    jsField("Outage window", jsFmtTimeRange(b.outageWindow)) +
+    jsField("Generator size", jsFmtKva(b.generatorSize)) +
+    jsField("Electrical connection", jsReqLabel(b.electricalConnectionRequired)) +
+    jsField("Delivery", jsDeliveryShort(b)) +
+    jsField("Refuelling", jsRefuelShort(b)) +
+    '<div class="js-field"><span class="k">Staff allocated</span><span class="v" id="jsStaffSummary">To be confirmed</span></div>' +
+  '</div>');
 
-  /* ===== Electrical-install requirements (mapped from Pipedrive; editable fallback) ===== */
-  html += '<div class="js-section js-install"><h3>Equipment</h3><div class="js-section-body"><div class="js-grid">';
-  html += jsField("Generator size required", b.generatorSize);
-  html += jsField("Cable set required", b.cableSet);
-  html += jsField("Additional equipment required", b.additionalEquipment, {full:true});
-  html += '</div></div></div>';
+  /* SITE & CONTACT */
+  html += jsCard("Site &amp; contact", "", '<div class="js-grid js-grid-2">' +
+    jsField("Customer", b.customer, {required:true}) +
+    jsField("Deal owner", b.dealOwner) +
+    jsField("Site contact", b.contact, {required:true}) +
+    jsField("Contact phone", jsFmtPhone(b.contactPhone || b.sitePhone), {required:true}) +
+    jsField("Contact email", b.contactEmail, {full:true}) +
+    jsField("Suburb / state", [b.suburb, b.state].filter(Boolean).join(" ")) +
+    jsField("Site address", b.site, {full:true, required:true}) +
+  '</div>');
 
-  html += '<div class="js-section js-install"><h3>Electrical</h3><div class="js-section-body"><div class="js-grid">';
-  html += jsField("Electrical connect/disconnect req", b.electricalConnectionRequired == null ? null : jsYesNo(b.electricalConnectionRequired));
-  html += jsField("Electrical inspection required", b.electricalInspectionRequired == null ? null : jsYesNo(b.electricalInspectionRequired));
-  html += jsInspectorTimeField(dealId, b);
-  html += '</div></div></div>';
+  /* HIRE TIMING & OUTAGE */
+  html += jsCard("Hire timing &amp; outage", "", '<div class="js-grid js-grid-2">' +
+    jsField("Hire start", bStart(b) ? jsFmtDateAU(bStart(b)) : null, {required:true}) +
+    jsField("Hire end", bEnd(b) ? jsFmtDateAU(bEnd(b)) : null) +
+    jsField("Duration", jsFmtDuration(b.durationDays)) +
+    jsField("Outage window", jsFmtTimeRange(b.outageWindow)) +
+    jsTradingHoursField(dealId, b) +
+  '</div>');
 
-  html += '<div class="js-section js-install"><h3>Safety &amp; Site</h3><div class="js-section-body"><div class="js-grid">';
-  html += jsField("Safety items required", b.safetyItems, {full:true});
-  html += jsTradingHoursField(dealId, b);
-  html += '</div></div></div>';
-
-  html += '<div class="js-section js-install"><h3>Logistics</h3><div class="js-section-body"><div class="js-grid">';
-  html += jsField("Delivery / freight", jsVal(b.deliveryFreight) ? b.deliveryFreight : (b.deliveryRequired == null ? null : jsYesNo(b.deliveryRequired)));
-  html += jsField("Refueling required", jsVal(b.refuellingDetail) ? b.refuellingDetail : (b.refuellingRequired == null ? null : jsYesNo(b.refuellingRequired)));
-  html += '</div></div></div>';
-
-  /* EQUIPMENT & ALLOCATION: interactive checklist (fleet.js) */
-  html += '<div class="js-section"><h3>Equipment &amp; Allocation</h3><div class="js-section-body">' +
-          '<div id="jsEquipmentHolder">' + jsStaticEquipmentTable(b, st) + "</div></div></div>";
-
-  /* STAFF ALLOCATION: show who is assigned + hours/billable */
-  html += '<div class="js-section js-section-staff"><h3>Staff Allocation</h3>' +
-          '<div class="js-section-body"><div id="jsStaffHolder"><div class="js-staff-placeholder">' +
-          'Loading staff…</div></div></div></div>';
-
-  /* electrical works: only when relevant */
+  /* ELECTRICAL WORKS (single grouped section) */
+  var elecBody = '';
   if (b.electricalConnectionRequired) {
-    html += '<div class="js-section"><h3>Electrical Works</h3><div class="js-section-body">' +
-            '<div class="js-line-note">Electrical connection required — confirm electrician booking and isolation plan before dispatch.</div>' +
-            '<div class="js-write-line"><span class="lbl">Connection / isolation notes</span><div class="rule"></div></div>' +
-            "</div></div>";
+    elecBody += jsAlertBox("warn", '<strong>Electrical connection required.</strong> Confirm electrician booking, isolation plan and inspection requirements before dispatch.');
+  } else if (b.electricalConnectionRequired === false) {
+    elecBody += '<p class="js-elec-none">Electrical connection not required.</p>';
   }
+  elecBody += '<div class="js-grid js-grid-2">' +
+    jsField("Connect / disconnect required", jsYesLabel(b.electricalConnectionRequired)) +
+    jsField("Electrical inspection required", jsYesLabel(b.electricalInspectionRequired)) +
+    '<div class="js-field"><span class="k">Inspector booking time</span><span class="v"><input type="time" class="js-install-input js-time" data-deal="' + dealId + '" data-key="elec_inspector_time" value="' + escapeHtml(jsInspectorVal(b)) + '"></span></div>' +
+    jsField("Store opening time", b.tradingHoursOpen ? jsFmtTime12(b.tradingHoursOpen) : null) +
+  '</div>';
+  if (b.electricalInspectionRequired || b.electricalConnectionRequired) {
+    elecBody += '<p class="js-elec-sentence">' + escapeHtml(jsInspectorSentence(b)) + '</p>';
+  }
+  elecBody += '<div class="js-write-line"><span class="lbl">Connection / isolation notes</span><div class="rule"></div></div>';
+  html += jsCard("Electrical works", "js-card-elec", elecBody);
 
-  /* notes: collapsed on screen, compact on print, only if present */
+  /* EQUIPMENT REQUIRED */
+  html += jsCard("Equipment required", "", '<div class="js-grid js-grid-2">' +
+    jsField("Generator size required", jsFmtKva(b.generatorSize)) +
+    jsField("Cable set required", jsFmtCable(b.cableSet)) +
+    jsField("Additional equipment required", b.additionalEquipment, {full:true}) +
+  '</div>');
+
+  /* EQUIPMENT ALLOCATION (+ fuel/engine hours via fleet.js) */
+  html += jsCard("Equipment allocation", "js-card-alloc",
+    '<div id="jsEquipmentHolder">' + jsStaticEquipmentTable(b, st) + '</div>');
+
+  /* STAFF ALLOCATION */
+  html += jsCard("Staff allocation", "js-card-staff",
+    '<div id="jsStaffHolder"><div class="js-staff-placeholder">Loading staff&hellip;</div></div>');
+
+  /* SAFETY & SITE */
+  html += jsCard("Safety &amp; site", "", '<div class="js-grid js-grid-2">' +
+    jsField("Safety items required", b.safetyItems, {full:true}) +
+    '<div class="js-field full"><span class="k">Site access notes</span><span class="v"><span class="js-blank"></span></span></div>' +
+    '<div class="js-field full"><span class="k">Site hazards / instructions</span><span class="v"><span class="js-blank"></span></span></div>' +
+  '</div>');
+
+  /* LOGISTICS */
+  html += jsCard("Logistics", "", '<div class="js-grid js-grid-2">' +
+    jsField("Delivery / freight", jsDeliveryShort(b)) +
+    jsField("Refuelling required", jsRefuelShort(b)) +
+    '<div class="js-field full"><span class="k">Transport / collection notes</span><span class="v"><span class="js-blank"></span></span></div>' +
+  '</div>');
+
+  /* NOTES */
   if (jsVal(b.notes)) {
-    html += '<details class="js-notes js-section" open><summary>Notes</summary><div class="js-section-body js-notes-body">' +
-            escapeHtml(b.notes) + "</div></details>";
+    html += jsCard("Notes", "js-card-notes", '<div class="js-notes-body">' + escapeHtml(b.notes) + '</div>' +
+      '<div class="js-write-line"><span class="lbl">Internal dispatch notes</span><div class="rule"></div></div>');
   }
 
-  /* sign-off (print) */
-  html += '<div class="js-footer-sign">';
-  html += '<div class="js-sign"><span class="lbl">Dispatch checked by</span><div class="rule"></div></div>';
-  html += '<div class="js-sign"><span class="lbl">Date / time</span><div class="rule"></div></div>';
-  html += '<div class="js-sign"><span class="lbl">Site contact sign</span><div class="rule"></div></div>';
-  html += "</div>";
+  /* DISPATCH CHECKLIST & SIGN-OFF */
+  var checkItems = [
+    {key:"chk_equip", label:"Equipment picked"},
+    {key:"chk_cable", label:"Cable set picked"},
+    {key:"chk_ramps", label:"Cable ramps picked"},
+    {key:"chk_fuel", label:"Fuel checked"},
+    {key:"chk_elec", label:"Electrical booking confirmed"},
+    {key:"chk_contact", label:"Site contact confirmed"},
+    {key:"chk_staff", label:"Staff allocation confirmed"},
+    {key:"chk_dispatch", label:"Dispatch approved"}
+  ];
+  html += jsCard("Dispatch checklist &amp; sign-off", "js-card-signoff",
+    jsChecklist(dealId, checkItems) + jsSignBlock(b));
 
-  html += "</div></div>"; /* js-body, jobsheet */
+  html += '</div></div>'; /* js-body, jobsheet */
 
   m.innerHTML = html;
   document.getElementById("modalBackdrop").hidden = false;
@@ -1235,6 +1363,10 @@ function jsRenderStaffAllocations(holder, booking, opts) {
       var allocs = (data.allocations || []).filter(function(a) {
         return a.status !== "cancelled";
       });
+      var sumEl = document.getElementById("jsStaffSummary");
+      if (sumEl) sumEl.textContent = allocs.length
+        ? (allocs.length + " (" + allocs.map(function(a){return a.staff_name;}).filter(Boolean).join(", ") + ")")
+        : "None allocated";
       var wrap = document.createElement("div");
 
       /* ── conflict alert (shown after a save that detected an overlap) ── */
@@ -1256,15 +1388,15 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         var tbody = tbl.querySelector("tbody");
         allocs.forEach(function(a) {
           var billCls = a.billable ? "js-bill-yes" : "js-bill-no";
-          var startStr = a.allocation_start ? new Date(a.allocation_start).toLocaleString("en-AU",{dateStyle:"short",timeStyle:"short"}) : "—";
-          var endStr   = a.allocation_end   ? new Date(a.allocation_end).toLocaleString("en-AU",{dateStyle:"short",timeStyle:"short"}) : "—";
+          var startStr = jsFmtDTAU(a.allocation_start);
+          var endStr   = jsFmtDTAU(a.allocation_end);
           var tr = document.createElement("tr");
           tr.innerHTML =
             '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
             '<td>' + escapeHtml(a.staff_role || "—") + '</td>' +
             '<td>' + escapeHtml(startStr) + '</td>' +
             '<td>' + escapeHtml(endStr) + '</td>' +
-            '<td class="js-staff-num">' + (a.duration_hours != null ? a.duration_hours + "h" : "—") + '</td>' +
+            '<td class="js-staff-num">' + (a.duration_hours != null ? (parseFloat(a.duration_hours) + " h") : "&mdash;") + '</td>' +
             '<td class="' + billCls + '">' + (a.billable ? "Yes" : "No") + '</td>' +
             '<td class="js-staff-del-cell"><button class="js-staff-del" title="Remove allocation" data-id="' + escapeHtml(a.staff_allocation_id) + '">✕</button></td>';
           tbody.appendChild(tr);
@@ -1285,8 +1417,8 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         wrap.appendChild(tbl);
       } else {
         var ph = document.createElement("div");
-        ph.className = "js-staff-placeholder";
-        ph.textContent = "No staff allocated to this job.";
+        ph.className = "js-alertbox js-alertbox-warn";
+        ph.textContent = "No staff allocated.";
         wrap.appendChild(ph);
       }
 
@@ -1437,6 +1569,23 @@ function jsWire(m, b) {
 
   var printBtn = document.getElementById("jsPrintBtn");
   if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
+
+  var pdfBtn = document.getElementById("jsPdfBtn");
+  if (pdfBtn) pdfBtn.addEventListener("click", function () {
+    var node = document.getElementById("jsSheetBody");
+    if (!window.html2pdf || !node) { window.print(); return; }
+    document.body.classList.add("js-exporting");
+    var fname = (jsDocumentTitle(b) || ("JOB-" + b.pipedriveDealId)).replace(/[^\w\- ]+/g, "").trim() + ".pdf";
+    window.html2pdf().set({
+      margin: [10, 10, 12, 10],
+      filename: fname,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+      pagebreak: { mode: ["css", "legacy"], avoid: ".js-card" },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+    }).from(node).save().then(function () { document.body.classList.remove("js-exporting"); })
+      .catch(function () { document.body.classList.remove("js-exporting"); });
+  });
 
   var readyBtn = document.getElementById("jsReadyBtn");
   if (readyBtn) readyBtn.addEventListener("click", function () {
