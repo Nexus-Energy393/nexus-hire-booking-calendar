@@ -1117,6 +1117,26 @@ function jsRefuelShort(b) {
   if (jsVal(b.refuellingDetail)) return b.refuellingDetail;
   return b.refuellingRequired == null ? null : (b.refuellingRequired ? "Required" : "Not required");
 }
+function jsMapsUrl(b) {
+  if (jsVal(b.mapLink)) return b.mapLink;
+  var addr = b.site || [b.suburb, b.state].filter(Boolean).join(" ");
+  if (!addr) return "";
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(addr);
+}
+function jsSiteAddressField(b, opts) {
+  opts = opts || {};
+  var cls = "js-field" + (opts.full ? " full" : "");
+  var label = opts.label || "Site address";
+  if (!jsVal(b.site)) {
+    return '<div class="' + cls + '"><span class="k">' + escapeHtml(label) + '</span><span class="v missing">MISSING</span></div>';
+  }
+  var url = jsMapsUrl(b);
+  var pin = '<svg class="js-maps-ico" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
+  var inner = url
+    ? '<a class="js-maps-link" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' + escapeHtml(b.site) + pin + '</a>'
+    : escapeHtml(b.site);
+  return '<div class="' + cls + '"><span class="k">' + escapeHtml(label) + '</span><span class="v">' + inner + '</span></div>';
+}
 function jsCard(title, cls, bodyHtml) {
   return '<section class="js-card ' + (cls || "") + '"><h3 class="js-card-head">' + escapeHtml(title) + '</h3>' +
          '<div class="js-card-body">' + bodyHtml + '</div></section>';
@@ -1189,7 +1209,7 @@ function renderJobSheet(b) {
   html += jsCard("Critical dispatch summary", "js-card-summary", '<div class="js-grid js-grid-3">' +
     jsField("Job", "#" + dealId) +
     jsField("Customer", b.customer, {required:true}) +
-    jsField("Site", b.site, {required:true, full:true}) +
+    jsSiteAddressField(b, {label:"Site", full:true}) +
     jsField("Site contact", b.contact, {required:true}) +
     jsField("Contact phone", jsFmtPhone(b.contactPhone || b.sitePhone), {required:true}) +
     jsField("Hire date", bStart(b) ? jsFmtDateAU(bStart(b)) : null, {required:true}) +
@@ -1209,7 +1229,7 @@ function renderJobSheet(b) {
     jsField("Contact phone", jsFmtPhone(b.contactPhone || b.sitePhone), {required:true}) +
     jsField("Contact email", b.contactEmail, {full:true}) +
     jsField("Suburb / state", [b.suburb, b.state].filter(Boolean).join(" ")) +
-    jsField("Site address", b.site, {full:true, required:true}) +
+    jsSiteAddressField(b, {label:"Site address", full:true}) +
   '</div>');
 
   /* HIRE TIMING & OUTAGE */
