@@ -210,3 +210,15 @@ html { -webkit-text-size-adjust: 100%; }
 .js-logo-img { height: 50px; width: auto; max-width: 280px; display: block; object-fit: contain; }
 .js-sheet-head { align-items: center; }   /* logo (left) + job-no/printed (right), vertically centred */
 .js-btn .js-btn-ico { flex: 0 0 auto; }
+
+
+/* ============================================================================
+   8. JOBSHEET ACTIVE-ALERT PILLS (status line)
+   Refuelling / Electrical / Delivery required + Labour conflict, shown as
+   coloured pills beside the job-type and status tags.
+   ============================================================================ */
+.js-statusline .js-alert { font-weight: 700; }
+.js-alert.al-fuel     { background: #fff3e0; color: #b26a00; border-color: #f0c890; }
+.js-alert.al-elec     { background: #fff8e1; color: #8a6d00; border-color: #efd271; }
+.js-alert.al-deliver  { background: #eef2ff; color: #3a48c0; border-color: #c3ccf5; }
+.js-alert.al-conflict { background: #fdecea; color: #b71c1c; border-color: #f1b0a8; }

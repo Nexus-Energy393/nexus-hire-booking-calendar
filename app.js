@@ -891,6 +891,28 @@ function jsSaveLocalField(dealId, key, value) {
 }
 
 /* ---------- computed resourcing status (shared with calendar) ---------- */
+/* Active operational alerts shown as pills on the jobsheet status line. */
+function jsActiveAlerts(b) {
+  var out = [];
+  if (b.refuellingRequired) {
+    out.push({ cls: "al-fuel", icon: "&#9981;", text: "Refuelling required",
+               title: "Ongoing refuelling scheduled for this hire" });
+  }
+  if (b.electricalConnectionRequired) {
+    out.push({ cls: "al-elec", icon: "&#9889;", text: "Electrical connection required",
+               title: "Electrician booking and isolation plan required before dispatch" });
+  }
+  if (b.deliveryRequired) {
+    out.push({ cls: "al-deliver", icon: "&#128666;", text: "Delivery required",
+               title: "Delivery / transport required for this hire" });
+  }
+  if (STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)]) {
+    out.push({ cls: "al-conflict", icon: "&#9888;", text: "Labour conflict",
+               title: "Staff double-booked over this hire period" });
+  }
+  return out;
+}
+
 function jsComputeStatus(b) {
   var allocs = (STATE.allocationsByDeal || {})[String(b.pipedriveDealId)] || [];
   var hours = (STATE.hoursByDeal || {})[String(b.pipedriveDealId)] || [];
@@ -1003,6 +1025,9 @@ function renderJobSheet(b) {
   html += '<div class="js-statusline">';
   html += '<span class="js-tag ' + tm.cls + '">' + tm.label + "</span>";
   html += '<span class="js-tag js-status-pill ' + (JS_STATUS_CLS[st.key] || "") + '" id="jsStatusPill">' + escapeHtml(st.label) + "</span>";
+  jsActiveAlerts(b).forEach(function (al) {
+    html += '<span class="js-tag js-alert ' + al.cls + '" title="' + escapeHtml(al.title) + '">' + al.icon + ' ' + escapeHtml(al.text) + '</span>';
+  });
   html += "</div>";
 
   /* specific missing-item warning (hidden when complete) */
