@@ -1457,10 +1457,19 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
   var LANDSCAPE_DEFAULT_VIEW = "month";
 
   function isTouchTablet() {
-    return window.matchMedia("(pointer: coarse)").matches && window.innerWidth >= 700;
+    // Use any-pointer (NOT pointer): stylus tablets such as the Galaxy Tab
+    // S-series report their primary pointer as "fine", which would make a plain
+    // (pointer: coarse) check false. Fall back to touch-point detection too.
+    var coarse = window.matchMedia("(any-pointer: coarse)").matches;
+    var touch  = (navigator.maxTouchPoints || 0) > 0 || "ontouchstart" in window;
+    return (coarse || touch) && window.innerWidth >= 700;
   }
   function isPortrait() {
-    return window.matchMedia("(orientation: portrait)").matches;
+    // matchMedia first, with a dimension fallback for browsers that report
+    // orientation unreliably.
+    if (window.matchMedia("(orientation: portrait)").matches) return true;
+    if (window.matchMedia("(orientation: landscape)").matches) return false;
+    return window.innerHeight >= window.innerWidth;
   }
   function setView(view) {
     if (!window.STATE) return;
@@ -1486,7 +1495,7 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
     if (STATE.view !== want) setView(want);
   }
 
-  var timer;
+  var timer = null;
   function onOrientationChange() {
     clearTimeout(timer);
     timer = setTimeout(function () {

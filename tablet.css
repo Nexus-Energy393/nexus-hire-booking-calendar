@@ -3,9 +3,11 @@
    ----------------------------------------------------------------------------
    Drop-in, additive stylesheet. It does NOT edit any existing rule — it is
    designed to load AFTER styles.css so it cascades last (same trick the
-   "Pipedrive-style" block already uses). Nothing here changes desktop/mouse
-   behaviour: the touch rules are gated on `(pointer: coarse)`, so a 1366px
-   laptop keeps the desktop layout while a 1366px iPad Pro gets touch tuning.
+   "Pipedrive-style" block already uses). Touch rules are gated on
+   `(any-pointer: coarse)` — true whenever ANY input is a touchscreen. We use
+   `any-pointer`, NOT `pointer`: stylus tablets (Galaxy Tab S-series with S Pen,
+   Surface, etc.) report their PRIMARY pointer as `fine`, which makes plain
+   `(pointer: coarse)` false and would skip every tablet rule on those devices.
 
    HOW TO INSTALL (pick one):
      A) In index.html, add right AFTER the styles.css link:
@@ -44,8 +46,9 @@ html { -webkit-text-size-adjust: 100%; }
 
 
 /* ── 2. TABLET TOUCH TUNING (any iPad, either orientation) ────────────────── */
-/* Gated on a coarse pointer + tablet-ish width so laptops are untouched.      */
-@media (pointer: coarse) and (min-width: 700px) and (max-width: 1400px) {
+/* Gated on a touchscreen + tablet-ish width (no upper cap, so large Android
+   tablets like the Galaxy Tab S10 Ultra are covered too).                     */
+@media (any-pointer: coarse) and (min-width: 700px) {
 
   /* 2a. Minimum 44×44 hit targets (Apple HIG). Filters were 38px; bump them,
          and use 16px font so focusing a field doesn't trigger iOS zoom. */
@@ -85,7 +88,7 @@ html { -webkit-text-size-adjust: 100%; }
 /* ── 3. PORTRAIT (iPad held upright: ~744–834px, also 1024 Pro portrait) ──── */
 /* Seven day-columns are narrow here, so the priority is: stop truncation,
    give cells height, and stack the secondary data tables.                     */
-@media (pointer: coarse) and (orientation: portrait) and (max-width: 1100px) {
+@media (any-pointer: coarse) and (orientation: portrait) and (min-width: 700px) and (max-width: 1600px) {
 
   /* Keep the office-screen ("tv") mode out of these density tweaks. */
   body:not([data-mode="tv"]) .month-grid  { gap: 5px; }
@@ -128,7 +131,7 @@ html { -webkit-text-size-adjust: 100%; }
 /* ── 4. LANDSCAPE (iPad on its side: ~1133–1366px) ───────────────────────── */
 /* There's room for the full month grid; make it touch-comfortable rather than
    the dense desktop spacing it inherits above 1100px today.                   */
-@media (pointer: coarse) and (orientation: landscape) and (min-width: 1000px) and (max-width: 1400px) {
+@media (any-pointer: coarse) and (orientation: landscape) and (min-width: 1000px) and (max-width: 2200px) {
 
   body:not([data-mode="tv"]) .month-cell      { min-height: 120px; }
   body:not([data-mode="tv"]) .booking-card.compact { font-size: 13px; padding: 7px 9px; }
