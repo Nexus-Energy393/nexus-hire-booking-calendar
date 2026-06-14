@@ -15,7 +15,7 @@ var CONFIG = window.NEXUS_CONFIG || {};
 var PIPEDRIVE_BASE = CONFIG.pipedriveCompanyUrl || "https://nexusenergy.pipedrive.com";
 var REFRESH_MS = (CONFIG.autoRefreshSeconds || 60) * 1000;
 
-/* ââ inline SVG: staff conflict badge (appears on calendar tiles) ââ */
+/* ── inline SVG: staff conflict badge (appears on calendar tiles) ── */
 var STAFF_CONFLICT_SVG =
   '<svg class="bs-staff-warn" viewBox="0 0 22 18" width="20" height="16"' +
   ' xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">' +
@@ -26,7 +26,7 @@ var STAFF_CONFLICT_SVG =
   '<circle cx="16.5" cy="16.5" r="0.8" fill="#1e1b4b"/>' +
   '</svg>';
 
-/* ââ inline SVG: Nexus logo (jobsheet print header) ââââââââââââââââ */
+/* ── inline SVG: Nexus logo (jobsheet print header) ──────────────── */
 var NEXUS_LOGO_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 295 88" width="162" height="48"' +
   ' role="img" aria-label="Nexus Generator Hire &amp; Electrical">' +
@@ -50,7 +50,7 @@ var STATE = {
   everLive: false,
   loaded: false,
   lastUpdated: null,
-  staffConflicts: {}   // deal id (string) â true when staff is double-booked
+  staffConflicts: {}   // deal id (string) → true when staff is double-booked
 };
 
 // ---------- date helpers ----------
@@ -250,7 +250,7 @@ function loadStaffConflicts() {
       STATE.staffConflicts = map;
       render();
     })
-    .catch(function () { /* staff conflict feed unavailable â no icons shown */ });
+    .catch(function () { /* staff conflict feed unavailable — no icons shown */ });
 }
 
 /* Called by fleet.js after any allocation / hours change so the open jobsheet
@@ -554,7 +554,7 @@ function bookingSpan(seg) {
     bar.appendChild(meta);
   } else {
     var contRow = el("div", "bs-cont");
-    contRow.innerHTML = "â¹ " + escapeHtml(b.customer || "") + " continues" +
+    contRow.innerHTML = "‹ " + escapeHtml(b.customer || "") + " continues" +
       (hasStaffConflict ? " " + STAFF_CONFLICT_SVG : "");
     bar.appendChild(contRow);
   }
@@ -563,7 +563,7 @@ function bookingSpan(seg) {
   if (b.refuellingRequired && !(seg.isTrueStart && !seg.continuesLeft)) {
     var fuelPin = el("div", "bs-fuel-warn");
     fuelPin.setAttribute("title", "Ongoing refuelling scheduled for this hire");
-    fuelPin.innerHTML = "&#9981;"; /* â½ fuel pump */
+    fuelPin.innerHTML = "&#9981;"; /* ⛽ fuel pump */
     bar.appendChild(fuelPin);
   }
   var open = function () { openModal(b); };
@@ -935,22 +935,22 @@ function jsSetReadyState(btn, st) {
   btn.classList.remove("on", "blocked");
   if (st.key === "ready") {
     btn.disabled = false;
-    btn.textContent = "â Ready for dispatch";
+    btn.textContent = "✓ Ready for dispatch";
     btn.classList.add("on");
     btn.title = "Click to take this job out of ready state";
   } else if (st.dispatchReady && st.key !== "conflict") {
     btn.disabled = false;
     btn.textContent = "Mark ready for dispatch";
     btn.classList.remove("on");
-    btn.title = "Equipment allocated + picked, hours and fuel recorded â mark ready";
+    btn.title = "Equipment allocated + picked, hours and fuel recorded — mark ready";
   } else {
     btn.disabled = false; /* clickable so it can EXPLAIN what's missing */
     btn.textContent = "Mark ready for dispatch";
     btn.classList.remove("on");
     btn.classList.add("blocked");
-    btn.title = "Blocked â " + (st.missing.join("; ") || "equipment requirements incomplete");
+    btn.title = "Blocked — " + (st.missing.join("; ") || "equipment requirements incomplete");
   }
-  if (st.key === "conflict") btn.title = "Blocked â resolve the generator conflict (choose another fleet # or cross-hire) first";
+  if (st.key === "conflict") btn.title = "Blocked — resolve the generator conflict (choose another fleet # or cross-hire) first";
 }
 
 function jsYesNo(v) { return v ? "Yes" : "No"; }
@@ -983,9 +983,9 @@ function renderJobSheet(b) {
 
   /* toolbar (screen only) */
   html += '<div class="js-toolbar">';
-  html += '<span class="js-title-min">Dispatch jobsheet â ' + escapeHtml(b.customer || "Unknown customer") + "</span>";
+  html += '<span class="js-title-min">Dispatch jobsheet — ' + escapeHtml(b.customer || "Unknown customer") + "</span>";
   html += '<button class="js-btn primary" id="jsPrintBtn" type="button"><svg class="js-btn-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print jobsheet</button>';
-  html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Open Pipedrive deal #' + dealId + " â</a>";
+  html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Open Pipedrive deal #' + dealId + " →</a>";
   html += '<button class="js-btn ready" id="jsReadyBtn" type="button">Mark ready for dispatch</button>';
   html += '<button class="modal-close" id="modalClose" type="button">&times;</button>';
   html += "</div>";
@@ -1033,12 +1033,12 @@ function renderJobSheet(b) {
   /* STAFF ALLOCATION: show who is assigned + hours/billable */
   html += '<div class="js-section js-section-staff"><h3>Staff Allocation</h3>' +
           '<div class="js-section-body"><div id="jsStaffHolder"><div class="js-staff-placeholder">' +
-          'Loading staffâ¦</div></div></div></div>';
+          'Loading staff…</div></div></div></div>';
 
   /* electrical works: only when relevant */
   if (b.electricalConnectionRequired) {
     html += '<div class="js-section"><h3>Electrical Works</h3><div class="js-section-body">' +
-            '<div class="js-line-note">Electrical connection required â confirm electrician booking and isolation plan before dispatch.</div>' +
+            '<div class="js-line-note">Electrical connection required — confirm electrician booking and isolation plan before dispatch.</div>' +
             '<div class="js-write-line"><span class="lbl">Connection / isolation notes</span><div class="rule"></div></div>' +
             "</div></div>";
   }
@@ -1085,9 +1085,9 @@ function jsStaticEquipmentTable(b, st) {
   .forEach(function (r) {
     var a = r.alloc;
     var allocated = a ? (r.kind === "generator"
-        ? (a.asset && a.asset.fleet_number ? "#" + a.asset.fleet_number : (a.allocation_status === "cross_hire_required" ? "Cross-hire" : "â"))
+        ? (a.asset && a.asset.fleet_number ? "#" + a.asset.fleet_number : (a.allocation_status === "cross_hire_required" ? "Cross-hire" : "—"))
         : String(a.quantity_allocated || 0))
-      : "â";
+      : "—";
     rows += "<tr><td>" + escapeHtml(r.label) + '</td><td class="num">' + r.qtyRequired +
             '</td><td>' + escapeHtml(allocated) + '</td><td>' + escapeHtml(a ? (a.allocation_status || "") : "not allocated") +
             '</td><td class="chk"><span class="js-box"></span></td></tr>';
@@ -1095,7 +1095,7 @@ function jsStaticEquipmentTable(b, st) {
   return '<table class="js-table js-equip stackable"><thead><tr>' +
          '<th>Item</th><th class="num">Req</th><th>Allocated</th><th>Status</th><th class="chk">Picked</th>' +
          "</tr></thead><tbody>" + rows + "</tbody></table>" +
-         (CONFIG.apiBase ? "" : '<div class="js-line-note">Fleet resourcing not connected â allocation is manual on this sheet.</div>');
+         (CONFIG.apiBase ? "" : '<div class="js-line-note">Fleet resourcing not connected — allocation is manual on this sheet.</div>');
 }
 
 /* Fetch and render staff allocations inside the jobsheet staff section. */
@@ -1127,7 +1127,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
 
   function reload() { jsRenderStaffAllocations(holder, booking); }
 
-  holder.innerHTML = '<div class="js-staff-placeholder">Loading staffâ¦</div>';
+  holder.innerHTML = '<div class="js-staff-placeholder">Loading staff…</div>';
   fetch(jsStaffApiBase() + "/staff?action=allocations&dealId=" + encodeURIComponent(booking.pipedriveDealId),
     { headers: { "Accept": "application/json" } })
     .then(function(r) { return r.json(); })
@@ -1137,15 +1137,15 @@ function jsRenderStaffAllocations(holder, booking, opts) {
       });
       var wrap = document.createElement("div");
 
-      /* ââ conflict alert (shown after a save that detected an overlap) ââ */
+      /* ── conflict alert (shown after a save that detected an overlap) ── */
       if (opts.conflictMsg) {
         var alertBanner = document.createElement("div");
         alertBanner.className = "js-conflict-alert";
-        alertBanner.innerHTML = "&#9888; Staff conflict: <strong>" + escapeHtml(opts.conflictMsg) + "</strong> overlaps this period. Saved anyway â please check scheduling.";
+        alertBanner.innerHTML = "&#9888; Staff conflict: <strong>" + escapeHtml(opts.conflictMsg) + "</strong> overlaps this period. Saved anyway — please check scheduling.";
         wrap.appendChild(alertBanner);
       }
 
-      /* ââ existing allocations table ââ */
+      /* ── existing allocations table ── */
       if (allocs.length) {
         var tbl = document.createElement("table");
         tbl.className = "js-staff-table";
@@ -1156,17 +1156,17 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         var tbody = tbl.querySelector("tbody");
         allocs.forEach(function(a) {
           var billCls = a.billable ? "js-bill-yes" : "js-bill-no";
-          var startStr = a.allocation_start ? new Date(a.allocation_start).toLocaleString("en-AU",{dateStyle:"short",timeStyle:"short"}) : "â";
-          var endStr   = a.allocation_end   ? new Date(a.allocation_end).toLocaleString("en-AU",{dateStyle:"short",timeStyle:"short"}) : "â";
+          var startStr = a.allocation_start ? new Date(a.allocation_start).toLocaleString("en-AU",{dateStyle:"short",timeStyle:"short"}) : "—";
+          var endStr   = a.allocation_end   ? new Date(a.allocation_end).toLocaleString("en-AU",{dateStyle:"short",timeStyle:"short"}) : "—";
           var tr = document.createElement("tr");
           tr.innerHTML =
-            '<td class="js-staff-name">' + escapeHtml(a.staff_name || "â") + '</td>' +
-            '<td>' + escapeHtml(a.staff_role || "â") + '</td>' +
+            '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
+            '<td>' + escapeHtml(a.staff_role || "—") + '</td>' +
             '<td>' + escapeHtml(startStr) + '</td>' +
             '<td>' + escapeHtml(endStr) + '</td>' +
-            '<td class="js-staff-num">' + (a.duration_hours != null ? a.duration_hours + "h" : "â") + '</td>' +
+            '<td class="js-staff-num">' + (a.duration_hours != null ? a.duration_hours + "h" : "—") + '</td>' +
             '<td class="' + billCls + '">' + (a.billable ? "Yes" : "No") + '</td>' +
-            '<td class="js-staff-del-cell"><button class="js-staff-del" title="Remove allocation" data-id="' + escapeHtml(a.staff_allocation_id) + '">â</button></td>';
+            '<td class="js-staff-del-cell"><button class="js-staff-del" title="Remove allocation" data-id="' + escapeHtml(a.staff_allocation_id) + '">✕</button></td>';
           tbody.appendChild(tr);
         });
         /* remove buttons */
@@ -1190,7 +1190,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         wrap.appendChild(ph);
       }
 
-      /* ââ add staff form / button ââ */
+      /* ── add staff form / button ── */
       var addBtn = document.createElement("button");
       addBtn.className = "js-staff-add-btn";
       addBtn.textContent = "+ Add staff";
@@ -1202,7 +1202,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
       form.innerHTML =
         '<div class="js-alloc-row">' +
           '<label class="js-alloc-lbl">Staff member' +
-            '<select class="js-alloc-select" id="jsAllocStaff"><option value="">Loadingâ¦</option></select>' +
+            '<select class="js-alloc-select" id="jsAllocStaff"><option value="">Loading…</option></select>' +
           '</label>' +
           '<label class="js-alloc-lbl">Hours required' +
             '<input type="number" class="js-alloc-input" id="jsAllocHours" min="0.5" max="999" step="0.5" value="8" style="width:80px">' +
@@ -1253,7 +1253,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         .then(function(r) { return r.json(); })
         .then(function(d) {
           var sel = form.querySelector("#jsAllocStaff");
-          sel.innerHTML = '<option value="">â select staff member â</option>';
+          sel.innerHTML = '<option value="">— select staff member —</option>';
           (d.staff || []).forEach(function(s) {
             var opt = document.createElement("option");
             opt.value = s.staff_id;
@@ -1265,7 +1265,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
       /* toggle form */
       addBtn.addEventListener("click", function() {
         form.hidden = !form.hidden;
-        addBtn.textContent = form.hidden ? "+ Add staff" : "â Cancel";
+        addBtn.textContent = form.hidden ? "+ Add staff" : "− Cancel";
       });
       form.querySelector(".js-alloc-cancel").addEventListener("click", function() {
         form.hidden = true;
@@ -1289,7 +1289,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         if (!hours || hours <= 0) { errEl.textContent = "Enter hours > 0."; return; }
         var saveBtn = form.querySelector(".js-alloc-save");
         saveBtn.disabled = true;
-        saveBtn.textContent = "Savingâ¦";
+        saveBtn.textContent = "Saving…";
         var payload = {
           staff_id: staffId,
           pipedrive_deal_id: String(booking.pipedriveDealId),
@@ -1344,7 +1344,7 @@ function jsWire(m, b) {
     var dbMode = readyBtn.getAttribute("data-mode") === "db" && window.NexusFleet && window.NexusFleet.setDispatchReady;
     if (st.key === "conflict") { alert("Cannot mark ready: the allocated generator conflicts with another booking. Choose another fleet # or record a cross-hire."); return; }
     if (!st.dispatchReady && st.key !== "ready") {
-      alert("Cannot mark ready for dispatch yet. Outstanding:\nâ¢ " + (st.missing.length ? st.missing.join("\nâ¢ ") : "items must be allocated + picked, with engine hours out and fuel level recorded"));
+      alert("Cannot mark ready for dispatch yet. Outstanding:\n• " + (st.missing.length ? st.missing.join("\n• ") : "items must be allocated + picked, with engine hours out and fuel level recorded"));
       return;
     }
     if (dbMode) {
@@ -1353,7 +1353,7 @@ function jsWire(m, b) {
       /* no database: keep a local-only fallback, clearly labelled */
       var local = jsLoadLocal(b.pipedriveDealId);
       jsSaveLocalField(b.pipedriveDealId, "readyForDispatch", !local.readyForDispatch);
-      readyBtn.textContent = !local.readyForDispatch ? "â Ready for dispatch (local)" : "Mark ready for dispatch";
+      readyBtn.textContent = !local.readyForDispatch ? "✓ Ready for dispatch (local)" : "Mark ready for dispatch";
     }
   });
 }
@@ -1430,7 +1430,7 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
       var badge = document.getElementById("appDbBadge");
       if (!badge) return;
       var isSample = window.CONFIG && CONFIG.sampleData;
-      badge.textContent = isSample ? "â  Sample data" : "";
+      badge.textContent = isSample ? "⚠ Sample data" : "";
       badge.style.display = isSample ? "" : "none";
     } catch(e) {}
   }
