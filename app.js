@@ -984,7 +984,7 @@ function renderJobSheet(b) {
   /* toolbar (screen only) */
   html += '<div class="js-toolbar">';
   html += '<span class="js-title-min">Dispatch jobsheet â ' + escapeHtml(b.customer || "Unknown customer") + "</span>";
-  html += '<button class="js-btn primary" id="jsPrintBtn" type="button">â Print jobsheet</button>';
+  html += '<button class="js-btn primary" id="jsPrintBtn" type="button"><svg class="js-btn-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print jobsheet</button>';
   html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Open Pipedrive deal #' + dealId + " â</a>";
   html += '<button class="js-btn ready" id="jsReadyBtn" type="button">Mark ready for dispatch</button>';
   html += '<button class="modal-close" id="modalClose" type="button">&times;</button>';
@@ -995,7 +995,7 @@ function renderJobSheet(b) {
   /* print/sheet header */
   html += '<div class="js-sheet-head">';
   html += '<div class="js-brand"><div class="js-sub">Dispatch jobsheet Â· JOB #' + dealId + "</div></div>";
-  html += '<div class="js-headmeta"><div class="js-logo">' + NEXUS_LOGO_SVG + '</div>' +
+  html += '<div class="js-headmeta"><div class="js-logo"><img src="nexus-logo.png" alt="Nexus Generator Hire &amp; Electrical" class="js-logo-img"></div>' +
           '<div class="job-no">JOB #' + dealId + '</div><div class="js-print-date">Printed: ' + printStamp + "</div></div>";
   html += "</div>";
 

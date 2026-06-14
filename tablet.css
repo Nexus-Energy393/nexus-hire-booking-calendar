@@ -200,3 +200,13 @@ html { -webkit-text-size-adjust: 100%; }
   display: inline-flex; align-items: center; padding-left: 4px;
 }
 .booking-card .bc-staff-conflict .bs-staff-warn { width: 18px; height: auto; display: block; }
+
+
+/* ============================================================================
+   7. JOBSHEET HEADER LOGO
+   Use the real Nexus brand image (nexus-logo.png) instead of the old inline
+   SVG approximation. Sized to match the previous header logo height.
+   ============================================================================ */
+.js-logo img.js-logo-img { height: 46px; width: auto; max-width: 230px;
+                           display: block; object-fit: contain; }
+.js-btn .js-btn-ico { flex: 0 0 auto; }
