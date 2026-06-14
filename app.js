@@ -1031,8 +1031,8 @@ function jsInspectorTimeField(dealId, b) {
 }
 function jsTradingHoursField(dealId, b) {
   var local = jsLoadLocal(dealId);
-  var open = jsVal(b.tradingHoursOpen) ? jsFmtTime(String(b.tradingHoursOpen)) : "";
-  var close = jsVal(b.tradingHoursClose) ? jsFmtTime(String(b.tradingHoursClose)) : "";
+  var open = jsVal(b.tradingHoursOpen) ? jsFmtTime12(String(b.tradingHoursOpen)) : "";
+  var close = jsVal(b.tradingHoursClose) ? jsFmtTime12(String(b.tradingHoursClose)) : "";
   var is24 = (local.open_24h != null) ? !!local.open_24h : !!b.open24h;
   return '<div class="js-field full js-trading"><span class="k">Customer trading hours</span>' +
     '<span class="v">' +
@@ -1170,7 +1170,6 @@ function renderJobSheet(b) {
   html += '<div class="js-chips">';
   html += '<span class="js-chip ' + tm.cls + '">' + tm.label + '</span>';
   html += '<span class="js-chip js-status-pill ' + (JS_STATUS_CLS[st.key] || "") + '" id="jsStatusPill">' + escapeHtml(st.label) + '</span>';
-  if (b.electricalConnectionRequired) html += '<span class="js-chip js-chip-elec">&#9889; Electrical connection required</span>';
   jsActiveAlerts(b).forEach(function (al) {
     html += '<span class="js-chip js-alert ' + al.cls + '">' + al.icon + ' ' + escapeHtml(al.text) + '</span>';
   });
@@ -1197,7 +1196,7 @@ function renderJobSheet(b) {
   '</div>');
 
   /* SITE & CONTACT */
-  html += jsCard("Site &amp; contact", "", '<div class="js-grid js-grid-2">' +
+  html += jsCard("Site & contact", "", '<div class="js-grid js-grid-2">' +
     jsField("Customer", b.customer, {required:true}) +
     jsField("Deal owner", b.dealOwner) +
     jsField("Site contact", b.contact, {required:true}) +
@@ -1208,7 +1207,7 @@ function renderJobSheet(b) {
   '</div>');
 
   /* HIRE TIMING & OUTAGE */
-  html += jsCard("Hire timing &amp; outage", "", '<div class="js-grid js-grid-2">' +
+  html += jsCard("Hire timing & outage", "", '<div class="js-grid js-grid-2">' +
     jsField("Hire start", bStart(b) ? jsFmtDateAU(bStart(b)) : null, {required:true}) +
     jsField("Hire end", bEnd(b) ? jsFmtDateAU(bEnd(b)) : null) +
     jsField("Duration", jsFmtDuration(b.durationDays)) +
@@ -1251,7 +1250,7 @@ function renderJobSheet(b) {
     '<div id="jsStaffHolder"><div class="js-staff-placeholder">Loading staff&hellip;</div></div>');
 
   /* SAFETY & SITE */
-  html += jsCard("Safety &amp; site", "", '<div class="js-grid js-grid-2">' +
+  html += jsCard("Safety & site", "", '<div class="js-grid js-grid-2">' +
     jsField("Safety items required", b.safetyItems, {full:true}) +
     '<div class="js-field full"><span class="k">Site access notes</span><span class="v"><span class="js-blank"></span></span></div>' +
     '<div class="js-field full"><span class="k">Site hazards / instructions</span><span class="v"><span class="js-blank"></span></span></div>' +
@@ -1281,7 +1280,7 @@ function renderJobSheet(b) {
     {key:"chk_staff", label:"Staff allocation confirmed"},
     {key:"chk_dispatch", label:"Dispatch approved"}
   ];
-  html += jsCard("Dispatch checklist &amp; sign-off", "js-card-signoff",
+  html += jsCard("Dispatch checklist & sign-off", "js-card-signoff",
     jsChecklist(dealId, checkItems) + jsSignBlock(b));
 
   html += '</div></div>'; /* js-body, jobsheet */
