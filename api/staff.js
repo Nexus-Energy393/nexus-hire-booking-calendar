@@ -42,7 +42,9 @@ module.exports = async function handler(req, res) {
       }
       if (q.action === "conflicts") {
         const dealIds = await store.findConflictedDealIds(q.start, q.end);
-        res.status(200).json({ ok: true, conflicted_deal_ids: dealIds });
+        let byDeal = {};
+        try { byDeal = await store.findConflictPairs(q.start, q.end); } catch (e) { byDeal = {}; }
+        res.status(200).json({ ok: true, conflicted_deal_ids: dealIds, conflicts_by_deal: byDeal });
         return;
       }
       if (q.action === "unavailability") {
