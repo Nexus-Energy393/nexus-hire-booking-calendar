@@ -156,3 +156,37 @@ html { -webkit-text-size-adjust: 100%; }
 /* ============================================================================
    NOTES — the two enhancements that need a small app.js change (not CSS):
 
+
+
+/* ============================================================================
+   6. CALENDAR TILE LAYOUT FIX
+   Status badge moved to its own row so the customer title gets full width;
+   labour-conflict warning enlarged. Applies on all screens (incl. office TV).
+   Scoped to calendar tiles only: .booking-span (month) and .booking-card
+   (week / day / alerts). No colour, data, or drag-drop changes.
+   ============================================================================ */
+
+/* Row 1 — title fills the width and ellipses; conflict icon pinned far right. */
+.booking-span .bs-top,
+.booking-card .bc-top   { display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
+.booking-span .bs-cust,
+.booking-card .bc-cust  { flex: 1 1 auto; min-width: 0;
+                          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Row 2 — location on the left, status badge hugging the right. */
+.booking-span .bs-meta,
+.booking-card .bc-subrow { display: flex; align-items: center; gap: 6px; margin-top: 1px; }
+.booking-span .bs-meta .bs-site,
+.booking-card .bc-subrow .bc-site { flex: 1 1 auto; min-width: 0;
+                          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.booking-span .bs-meta .bs-status,
+.booking-card .bc-subrow .bc-status { flex: 0 0 auto; margin-left: auto; }
+
+/* Labour-conflict warning: larger and clearly visible, neatly on the right. */
+.booking-span .bs-staff-conflict-ico,
+.booking-card .bc-staff-conflict {
+  flex: 0 0 auto; margin-left: auto;
+  display: inline-flex; align-items: center; padding-left: 4px;
+}
+.booking-span .bs-staff-conflict-ico .bs-staff-warn,
+.booking-card .bc-staff-conflict .bs-staff-warn { width: 20px; height: 18px; }

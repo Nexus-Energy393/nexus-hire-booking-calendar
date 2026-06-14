@@ -311,10 +311,10 @@ function bookingCard(b, compact) {
   var cardConflict = STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)];
   card.innerHTML =
     '<div class="bc-top"><span class="bc-cust">' + escapeHtml(b.customer || "Unknown customer") + '</span>' +
-    '<span class="bc-status">' + sm.label + '</span>' +
     (cardConflict ? '<span class="bc-staff-conflict" title="Staff scheduling conflict">' + STAFF_CONFLICT_SVG + '</span>' : '') +
     '</div>' +
-    '<div class="bc-site">' + escapeHtml(b.suburb || b.site || "Site TBC") + '</div>' +
+    '<div class="bc-subrow"><span class="bc-site">' + escapeHtml(b.suburb || b.site || "Site TBC") + '</span>' +
+    '<span class="bc-status">' + sm.label + '</span></div>' +
     (compact ? "" :
       '<div class="bc-meta"><span>' + escapeHtml(size) + '</span><span>' + tm.label + '</span></div>' +
       '<div class="bc-dates">' + fmtShort(bStart(b)) + ' &rarr; ' + fmtShort(bEnd(b)) + ' &middot; ' + dur + '</div>' +
@@ -530,7 +530,6 @@ function bookingSpan(seg) {
   if (seg.isTrueStart && !seg.continuesLeft) {
     var top = el("div", "bs-top");
     top.appendChild(el("span", "bs-cust", escapeHtml(b.customer || "Unknown customer")));
-    top.appendChild(el("span", "bs-status", escapeHtml(sm.label)));
     if (hasStaffConflict) {
       var ico = document.createElement("span");
       ico.className = "bs-staff-conflict-ico";
@@ -539,9 +538,11 @@ function bookingSpan(seg) {
       top.appendChild(ico);
     }
     bar.appendChild(top);
-    if (b.suburb || b.site) {
-      bar.appendChild(el("div", "bs-site", escapeHtml(b.suburb || b.site)));
-    }
+    /* second row: location on the left, status badge on the right */
+    var meta = el("div", "bs-meta");
+    meta.appendChild(el("span", "bs-site", escapeHtml(b.suburb || b.site || "")));
+    meta.appendChild(el("span", "bs-status", escapeHtml(sm.label)));
+    bar.appendChild(meta);
   } else {
     var contRow = el("div", "bs-cont");
     contRow.innerHTML = "â¹ " + escapeHtml(b.customer || "") + " continues" +
