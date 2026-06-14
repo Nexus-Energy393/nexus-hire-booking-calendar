@@ -835,6 +835,7 @@ function escapeHtml(s) {
 function init() {
   document.getElementById("viewTabs").addEventListener("click", function (e) {
     var t = e.target.closest(".tab"); if (!t) return;
+    if (!t.getAttribute("data-view")) return; /* external rail links (e.g. Survey) navigate natively */
     STATE.view = t.getAttribute("data-view");
     document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("active"); });
     t.classList.add("active");
@@ -1178,6 +1179,7 @@ function renderJobSheet(b) {
   html += '<button class="js-btn primary" id="jsPdfBtn" type="button">Download PDF</button>';
   html += '<button class="js-btn" id="jsPrintBtn" type="button">Print</button>';
   html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Pipedrive #' + dealId + ' &rarr;</a>';
+  html += '<a class="js-btn survey" id="jsSurveyBtn" target="_blank" rel="noopener" href="https://nexus-site-survey.vercel.app/survey?dealId=' + encodeURIComponent(dealId) + '">Site Survey &rarr;</a>';
   html += '<button class="js-btn ready" id="jsReadyBtn" type="button">Mark ready for dispatch</button>';
   html += '<button class="modal-close" id="modalClose" type="button">&times;</button>';
   html += '</div>';

@@ -1881,3 +1881,15 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .jobsheet .js-grid > .js-field:last-child,
 .jobsheet .js-grid > .js-field:nth-last-child(2):not(.full) { border-bottom: none; }
 .js-picking { margin-top: 8px; }
+
+/* ── Site Survey launch (nav rail external link + jobsheet button) ── */
+.side-rail a.tab.rail-link { text-decoration: none; }
+.side-rail .tab[data-icon="survey"] .rail-ico {
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='6' y='3' width='12' height='18' rx='2'/><path d='M9 3.5h6v3H9zM9 12l2 2 4-4'/></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='6' y='3' width='12' height='18' rx='2'/><path d='M9 3.5h6v3H9zM9 12l2 2 4-4'/></svg>");
+}
+/* subtle divider + green tint so the cross-app link reads as distinct */
+.side-rail a.tab.rail-link { margin-top: 6px; border-top: 1px solid rgba(255,255,255,.10); padding-top: 10px; color: var(--brand-green, #20a052); }
+.side-rail a.tab.rail-link:hover { color: #fff; background: rgba(32,160,82,.18); }
+.js-btn.survey { background: var(--brand-green, #20a052); color: #fff; border-color: var(--brand-green, #20a052); text-decoration: none; }
+.js-btn.survey:hover { background: var(--brand-green-dark, #178a44); }
