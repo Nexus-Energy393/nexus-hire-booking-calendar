@@ -60,6 +60,11 @@
   }
   function num(v) { return (v == null || v === "") ? null : Number(v); }
   function dash(v) { return (v == null || v === "") ? "&mdash;" : esc(v); }
+  /* display-only: "200kVA" -> "200 kVA", "95mm x 25Mt" -> "95 mm x 25 m" (does NOT change the
+     requirement label used for stock matching) */
+  function fmtItem(s) {
+    return s ? String(s).replace(/(\d)\s*kva/ig, "$1 kVA").replace(/(\d)\s*mm/ig, "$1 mm").replace(/(\d)\s*mt\b/ig, "$1 m") : s;
+  }
 function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Date(v); if (isNaN(d.getTime())) return esc(String(v).slice(0, 10)); var mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return d.getUTCDate() + " " + mo[d.getUTCMonth()] + " " + d.getUTCFullYear(); }
 
   var STATUS_LABELS = {
@@ -875,7 +880,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         if (req.kind === "generator") {
           if (a && a.asset) {
             var svc = a.service || {};
-            allocatedCell = "<strong>#" + esc(a.asset.fleet_number) + "</strong> " + esc(a.asset.asset_name || "") + " " + svcPill(svc);
+            allocatedCell = "<strong>#" + esc(a.asset.fleet_number) + "</strong> " + esc(fmtItem(a.asset.asset_name || "")) + " " + svcPill(svc);
           } else if (a && a.allocation_status === "cross_hire_required") {
             allocatedCell = "Cross-hire" + (a.override_note ? " — " + esc(a.override_note) : "");
           } else allocatedCell = "&mdash;";
@@ -907,7 +912,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         } else if (a && (a.notes || "").trim()) {
           noteLine = '<div class="js-xhire-note">' + esc(a.notes) + "</div>";
         }
-        html += '<tr><td data-label="Item">' + esc(req.label) + noteLine + '</td>' +
+        html += '<tr><td data-label="Item">' + esc(fmtItem(req.label)) + noteLine + '</td>' +
                 '<td class="num" data-label="Req">' + esc(req.qtyRequired) + "</td>" +
                 '<td data-label="Allocated">' + allocatedCell + "</td>" +
                 '<td data-label="Status">' + statusCell + "</td>" +
