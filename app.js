@@ -1453,8 +1453,8 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
    To always open on the calendar, set PORTRAIT_DEFAULT_VIEW = "month".
    ============================================================ */
 (function () {
-  var PORTRAIT_DEFAULT_VIEW  = "list";
-  var LANDSCAPE_DEFAULT_VIEW = "month";
+  var PORTRAIT_DEFAULT_VIEW  = "list";       // upright: readable agenda
+  var LANDSCAPE_DEFAULT_VIEW = "fortnight";  // sideways: 2 Week calendar
 
   function isTouchTablet() {
     // Use any-pointer (NOT pointer): stylus tablets such as the Galaxy Tab
