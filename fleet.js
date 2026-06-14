@@ -959,8 +959,8 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           '</label>' +
         '</div>' +
         '<div class="rs-fuel-cell">' +
-          '<label class="rs-fuel-label">Fuel level on RETURN <span class="rs-fuel-unit">%</span></label>' +
-          '<input type="number" min="0" max="100" step="5" id="rsFuelReturn" value="' + esc(fuelReturnM ? fuelReturnM[1] : "") + '"' + (can && genAlloc ? "" : " disabled") + ' placeholder="fill on return" />' +
+          '<label class="rs-fuel-label">Fuel level on RETURN <span class="rs-fuel-unit">L</span></label>' +
+          '<input type="number" min="0" max="2000" step="1" id="rsFuelReturn" value="' + esc(fuelReturnM ? fuelReturnM[1] : "") + '"' + (can && genAlloc ? "" : " disabled") + ' placeholder="litres on return" />' +
         '</div>' +
       '</div>';
       html += (can && genAlloc ? '<div class="rs-save-row"><span class="rs-save-hint">Saves engine hours &amp; fuel levels</span>' +
@@ -1029,7 +1029,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       else if (i != null && i < 0) msg = "Engine hours in cannot be negative.";
       else if (o != null && i != null && i < o) msg = "Engine hours in cannot be less than engine hours out.";
       else if (fu != null && (fu < 0 || fu > 100)) msg = "Fuel level out must be 0–100%.";
-      else if (fr != null && (fr < 0 || fr > 100)) msg = "Fuel level on return must be 0–100%.";
+      else if (fr != null && (fr < 0 || fr > 2000)) msg = "Fuel level on return must be 0–2000 L.";
       if (errEl) { errEl.hidden = !msg; errEl.textContent = msg; }
       if (rt) rt.textContent = (!msg && o != null && i != null) ? String(i - o) : "—";
       return !msg;
@@ -1044,7 +1044,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       if (!ensureToken()) return;
       var noteParts = [];
       if (fuelEl && fuelEl.value !== "") noteParts.push("Fuel out: " + Math.round(parseFloat(fuelEl.value)) + "%");
-      if (fuelReturnEl && fuelReturnEl.value !== "") noteParts.push("Fuel return: " + Math.round(parseFloat(fuelReturnEl.value)) + "%");
+      if (fuelReturnEl && fuelReturnEl.value !== "") noteParts.push("Fuel return: " + Math.round(parseFloat(fuelReturnEl.value)) + " L");
       noteParts.push(refuelEl && refuelEl.checked ? "Ongoing refuelling REQUIRED" : "No ongoing refuelling");
       var payload = { asset_id: genAlloc.asset_id, pipedrive_deal_id: booking.pipedriveDealId,
                       hours_out: num(outEl.value), hours_in: num(inEl.value),
