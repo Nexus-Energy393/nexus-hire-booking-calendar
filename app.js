@@ -897,7 +897,7 @@ function jsSaveLocalField(dealId, key, value) {
 /* Active operational alerts shown as pills on the jobsheet status line. */
 function jsActiveAlerts(b) {
   var out = [];
-  if (b.refuellingRequired) {
+  if (b.refuellingRequired || jsVal(b.refuellingDetail)) {
     out.push({ cls: "al-fuel", icon: "&#9981;", text: "Refuelling required",
                title: "Ongoing refuelling scheduled for this hire" });
   }
@@ -1119,7 +1119,7 @@ function jsRefuelShort(b) {
   return b.refuellingRequired == null ? null : (b.refuellingRequired ? "Required" : "Not required");
 }
 function jsMapsUrl(b) {
-  if (jsVal(b.mapLink)) return b.mapLink;
+  if (jsVal(b.mapLink) && /(?:google\.[^/]+\/maps|maps\.app\.goo\.gl|maps\.apple\.com)/i.test(b.mapLink)) return b.mapLink;
   var addr = b.site || [b.suburb, b.state].filter(Boolean).join(" ");
   if (!addr) return "";
   return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(addr);
