@@ -530,12 +530,21 @@ function bookingSpan(seg) {
   if (seg.isTrueStart && !seg.continuesLeft) {
     var top = el("div", "bs-top");
     top.appendChild(el("span", "bs-cust", escapeHtml(b.customer || "Unknown customer")));
-    if (hasStaffConflict) {
-      var ico = document.createElement("span");
-      ico.className = "bs-staff-conflict-ico";
-      ico.title = "Staff scheduling conflict on this job";
-      ico.innerHTML = STAFF_CONFLICT_SVG;
-      top.appendChild(ico);
+    if (b.refuellingRequired || hasStaffConflict) {
+      var alerts = el("div", "bs-alerts");
+      if (b.refuellingRequired) {
+        var fp = el("span", "bs-fuel-warn");
+        fp.setAttribute("title", "Ongoing refuelling scheduled for this hire");
+        fp.innerHTML = "&#9981;";
+        alerts.appendChild(fp);
+      }
+      if (hasStaffConflict) {
+        var ico = el("span", "bs-staff-conflict-ico");
+        ico.setAttribute("title", "Labour conflict \u2014 staff double-booked on this job");
+        ico.innerHTML = STAFF_CONFLICT_SVG;
+        alerts.appendChild(ico);
+      }
+      top.appendChild(alerts);
     }
     bar.appendChild(top);
     /* second row: location on the left, status badge on the right */
@@ -549,8 +558,9 @@ function bookingSpan(seg) {
       (hasStaffConflict ? " " + STAFF_CONFLICT_SVG : "");
     bar.appendChild(contRow);
   }
-  /* pulsing fuel pump indicator */
-  if (b.refuellingRequired) {
+  /* refuelling: start tiles render it in the alert cluster above; multi-day
+     continuation segments keep the small corner pin */
+  if (b.refuellingRequired && !(seg.isTrueStart && !seg.continuesLeft)) {
     var fuelPin = el("div", "bs-fuel-warn");
     fuelPin.setAttribute("title", "Ongoing refuelling scheduled for this hire");
     fuelPin.innerHTML = "&#9981;"; /* â½ fuel pump */

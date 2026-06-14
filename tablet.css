@@ -182,11 +182,21 @@ html { -webkit-text-size-adjust: 100%; }
 .booking-span .bs-meta .bs-status,
 .booking-card .bc-subrow .bc-status { flex: 0 0 auto; margin-left: auto; }
 
-/* Labour-conflict warning: larger and clearly visible, neatly on the right. */
-.booking-span .bs-staff-conflict-ico,
+/* Alert cluster (refuelling + labour conflict) — grouped at the right of the
+   title row, evenly sized and spaced so the two icons never overlap. */
+.booking-span .bs-alerts {
+  flex: 0 0 auto; margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px; padding-left: 5px;
+}
+.booking-span .bs-alerts .bs-staff-warn { width: 18px; height: auto; display: block; }
+.booking-span .bs-alerts .bs-fuel-warn {
+  position: static; bottom: auto; right: auto;   /* was an absolute corner pin */
+  font-size: 15px; line-height: 1; display: inline-flex; align-items: center;
+}
+
+/* Week / day cards: single conflict icon, right-aligned in the title row. */
 .booking-card .bc-staff-conflict {
   flex: 0 0 auto; margin-left: auto;
   display: inline-flex; align-items: center; padding-left: 4px;
 }
-.booking-span .bs-staff-conflict-ico .bs-staff-warn,
-.booking-card .bc-staff-conflict .bs-staff-warn { width: 20px; height: 18px; }
+.booking-card .bc-staff-conflict .bs-staff-warn { width: 18px; height: auto; display: block; }
