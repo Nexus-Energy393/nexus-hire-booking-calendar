@@ -1855,3 +1855,8 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .js-exporting .js-toolbar, .js-exporting .fleet-btn, .js-exporting .js-staff-add-btn,
 .js-exporting .js-staff-del, .js-exporting .js-staff-del-cell, .js-exporting .js-alloc-form,
 .js-exporting .modal-close, .js-exporting .rs-head .fleet-btn { display: none !important; }
+
+/* jobsheet engine-hours/fuel: single save button below both rows (clear it saves both) */
+.rs-save-row { display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line, #e4e6eb); }
+.rs-save-hint { font-size: 11.5px; color: #8a93a3; }

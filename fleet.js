@@ -938,8 +938,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         '<div class="rs-hcell"><label>Engine hours IN</label><input type="number" min="0" id="rsHoursIn" value="' + esc(latest.hours_in != null ? latest.hours_in : "") + '"' + (can && genAlloc ? "" : " disabled") + ' /></div>' +
         '<div class="rs-hcell"><label>Runtime</label><output id="rsRuntime">' + esc(latest.runtime_hours != null ? latest.runtime_hours : "—") + '</output></div>' +
         '<div class="rs-hcell"><label>Asset hours (current)</label><output>' + (genAlloc && genAlloc.asset ? esc(genAlloc.asset.current_engine_hours) : "—") + '</output></div>' +
-        '<div class="rs-herr" id="rsHoursErr" hidden></div>' +
-        (can && genAlloc ? '<button class="fleet-btn sm" id="rsHoursSave">Save hours &amp; fuel</button>' : "") + "</div>";
+        '<div class="rs-herr" id="rsHoursErr" hidden></div>' + "</div>";
       /* ---- dedicated fuel row ---- */
       html += '<div class="rs-fuel">' +
         '<div class="rs-fuel-cell">' +
@@ -959,6 +958,8 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           '<input type="number" min="0" max="100" step="5" id="rsFuelReturn" value="' + esc(fuelReturnM ? fuelReturnM[1] : "") + '"' + (can && genAlloc ? "" : " disabled") + ' placeholder="fill on return" />' +
         '</div>' +
       '</div>';
+      html += (can && genAlloc ? '<div class="rs-save-row"><span class="rs-save-hint">Saves engine hours &amp; fuel levels</span>' +
+        '<button class="fleet-btn sm" id="rsHoursSave">Save hours &amp; fuel</button></div>' : "");
       if (refuelReq) html += '<div class="rs-alert warn">⛽ Ongoing onsite refuelling required — schedule refuelling visits for this hire.</div>';
 
       box.innerHTML = html;
