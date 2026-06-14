@@ -994,6 +994,49 @@ function jsField(label, value, opts) {
   return '<div class="' + cls + '"><span class="k">' + escapeHtml(label) + "</span>" + v + "</div>";
 }
 
+/* ---------- electrical-install helpers ---------- */
+function jsParseTimeMins(s) {
+  if (!s) return null;
+  s = String(s).trim();
+  var m = s.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+  if (m) { var h = parseInt(m[1], 10), mm = parseInt(m[2], 10); if (m[3]) { h = h % 12; if (/pm/i.test(m[3])) h += 12; } return h * 60 + mm; }
+  var m2 = s.match(/(\d{1,2})\s*(am|pm)/i);
+  if (m2) { var h2 = parseInt(m2[1], 10) % 12; if (/pm/i.test(m2[2])) h2 += 12; return h2 * 60; }
+  return null;
+}
+function jsMinsToHHMM(mins) {
+  if (mins == null) return "";
+  mins = ((mins % 1440) + 1440) % 1440;
+  var h = Math.floor(mins / 60), m = mins % 60;
+  return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+}
+function jsDefaultInspectorTime(b) {
+  var openMin = jsParseTimeMins(b.tradingHoursOpen);
+  if (openMin == null) openMin = 7 * 60;
+  return jsMinsToHHMM(openMin - 60);
+}
+function jsInspectorTimeField(dealId, b) {
+  var local = jsLoadLocal(dealId);
+  var def = jsDefaultInspectorTime(b);
+  var val = (local.elec_inspector_time != null && local.elec_inspector_time !== "") ? local.elec_inspector_time : def;
+  var hint = b.tradingHoursOpen ? ("1 hr before open (" + escapeHtml(b.tradingHoursOpen) + "), editable") : "1 hr before store open, editable";
+  return '<div class="js-field"><span class="k">Electrical inspector booking time</span>' +
+    '<span class="v"><input type="time" class="js-install-input js-time" data-deal="' + dealId + '" data-key="elec_inspector_time" value="' + escapeHtml(val) + '" />' +
+    ' <small class="js-hint">' + hint + '</small></span></div>';
+}
+function jsTradingHoursField(dealId, b) {
+  var local = jsLoadLocal(dealId);
+  var open = jsVal(b.tradingHoursOpen) ? String(b.tradingHoursOpen) : "";
+  var close = jsVal(b.tradingHoursClose) ? String(b.tradingHoursClose) : "";
+  var is24 = (local.open_24h != null) ? !!local.open_24h : !!b.open24h;
+  return '<div class="js-field full js-trading"><span class="k">Customer trading hours</span>' +
+    '<span class="v">' +
+      '<span class="js-trading-normal"' + (is24 ? ' hidden' : '') + '>Open ' + escapeHtml(open || "—") + ' / Close ' + escapeHtml(close || "—") + '</span>' +
+      '<span class="js-trading-24"' + (is24 ? '' : ' hidden') + ' style="font-weight:700">Open 24 hours</span>' +
+      ' <label class="js-24-label"><input type="checkbox" class="js-install-input js-24-toggle" data-deal="' + dealId + '" data-key="open_24h"' + (is24 ? ' checked' : '') + ' /> 24 hr</label>' +
+    '</span></div>';
+}
+
 /* ---------- main jobsheet renderer (interactive dispatch sheet) ---------- */
 function renderJobSheet(b) {
   var tm = typeMeta(b);
@@ -1054,6 +1097,29 @@ function renderJobSheet(b) {
   html += jsField("Delivery", b.deliveryRequired == null ? null : jsYesNo(b.deliveryRequired));
   html += jsField("Electrical connection", b.electricalConnectionRequired == null ? null : jsYesNo(b.electricalConnectionRequired));
   html += "</div></div></div>";
+
+  /* ===== Electrical-install requirements (mapped from Pipedrive; editable fallback) ===== */
+  html += '<div class="js-section js-install"><h3>Equipment</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Generator size required", b.generatorSize);
+  html += jsField("Cable set required", b.cableSet);
+  html += jsField("Additional equipment required", b.additionalEquipment, {full:true});
+  html += '</div></div></div>';
+
+  html += '<div class="js-section js-install"><h3>Electrical</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Electrical connect/disconnect req", b.electricalConnectionRequired == null ? null : jsYesNo(b.electricalConnectionRequired));
+  html += jsField("Electrical inspection required", b.electricalInspectionRequired == null ? null : jsYesNo(b.electricalInspectionRequired));
+  html += jsInspectorTimeField(dealId, b);
+  html += '</div></div></div>';
+
+  html += '<div class="js-section js-install"><h3>Safety &amp; Site</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Safety items required", b.safetyItems, {full:true});
+  html += jsTradingHoursField(dealId, b);
+  html += '</div></div></div>';
+
+  html += '<div class="js-section js-install"><h3>Logistics</h3><div class="js-section-body"><div class="js-grid">';
+  html += jsField("Delivery / freight", jsVal(b.deliveryFreight) ? b.deliveryFreight : (b.deliveryRequired == null ? null : jsYesNo(b.deliveryRequired)));
+  html += jsField("Refueling required", jsVal(b.refuellingDetail) ? b.refuellingDetail : (b.refuellingRequired == null ? null : jsYesNo(b.refuellingRequired)));
+  html += '</div></div></div>';
 
   /* EQUIPMENT & ALLOCATION: interactive checklist (fleet.js) */
   html += '<div class="js-section"><h3>Equipment &amp; Allocation</h3><div class="js-section-body">' +
@@ -1384,6 +1450,30 @@ function jsWire(m, b) {
       jsSaveLocalField(b.pipedriveDealId, "readyForDispatch", !local.readyForDispatch);
       readyBtn.textContent = !local.readyForDispatch ? "✓ Ready for dispatch (local)" : "Mark ready for dispatch";
     }
+  });
+
+  /* electrical-install editable fields: save locally + live 24hr toggle */
+  m.addEventListener("change", function (e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains("js-install-input")) return;
+    var key = t.getAttribute("data-key"); if (!key) return;
+    var d = t.getAttribute("data-deal");
+    if (t.type === "checkbox") jsSaveLocalField(d, key, t.checked);
+    else jsSaveLocalField(d, key, t.value);
+    if (t.classList.contains("js-24-toggle")) {
+      var fld = t.closest ? t.closest(".js-trading") : null;
+      if (fld) {
+        var norm = fld.querySelector(".js-trading-normal");
+        var o24 = fld.querySelector(".js-trading-24");
+        if (norm) norm.hidden = t.checked;
+        if (o24) o24.hidden = !t.checked;
+      }
+    }
+  });
+  m.addEventListener("input", function (e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains("js-install-input") || t.type === "checkbox") return;
+    jsSaveLocalField(t.getAttribute("data-deal"), t.getAttribute("data-key"), t.value);
   });
 }
 
