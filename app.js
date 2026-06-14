@@ -994,9 +994,9 @@ function renderJobSheet(b) {
 
   /* print/sheet header */
   html += '<div class="js-sheet-head">';
-  html += '<div class="js-brand"><div class="js-sub">Dispatch jobsheet Â· JOB #' + dealId + "</div></div>";
-  html += '<div class="js-headmeta"><div class="js-logo"><img src="nexus-logo.png" alt="Nexus Generator Hire &amp; Electrical" class="js-logo-img"></div>' +
-          '<div class="job-no">JOB #' + dealId + '</div><div class="js-print-date">Printed: ' + printStamp + "</div></div>";
+  html += '<div class="js-brand"><img src="nexus-logo.png" alt="Nexus Generator Hire &amp; Electrical" class="js-logo-img"></div>';
+  html += '<div class="js-headmeta"><div class="job-no">JOB #' + dealId + '</div>' +
+          '<div class="js-print-date">Printed: ' + printStamp + "</div></div>";
   html += "</div>";
 
   /* status line */

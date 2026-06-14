@@ -207,6 +207,6 @@ html { -webkit-text-size-adjust: 100%; }
    Use the real Nexus brand image (nexus-logo.png) instead of the old inline
    SVG approximation. Sized to match the previous header logo height.
    ============================================================================ */
-.js-logo img.js-logo-img { height: 46px; width: auto; max-width: 230px;
-                           display: block; object-fit: contain; }
+.js-logo-img { height: 50px; width: auto; max-width: 280px; display: block; object-fit: contain; }
+.js-sheet-head { align-items: center; }   /* logo (left) + job-no/printed (right), vertically centred */
 .js-btn .js-btn-ico { flex: 0 0 auto; }
