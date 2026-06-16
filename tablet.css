@@ -48,7 +48,7 @@ html { -webkit-text-size-adjust: 100%; }
 /* ── 2. TABLET TOUCH TUNING (any iPad, either orientation) ────────────────── */
 /* Gated on a touchscreen + tablet-ish width (no upper cap, so large Android
    tablets like the Galaxy Tab S10 Ultra are covered too).                     */
-@media (any-pointer: coarse) and (min-width: 700px) {
+@media (any-pointer: coarse) {
 
   /* 2a. Minimum 44×44 hit targets (Apple HIG). Filters were 38px; bump them,
          and use 16px font so focusing a field doesn't trigger iOS zoom. */
@@ -88,7 +88,7 @@ html { -webkit-text-size-adjust: 100%; }
 /* ── 3. PORTRAIT (iPad held upright: ~744–834px, also 1024 Pro portrait) ──── */
 /* Seven day-columns are narrow here, so the priority is: stop truncation,
    give cells height, and stack the secondary data tables.                     */
-@media (any-pointer: coarse) and (orientation: portrait) and (min-width: 700px) and (max-width: 1600px) {
+@media (any-pointer: coarse) and (orientation: portrait) {
 
   /* Keep the office-screen ("tv") mode out of these density tweaks. */
   body:not([data-mode="tv"]) .month-grid  { gap: 5px; }
@@ -222,3 +222,28 @@ html { -webkit-text-size-adjust: 100%; }
 .js-alert.al-elec     { background: #fff8e1; color: #8a6d00; border-color: #efd271; }
 .js-alert.al-deliver  { background: #eef2ff; color: #3a48c0; border-color: #c3ccf5; }
 .js-alert.al-conflict { background: #fdecea; color: #b71c1c; border-color: #f1b0a8; }
+
+
+/* == 9. PHONE + ALL-PORTRAIT FIX (nexus-tablet responsive patch) ==========
+   app.js isTouchTablet() is now touch-based (no width floor), so the
+   orientation defaults + these touch rules also apply on phones and at all
+   portrait widths. Stops the iOS focus-zoom and the cramped/zoomed-in look.
+   Touch-gated only: desktop is untouched. ====================================*/
+@media (any-pointer: coarse) {
+  /* iOS zooms the whole page when focusing an input with font-size < 16px. */
+  input, select, textarea { font-size: 16px; }
+}
+@media (any-pointer: coarse) and (orientation: portrait) {
+  .app-shell { min-height: 100vh; min-height: 100dvh; }
+  .calendar-root { overflow: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+  .calendar-root, .day-wrap, .list-wrap, .list-table-wrap { width: 100%; max-width: 100%; }
+  .data-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+@media (any-pointer: coarse) and (orientation: portrait) and (max-width: 699px) {
+  body:not([data-mode="tv"]) .month-grid { gap: 4px; }
+  body:not([data-mode="tv"]) .month-cell { min-height: 84px; padding: 5px 6px; }
+  .month-grid-spans .month-dow-row, .month-row-days, .month-row-spans, .week-grid { gap: 4px; }
+  .data-table td { font-size: 14px; }
+  .toolbar, .filters { width: 100%; }
+  .filters input[type="search"] { min-width: 0; flex: 1 1 100%; }
+}

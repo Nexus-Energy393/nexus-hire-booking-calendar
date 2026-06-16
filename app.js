@@ -1755,7 +1755,7 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
     // (pointer: coarse) check false. Fall back to touch-point detection too.
     var coarse = window.matchMedia("(any-pointer: coarse)").matches;
     var touch  = (navigator.maxTouchPoints || 0) > 0 || "ontouchstart" in window;
-    return (coarse || touch) && window.innerWidth >= 700;
+    return (coarse || touch);
   }
   function isPortrait() {
     // matchMedia first, with a dimension fallback for browsers that report
