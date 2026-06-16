@@ -247,3 +247,15 @@ html { -webkit-text-size-adjust: 100%; }
   .toolbar, .filters { width: 100%; }
   .filters input[type="search"] { min-width: 0; flex: 1 1 100%; }
 }
+
+
+/* == 10. MOBILE / PORTRAIT SIDE-RAIL HEIGHT FIX ============================
+   When .app-shell switches to a column layout (<=860px, i.e. portrait phones
+   & tablets), the rail keeps its base `flex: 0 0 var(--rail-w)` where
+   --rail-w becomes 100%. In a COLUMN flex container that flex-basis applies to
+   the MAIN axis = HEIGHT, so the rail stretched to full screen height and
+   covered the whole calendar (the "zoomed-in" portrait bug). Reset it to
+   content height so it stays a compact bottom nav bar. ====================== */
+@media (max-width: 860px) {
+  .side-rail { flex: 0 0 auto; height: auto; }
+}
