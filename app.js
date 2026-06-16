@@ -1729,81 +1729,79 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
 })();
 
 /* ============================================================
-   TABLET / iPad ORIENTATION ENHANCEMENTS  (nexus-tablet)
-   Pairs with tablet.css. Two behaviours, both no-ops on desktop:
-
-   1. Re-render on rotate/resize so view layouts (fortnight rows,
-      office screen, calendar cells) recompute instead of staying
-      sized for the previous orientation. The app otherwise only
-      re-renders on user actions.
-
-   2. On a touch tablet, default PORTRAIT to a readable agenda
-      (the List view) and LANDSCAPE to the Calendar — but only
-      until the user manually taps a view tab, after which their
-      choice is always respected. Office-screen (tv) mode is left
-      on the calendar as before.
-
-   To always open on the calendar, set PORTRAIT_DEFAULT_VIEW = "month".
+   TABLET / iPad / ANDROID ORIENTATION ENHANCEMENTS  (nexus-tablet)
+   Touch tablets & phones: default PORTRAIT to the List view and
+   LANDSCAPE to the 2 Week (fortnight) view, until the user taps a
+   view tab (then their choice is respected). Drives the app's own
+   view tabs via their data-view buttons, so it needs NO access to
+   the app's internal STATE (which is not exposed on window).
+   Office-screen (data-mode="tv") is left alone. No-op on desktop.
    ============================================================ */
 (function () {
-  var PORTRAIT_DEFAULT_VIEW  = "list";       // upright: readable agenda
-  var LANDSCAPE_DEFAULT_VIEW = "fortnight";  // sideways: 2 Week calendar
+  var PORTRAIT_DEFAULT_VIEW  = "list";
+  var LANDSCAPE_DEFAULT_VIEW = "fortnight";
 
   function isTouchTablet() {
-    // Use any-pointer (NOT pointer): stylus tablets such as the Galaxy Tab
-    // S-series report their primary pointer as "fine", which would make a plain
-    // (pointer: coarse) check false. Fall back to touch-point detection too.
-    var coarse = window.matchMedia("(any-pointer: coarse)").matches;
+    var coarse = window.matchMedia && window.matchMedia("(any-pointer: coarse)").matches;
     var touch  = (navigator.maxTouchPoints || 0) > 0 || "ontouchstart" in window;
-    return (coarse || touch);
+    return !!(coarse || touch);
   }
   function isPortrait() {
-    // matchMedia first, with a dimension fallback for browsers that report
-    // orientation unreliably.
-    if (window.matchMedia("(orientation: portrait)").matches) return true;
-    if (window.matchMedia("(orientation: landscape)").matches) return false;
+    if (window.matchMedia) {
+      if (window.matchMedia("(orientation: portrait)").matches) return true;
+      if (window.matchMedia("(orientation: landscape)").matches) return false;
+    }
     return window.innerHeight >= window.innerWidth;
   }
-  function setView(view) {
-    if (!window.STATE) return;
-    STATE.view = view;
-    document.querySelectorAll(".tab").forEach(function (x) {
-      x.classList.toggle("active", x.getAttribute("data-view") === view);
-    });
-    if (typeof render === "function") render();
+  function isTv() {
+    return !!(document.body && document.body.getAttribute("data-mode") === "tv");
+  }
+  function tabFor(view) { return document.querySelector('.tab[data-view="' + view + '"]'); }
+  function currentView() {
+    var a = document.querySelector('.tab.active[data-view]');
+    return a ? a.getAttribute("data-view") : null;
   }
 
-  // Respect a deliberate choice: once the user taps a view tab, stop auto-switching.
-  var userPicked = false;
-  var tabs = document.getElementById("viewTabs");
-  if (tabs) {
-    tabs.addEventListener("click", function (e) {
-      if (e.target.closest && e.target.closest(".tab")) userPicked = true;
-    });
+  var programmatic = false;
+  function setView(view) {
+    var el = tabFor(view);
+    if (!el) return;
+    programmatic = true;
+    try { el.click(); } finally { programmatic = false; }
   }
+
+  // Respect a deliberate choice: once the user really taps a view tab, stop auto-switching.
+  var userPicked = false;
+  document.addEventListener("click", function (e) {
+    if (programmatic) return;
+    var t = e.target && e.target.closest && e.target.closest('.tab[data-view]');
+    if (t) userPicked = true;
+  }, true);
 
   function applyOrientationDefault() {
-    if (!window.STATE || STATE.tv || userPicked || !isTouchTablet()) return;
+    if (userPicked || isTv() || !isTouchTablet()) return;
+    if (!currentView()) return;            // app hasn't rendered its tabs yet
     var want = isPortrait() ? PORTRAIT_DEFAULT_VIEW : LANDSCAPE_DEFAULT_VIEW;
-    if (STATE.view !== want) setView(want);
+    if (currentView() !== want) setView(want);
   }
 
   var timer = null;
   function onOrientationChange() {
     clearTimeout(timer);
-    timer = setTimeout(function () {
-      applyOrientationDefault();
-      if (window.STATE && typeof render === "function") render();
-    }, 150);
+    timer = setTimeout(applyOrientationDefault, 180);
   }
   window.addEventListener("resize", onOrientationChange);
   window.addEventListener("orientationchange", onOrientationChange);
-
-  // Apply the orientation default once the app has booted (STATE exists here
-  // because this block runs after app.js has defined it and called init()).
-  function boot(tries) {
-    if (window.STATE) { applyOrientationDefault(); return; }
-    if ((tries || 0) < 25) setTimeout(function () { boot((tries || 0) + 1); }, 120);
+  if (window.matchMedia) {
+    try { window.matchMedia("(orientation: portrait)").addEventListener("change", onOrientationChange); } catch (e) {}
   }
-  boot(0);
+
+  // Apply once the app has rendered its view tabs (poll briefly after load).
+  function boot(tries) {
+    if (currentView()) { applyOrientationDefault(); return; }
+    if ((tries || 0) < 40) setTimeout(function () { boot((tries || 0) + 1); }, 120);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () { boot(0); });
+  } else { boot(0); }
 })();
