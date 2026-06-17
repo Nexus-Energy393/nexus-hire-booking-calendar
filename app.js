@@ -702,6 +702,44 @@ function renderMissing(root, bookings) {
 function renderSync(root) {
   var wrap = el("div", "list-wrap sync-wrap");
   wrap.appendChild(el("h2", "day-title", "Pipedrive sync status"));
+
+  /* Fleet admin token (this device) — enables job-sheet writes (allocations, notes) */
+  var tokenCard = el("div", "sync-token-card");
+  tokenCard.style.cssText = "margin:0 0 18px;padding:14px 16px;border:1px solid rgba(120,120,120,0.3);border-radius:10px;";
+  tokenCard.appendChild(el("h3", null, "Fleet admin token (this device)"));
+  tokenCard.appendChild(el("p", "subtle", "Required to save job-sheet changes (staff/inspector allocation and notes) from this device/browser. Paste the token (kept in the Hub admin) and click Save."));
+  var tkRow = el("div");
+  tkRow.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;";
+  var tkInput = el("input");
+  tkInput.type = "password";
+  tkInput.placeholder = "Paste the fleet admin token";
+  tkInput.autocomplete = "off";
+  try { tkInput.value = jsStaffToken(); } catch (e) { tkInput.value = ""; }
+  tkInput.style.cssText = "flex:1;min-width:240px;padding:8px 10px;border:1px solid rgba(120,120,120,0.4);border-radius:8px;font:inherit;";
+  var tkShow = el("button", null, "Show"); tkShow.type = "button";
+  tkShow.style.cssText = "padding:8px 12px;border:1px solid rgba(120,120,120,0.4);border-radius:8px;background:transparent;font:inherit;cursor:pointer;";
+  var tkSave = el("button", "btn-primary", "Save"); tkSave.type = "button";
+  var tkStatus = el("span", "subtle");
+  function tkSetStatus() {
+    var has = false; try { has = !!jsStaffToken(); } catch (e) {}
+    tkStatus.textContent = has ? "\u2713 Token set \u2014 saving enabled on this device" : "No token \u2014 saving is disabled until you set one";
+    tkStatus.style.marginTop = "8px";
+    tkStatus.style.display = "block";
+  }
+  tkSetStatus();
+  tkShow.addEventListener("click", function () {
+    tkInput.type = tkInput.type === "password" ? "text" : "password";
+    tkShow.textContent = tkInput.type === "password" ? "Show" : "Hide";
+  });
+  tkSave.addEventListener("click", function () {
+    try { localStorage.setItem("nexusFleetAdminToken", tkInput.value.trim()); } catch (e) {}
+    tkSetStatus();
+    tkSave.textContent = "Saved"; setTimeout(function () { tkSave.textContent = "Save"; }, 1500);
+  });
+  tkRow.appendChild(tkInput); tkRow.appendChild(tkShow); tkRow.appendChild(tkSave);
+  tokenCard.appendChild(tkRow);
+  tokenCard.appendChild(tkStatus);
+  wrap.appendChild(tokenCard);
   var live = STATE.live;
   var rows = [
     ["Mode", live ? "Live (Pipedrive API connected)" : (CONFIG.apiBase ? "Sample data (live feed empty/unavailable)" : "Sample data mode")],
