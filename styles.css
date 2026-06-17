@@ -1922,3 +1922,8 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
   .jobsheet .js-signgrid { break-inside: avoid; page-break-inside: avoid; }
   .jobsheet .js-card-body { padding: 4px 12px 6px; }
 }
+
+/* Job sheet: left-align field values into a clean, consistent column
+   (overrides the older right-aligned / space-between layout). */
+.jobsheet .js-field { justify-content: flex-start; }
+.jobsheet .js-field .v { text-align: left; margin-left: 0; }
