@@ -1417,7 +1417,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         var tbl = document.createElement("table");
         tbl.className = "js-staff-table";
         tbl.innerHTML = '<thead><tr>' + (isInspector
-          ? '<th>Name</th><th>Licence</th><th>Start</th><th>End</th><th>Hours</th><th></th>'
+          ? '<th>Name</th><th>Licence</th><th>Location</th><th>Time Booked</th><th>Hours</th><th></th>'
           : '<th>Name</th><th>Role</th><th>Start</th><th>End</th><th>Hours</th><th>Billable</th><th></th>')
           + '</tr></thead><tbody></tbody>';
         var tbody = tbl.querySelector("tbody");
@@ -1426,14 +1426,16 @@ function jsRenderStaffAllocations(holder, booking, opts) {
           var endStr   = jsFmtDTAU(a.allocation_end);
           var hoursStr = (a.duration_hours != null ? (parseFloat(a.duration_hours) + " h") : "—");
           var delCell  = '<td class="js-staff-del-cell"><button class="js-staff-del" title="Remove allocation" data-id="' + escapeHtml(a.staff_allocation_id) + '">✕</button></td>';
+          var member   = staffById[String(a.staff_id)] || {};
           var tr = document.createElement("tr");
           if (isInspector) {
-            var lic = (staffById[String(a.staff_id)] && staffById[String(a.staff_id)].license_number) || a.staff_license || "—";
+            var lic = member.license_number || a.staff_license || "—";
+            var loc = member.location || "—";
             tr.innerHTML =
               '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
               '<td>' + escapeHtml(lic) + '</td>' +
+              '<td>' + escapeHtml(loc) + '</td>' +
               '<td>' + escapeHtml(startStr) + '</td>' +
-              '<td>' + escapeHtml(endStr) + '</td>' +
               '<td class="js-staff-num">' + hoursStr + '</td>' + delCell;
           } else {
             var billCls = a.billable ? "js-bill-yes" : "js-bill-no";
@@ -1476,6 +1478,9 @@ function jsRenderStaffAllocations(holder, booking, opts) {
       form.hidden = true;
       var billableField = isInspector ? "" :
         '<label class="js-alloc-lbl js-alloc-check-lbl"><input type="checkbox" class="jsAllocBillable" checked> Billable</label>';
+      var startLabel = isInspector ? "Time Booked" : "Start";
+      var endField = isInspector ? "" :
+        '<label class="js-alloc-lbl">End<input type="datetime-local" class="js-alloc-input jsAllocEnd"></label>';
       form.innerHTML =
         '<div class="js-alloc-row">' +
           '<label class="js-alloc-lbl">' + (isInspector ? "Inspector" : "Staff member") +
@@ -1486,8 +1491,8 @@ function jsRenderStaffAllocations(holder, booking, opts) {
           '</label>' + billableField +
         '</div>' +
         '<div class="js-alloc-row">' +
-          '<label class="js-alloc-lbl">Start<input type="datetime-local" class="js-alloc-input jsAllocStart"></label>' +
-          '<label class="js-alloc-lbl">End<input type="datetime-local" class="js-alloc-input jsAllocEnd"></label>' +
+          '<label class="js-alloc-lbl">' + startLabel + '<input type="datetime-local" class="js-alloc-input jsAllocStart"></label>' +
+          endField +
           '<label class="js-alloc-lbl" style="flex:2">Notes (optional)<input type="text" class="js-alloc-input jsAllocNotes" placeholder="' + (isInspector ? "e.g. compliance inspection" : "e.g. site supervisor") + '"></label>' +
         '</div>' +
         '<div class="js-alloc-actions">' +
@@ -1498,15 +1503,18 @@ function jsRenderStaffAllocations(holder, booking, opts) {
       sec.appendChild(form);
 
       form.querySelector(".jsAllocStart").value = booking.startDate ? toDateTimeLocal(booking.startDate) : "";
-      form.querySelector(".jsAllocEnd").value   = booking.endDate   ? toDateTimeLocal(booking.endDate)   : "";
+      var endElInit = form.querySelector(".jsAllocEnd");
+      if (endElInit) endElInit.value = booking.endDate ? toDateTimeLocal(booking.endDate) : "";
 
       function recalcHours() {
+        var endEl2 = form.querySelector(".jsAllocEnd");
+        if (!endEl2) return; // inspectors enter hours manually
         var s = form.querySelector(".jsAllocStart").value;
-        var e = form.querySelector(".jsAllocEnd").value;
+        var e = endEl2.value;
         if (s && e) { var diff = (new Date(e) - new Date(s)) / 3600000; if (diff > 0) form.querySelector(".jsAllocHours").value = Math.round(diff * 2) / 2; }
       }
       form.querySelector(".jsAllocStart").addEventListener("change", recalcHours);
-      form.querySelector(".jsAllocEnd").addEventListener("change", recalcHours);
+      if (endElInit) endElInit.addEventListener("change", recalcHours);
       recalcHours();
 
       var sel = form.querySelector(".jsAllocStaff");
@@ -1517,7 +1525,8 @@ function jsRenderStaffAllocations(holder, booking, opts) {
           var opt = document.createElement("option");
           opt.value = s.staff_id;
           var licTxt = (isInspector && s.license_number) ? " — " + s.license_number : "";
-          opt.textContent = s.name + (s.role ? " (" + s.role + ")" : "") + (s.staff_type === "contractor" ? " [C]" : "") + licTxt;
+          var locTxt = (isInspector && s.location) ? " · " + s.location : "";
+          opt.textContent = s.name + (s.role ? " (" + s.role + ")" : "") + (s.staff_type === "contractor" ? " [C]" : "") + licTxt + locTxt;
           sel.appendChild(opt);
         });
       } else {
@@ -1538,24 +1547,33 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         var staffId  = form.querySelector(".jsAllocStaff").value;
         var hours    = parseFloat(form.querySelector(".jsAllocHours").value);
         var start    = form.querySelector(".jsAllocStart").value;
-        var end      = form.querySelector(".jsAllocEnd").value;
+        var endEl    = form.querySelector(".jsAllocEnd");
+        var end      = endEl ? endEl.value : "";
         var billEl   = form.querySelector(".jsAllocBillable");
         var billable = billEl ? billEl.checked : true;
         var notes    = form.querySelector(".jsAllocNotes").value.trim();
         var errEl    = form.querySelector(".js-alloc-err");
         errEl.textContent = "";
-        if (!staffId)        { errEl.textContent = "Select " + (isInspector ? "an inspector." : "a staff member."); return; }
-        if (!start || !end)  { errEl.textContent = "Start and end are required."; return; }
-        if (new Date(end) <= new Date(start)) { errEl.textContent = "End must be after start."; return; }
+        if (!staffId) { errEl.textContent = "Select " + (isInspector ? "an inspector." : "a staff member."); return; }
+        if (!start)   { errEl.textContent = isInspector ? "Time booked is required." : "Start and end are required."; return; }
         if (!hours || hours <= 0) { errEl.textContent = "Enter hours > 0."; return; }
+        var startISO = new Date(start).toISOString();
+        var endISO;
+        if (isInspector) {
+          endISO = new Date(new Date(start).getTime() + hours * 3600000).toISOString();
+        } else {
+          if (!end) { errEl.textContent = "Start and end are required."; return; }
+          if (new Date(end) <= new Date(start)) { errEl.textContent = "End must be after start."; return; }
+          endISO = new Date(end).toISOString();
+        }
         var saveBtn = form.querySelector(".js-alloc-save");
         saveBtn.disabled = true; saveBtn.textContent = "Saving…";
         var payload = {
           staff_id: staffId,
           pipedrive_deal_id: String(booking.pipedriveDealId),
           booking_title: booking.title || booking.customerName || "",
-          allocation_start: new Date(start).toISOString(),
-          allocation_end:   new Date(end).toISOString(),
+          allocation_start: startISO,
+          allocation_end:   endISO,
           duration_hours: hours,
           billable: billable,
           billable_hours: billable ? hours : 0,
