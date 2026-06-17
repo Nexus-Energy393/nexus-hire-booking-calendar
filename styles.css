@@ -1893,3 +1893,32 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .side-rail a.tab.rail-link:hover { color: #fff; background: rgba(32,160,82,.18); }
 .js-btn.survey { background: var(--brand-green, #20a052); color: #fff; border-color: var(--brand-green, #20a052); text-decoration: none; }
 .js-btn.survey:hover { background: var(--brand-green-dark, #178a44); }
+
+/* ─────────────────────────────────────────────────────────────────────
+   JOB SHEET REFINEMENTS — compact spacing, cleaner type/alignment,
+   and print flow that fills pages instead of leaving big gaps.
+   (Scoped to .jobsheet so the calendar UI is unaffected.)
+   ───────────────────────────────────────────────────────────────────── */
+.jobsheet .js-body { padding: 18px 24px 24px; }
+.jobsheet .js-card { margin-bottom: 8px; border-radius: 8px; }
+.jobsheet .js-card-body { padding: 6px 14px 8px; }
+.jobsheet .js-card-head { font-size: 11px; letter-spacing: .07em; padding: 6px 12px; }
+.jobsheet .js-grid.js-grid-2 { gap: 2px 36px; }
+.jobsheet .js-field { padding: 4px 0; font-size: 12.5px; }
+.jobsheet .js-field .k { min-width: 132px; font-size: 10.5px; letter-spacing: .35px; color: #6b7280; }
+.jobsheet .js-field .v { font-weight: 600; color: #111827; }
+.jobsheet .js-statusline, .jobsheet .js-chips { margin: 8px 0 10px; }
+.jobsheet .js-note-field .js-note-input { min-height: 32px !important; }
+
+@media print {
+  /* Let sections flow across page breaks so pages fill (kills the gaps),
+     while keeping rows, headers and the sign-off block intact. */
+  .jobsheet .js-card { page-break-inside: auto !important; break-inside: auto !important; margin-bottom: 5px; }
+  .jobsheet .js-card-head { break-after: avoid; page-break-after: avoid; }
+  .jobsheet .js-field,
+  .jobsheet .js-staff-table tr,
+  .jobsheet .js-table tr,
+  .jobsheet .js-card-signoff,
+  .jobsheet .js-signgrid { break-inside: avoid; page-break-inside: avoid; }
+  .jobsheet .js-card-body { padding: 4px 12px 6px; }
+}

@@ -1701,7 +1701,7 @@ function jsWire(m, b) {
       filename: fname,
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-      pagebreak: { mode: ["css", "legacy"], avoid: ".js-card" },
+      pagebreak: { mode: ["css", "legacy"], avoid: [".js-field", ".js-card-head", ".js-staff-table tr", ".js-card-signoff", ".js-signgrid"] },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
     }).from(node).save().then(function () { document.body.classList.remove("js-exporting"); })
       .catch(function () { document.body.classList.remove("js-exporting"); });
