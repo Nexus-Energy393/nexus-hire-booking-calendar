@@ -1216,8 +1216,8 @@ function renderJobSheet(b) {
     jsField("Contact email", b.contactEmail, {full:true}) +
     jsSiteAddressField(b, {label:"Site address", full:true}) +
     jsField("Suburb / state", [b.suburb, b.state].filter(Boolean).join(" ")) +
-    '<div class="js-field full"><span class="k">Site access notes</span><span class="v"><span class="js-blank"></span></span></div>' +
-    '<div class="js-field full"><span class="k">Site hazards / instructions</span><span class="v"><span class="js-blank"></span></span></div>' +
+    jsNoteField(dealId, "Site access notes", "site_access_notes") +
+    jsNoteField(dealId, "Site hazards / instructions", "site_hazards") +
   '</div>');
 
   /* 2. HIRE PERIOD & OUTAGE */
@@ -1255,7 +1255,7 @@ function renderJobSheet(b) {
   if (b.electricalInspectionRequired || b.electricalConnectionRequired) {
     elecBody += '<p class="js-elec-sentence">' + escapeHtml(jsInspectorSentence(b)) + '</p>';
   }
-  elecBody += '<div class="js-write-line"><span class="lbl">Connection / isolation notes</span><div class="rule"></div></div>';
+  elecBody += jsNoteField(dealId, "Connection / isolation notes", "connection_isolation_notes");
   html += jsCard("Electrical connect / disconnect", "js-card-elec", elecBody);
 
   /* 5. STAFF ALLOCATION */
@@ -1266,17 +1266,17 @@ function renderJobSheet(b) {
   html += jsCard("Delivery & logistics", "", '<div class="js-grid js-grid-2">' +
     jsField("Delivery / freight", jsDeliveryShort(b)) +
     jsField("Refuelling required", jsRefuelShort(b)) +
-    '<div class="js-field full"><span class="k">Transport / collection notes</span><span class="v"><span class="js-blank"></span></span></div>' +
+    jsNoteField(dealId, "Transport / collection notes", "transport_collection_notes") +
   '</div>');
 
   /* 7. NOTES */
   if (jsVal(b.notes)) {
     html += jsCard("Notes", "js-card-notes", '<div class="js-notes-body">' + escapeHtml(b.notes) + '</div>' +
-      '<div class="js-write-line"><span class="lbl">Internal dispatch notes</span><div class="rule"></div></div>');
+      jsNoteField(dealId, "Internal dispatch notes", "internal_dispatch_notes"));
   } else {
     html += jsCard("Notes", "js-card-notes",
       '<div class="js-write-line"><span class="lbl">Job notes</span><div class="rule"></div></div>' +
-      '<div class="js-write-line"><span class="lbl">Internal dispatch notes</span><div class="rule"></div></div>');
+      jsNoteField(dealId, "Internal dispatch notes", "internal_dispatch_notes"));
   }
 
   /* 8. DISPATCH CHECKLIST & SIGN-OFF */
@@ -1356,6 +1356,44 @@ function toDateTimeLocal(d) {
   var pad = function(n){ return String(n).padStart(2,"0"); };
   return dt.getFullYear() + "-" + pad(dt.getMonth()+1) + "-" + pad(dt.getDate()) +
          "T" + pad(dt.getHours()) + ":" + pad(dt.getMinutes());
+}
+
+/* ---------- editable shared job-sheet notes (saved to DB) ---------- */
+function jsNoteField(dealId, label, key) {
+  return '<div class="js-field full js-note-field"><span class="k">' + escapeHtml(label) + '</span>' +
+    '<textarea class="js-note-input" data-deal="' + dealId + '" data-key="' + key + '" rows="2" placeholder="Add notes\u2026" ' +
+    'style="width:100%;min-height:40px;resize:vertical;font:inherit;padding:6px 8px;border:1px solid rgba(120,120,120,0.4);border-radius:6px;box-sizing:border-box;margin-top:4px;background:transparent;color:inherit;"></textarea>' +
+    '</div>';
+}
+function jsSaveNote(deal, key, value) {
+  return fetch(jsStaffApiBase() + "/notes", {
+    method: "POST",
+    headers: jsStaffAuthHeaders(),
+    body: JSON.stringify({ dealId: String(deal), field_key: key, value: value })
+  });
+}
+function jsLoadNotes(deal) {
+  if (deal == null) return;
+  fetch(jsStaffApiBase() + "/notes?dealId=" + encodeURIComponent(deal), { headers: { "Accept": "application/json" } })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var notes = (d && d.notes) || {};
+      document.querySelectorAll('.js-note-input[data-deal="' + deal + '"]').forEach(function(t){
+        var k = t.getAttribute("data-key");
+        if (notes[k] != null) t.value = notes[k];
+      });
+    })
+    .catch(function(){ /* notes feed unavailable */ });
+}
+function jsWireNotes(deal) {
+  if (deal == null) return;
+  var timers = {};
+  document.querySelectorAll('.js-note-input[data-deal="' + deal + '"]').forEach(function(t){
+    var k = t.getAttribute("data-key");
+    function save(){ jsSaveNote(deal, k, t.value).catch(function(){}); }
+    t.addEventListener("input", function(){ clearTimeout(timers[k]); timers[k] = setTimeout(save, 800); });
+    t.addEventListener("blur", function(){ clearTimeout(timers[k]); save(); });
+  });
 }
 
 function jsRenderStaffAllocations(holder, booking, opts) {
@@ -1606,6 +1644,8 @@ function jsRenderStaffAllocations(holder, booking, opts) {
 
 /* Wire up jobsheet interactions. */
 function jsWire(m, b) {
+  jsLoadNotes(b.pipedriveDealId);
+  jsWireNotes(b.pipedriveDealId);
   var closeBtn = document.getElementById("modalClose");
   if (closeBtn) closeBtn.addEventListener("click", function () { m.classList.remove("jobsheet-modal"); closeModal(); });
 
