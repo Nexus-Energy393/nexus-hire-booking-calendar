@@ -1362,175 +1362,194 @@ function jsRenderStaffAllocations(holder, booking, opts) {
   if (!holder) return;
   opts = opts || {};
 
-  function reload() { jsRenderStaffAllocations(holder, booking); }
+  function reload(o) { jsRenderStaffAllocations(holder, booking, o || {}); }
+  function isInspectorRole(role) { return !!(role && /inspector/i.test(role)); }
 
   holder.innerHTML = '<div class="js-staff-placeholder">Loading staff…</div>';
-  fetch(jsStaffApiBase() + "/staff?action=allocations&dealId=" + encodeURIComponent(booking.pipedriveDealId),
-    { headers: { "Accept": "application/json" } })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var allocs = (data.allocations || []).filter(function(a) {
-        return a.status !== "cancelled";
-      });
-      var sumEl = document.getElementById("jsStaffSummary");
-      if (sumEl) sumEl.textContent = allocs.length
-        ? (allocs.length + " (" + allocs.map(function(a){return a.staff_name;}).filter(Boolean).join(", ") + ")")
-        : "None allocated";
-      var wrap = document.createElement("div");
 
-      /* ── conflict alert (shown after a save that detected an overlap) ── */
-      if (opts.conflictMsg) {
+  Promise.all([
+    fetch(jsStaffApiBase() + "/staff?action=allocations&dealId=" + encodeURIComponent(booking.pipedriveDealId),
+      { headers: { "Accept": "application/json" } }).then(function(r){ return r.json(); }),
+    fetch(jsStaffApiBase() + "/staff", { headers: { "Accept": "application/json" } }).then(function(r){ return r.json(); })
+  ]).then(function(results) {
+    var allocData = results[0] || {};
+    var staffData = results[1] || {};
+    var staffList = staffData.staff || [];
+    var staffById = {};
+    staffList.forEach(function(s){ staffById[String(s.staff_id)] = s; });
+
+    var allocs = (allocData.allocations || []).filter(function(a) { return a.status !== "cancelled"; });
+    var labourAllocs    = allocs.filter(function(a){ return !isInspectorRole(a.staff_role); });
+    var inspectorAllocs = allocs.filter(function(a){ return  isInspectorRole(a.staff_role); });
+
+    var sumEl = document.getElementById("jsStaffSummary");
+    if (sumEl) sumEl.textContent = allocs.length
+      ? (allocs.length + " (" + allocs.map(function(a){return a.staff_name;}).filter(Boolean).join(", ") + ")")
+      : "None allocated";
+
+    var wrap = document.createElement("div");
+    wrap.appendChild(buildAllocSection({ mode: "labour",    title: "Labour allocation", allocs: labourAllocs,    conflictMsg: opts.conflictMsg }));
+    wrap.appendChild(buildAllocSection({ mode: "inspector", title: "Inspector",         allocs: inspectorAllocs, conflictMsg: null }));
+
+    holder.innerHTML = "";
+    holder.appendChild(wrap);
+
+    function buildAllocSection(cfg) {
+      var isInspector = cfg.mode === "inspector";
+      var sec = document.createElement("div");
+      sec.className = "js-alloc-section js-alloc-" + cfg.mode;
+      sec.style.marginTop = "14px";
+
+      var title = document.createElement("div");
+      title.className = "js-alloc-section-title";
+      title.style.cssText = "font-weight:600;margin:0 0 6px;";
+      title.textContent = cfg.title;
+      sec.appendChild(title);
+
+      if (cfg.conflictMsg) {
         var alertBanner = document.createElement("div");
         alertBanner.className = "js-conflict-alert";
-        alertBanner.innerHTML = "&#9888; Staff conflict: <strong>" + escapeHtml(opts.conflictMsg) + "</strong> overlaps this period. Saved anyway — please check scheduling.";
-        wrap.appendChild(alertBanner);
+        alertBanner.innerHTML = "&#9888; Staff conflict: <strong>" + escapeHtml(cfg.conflictMsg) + "</strong> overlaps this period. Saved anyway — please check scheduling.";
+        sec.appendChild(alertBanner);
       }
 
-      /* ── existing allocations table ── */
-      if (allocs.length) {
+      if (cfg.allocs.length) {
         var tbl = document.createElement("table");
         tbl.className = "js-staff-table";
-        tbl.innerHTML = '<thead><tr>' +
-          '<th>Name</th><th>Role</th><th>Start</th><th>End</th>' +
-          '<th>Hours</th><th>Billable</th><th></th>' +
-          '</tr></thead><tbody></tbody>';
+        tbl.innerHTML = '<thead><tr>' + (isInspector
+          ? '<th>Name</th><th>Licence</th><th>Start</th><th>End</th><th>Hours</th><th></th>'
+          : '<th>Name</th><th>Role</th><th>Start</th><th>End</th><th>Hours</th><th>Billable</th><th></th>')
+          + '</tr></thead><tbody></tbody>';
         var tbody = tbl.querySelector("tbody");
-        allocs.forEach(function(a) {
-          var billCls = a.billable ? "js-bill-yes" : "js-bill-no";
+        cfg.allocs.forEach(function(a) {
           var startStr = jsFmtDTAU(a.allocation_start);
           var endStr   = jsFmtDTAU(a.allocation_end);
+          var hoursStr = (a.duration_hours != null ? (parseFloat(a.duration_hours) + " h") : "—");
+          var delCell  = '<td class="js-staff-del-cell"><button class="js-staff-del" title="Remove allocation" data-id="' + escapeHtml(a.staff_allocation_id) + '">✕</button></td>';
           var tr = document.createElement("tr");
-          tr.innerHTML =
-            '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
-            '<td>' + escapeHtml(a.staff_role || "—") + '</td>' +
-            '<td>' + escapeHtml(startStr) + '</td>' +
-            '<td>' + escapeHtml(endStr) + '</td>' +
-            '<td class="js-staff-num">' + (a.duration_hours != null ? (parseFloat(a.duration_hours) + " h") : "&mdash;") + '</td>' +
-            '<td class="' + billCls + '">' + (a.billable ? "Yes" : "No") + '</td>' +
-            '<td class="js-staff-del-cell"><button class="js-staff-del" title="Remove allocation" data-id="' + escapeHtml(a.staff_allocation_id) + '">✕</button></td>';
+          if (isInspector) {
+            var lic = (staffById[String(a.staff_id)] && staffById[String(a.staff_id)].license_number) || a.staff_license || "—";
+            tr.innerHTML =
+              '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
+              '<td>' + escapeHtml(lic) + '</td>' +
+              '<td>' + escapeHtml(startStr) + '</td>' +
+              '<td>' + escapeHtml(endStr) + '</td>' +
+              '<td class="js-staff-num">' + hoursStr + '</td>' + delCell;
+          } else {
+            var billCls = a.billable ? "js-bill-yes" : "js-bill-no";
+            tr.innerHTML =
+              '<td class="js-staff-name">' + escapeHtml(a.staff_name || "—") + '</td>' +
+              '<td>' + escapeHtml(a.staff_role || "—") + '</td>' +
+              '<td>' + escapeHtml(startStr) + '</td>' +
+              '<td>' + escapeHtml(endStr) + '</td>' +
+              '<td class="js-staff-num">' + hoursStr + '</td>' +
+              '<td class="' + billCls + '">' + (a.billable ? "Yes" : "No") + '</td>' + delCell;
+          }
           tbody.appendChild(tr);
         });
-        /* remove buttons */
         tbl.querySelectorAll(".js-staff-del").forEach(function(btn) {
           btn.addEventListener("click", function() {
-            if (!confirm("Remove this staff allocation?")) return;
+            if (!confirm("Remove this allocation?")) return;
             btn.disabled = true;
             fetch(jsStaffApiBase() + "/staff?action=update-allocation", {
-              method: "POST",
-              headers: jsStaffAuthHeaders(),
+              method: "POST", headers: jsStaffAuthHeaders(),
               body: JSON.stringify({ staff_allocation_id: btn.dataset.id, status: "cancelled" })
             }).then(function() { reload(); })
               .catch(function() { alert("Could not remove allocation."); btn.disabled = false; });
           });
         });
-        wrap.appendChild(tbl);
+        sec.appendChild(tbl);
       } else {
         var ph = document.createElement("div");
         ph.className = "js-alertbox js-alertbox-warn";
-        ph.textContent = "No staff allocated.";
-        wrap.appendChild(ph);
+        ph.textContent = isInspector ? "No inspector allocated." : "No staff allocated.";
+        sec.appendChild(ph);
       }
 
-      /* ── add staff form / button ── */
       var addBtn = document.createElement("button");
       addBtn.className = "js-staff-add-btn";
-      addBtn.textContent = "+ Add staff";
-      wrap.appendChild(addBtn);
+      addBtn.textContent = isInspector ? "+ Add inspector" : "+ Add staff";
+      sec.appendChild(addBtn);
 
       var form = document.createElement("div");
       form.className = "js-alloc-form";
       form.hidden = true;
+      var billableField = isInspector ? "" :
+        '<label class="js-alloc-lbl js-alloc-check-lbl"><input type="checkbox" class="jsAllocBillable" checked> Billable</label>';
       form.innerHTML =
         '<div class="js-alloc-row">' +
-          '<label class="js-alloc-lbl">Staff member' +
-            '<select class="js-alloc-select" id="jsAllocStaff"><option value="">Loading…</option></select>' +
+          '<label class="js-alloc-lbl">' + (isInspector ? "Inspector" : "Staff member") +
+            '<select class="js-alloc-select jsAllocStaff"><option value="">Loading…</option></select>' +
           '</label>' +
-          '<label class="js-alloc-lbl">Hours required' +
-            '<input type="number" class="js-alloc-input" id="jsAllocHours" min="0.5" max="999" step="0.5" value="8" style="width:80px">' +
-          '</label>' +
-          '<label class="js-alloc-lbl js-alloc-check-lbl">' +
-            '<input type="checkbox" id="jsAllocBillable" checked> Billable' +
-          '</label>' +
+          '<label class="js-alloc-lbl">Hours' +
+            '<input type="number" class="js-alloc-input jsAllocHours" min="0.5" max="999" step="0.5" value="8" style="width:80px">' +
+          '</label>' + billableField +
         '</div>' +
         '<div class="js-alloc-row">' +
-          '<label class="js-alloc-lbl">Start' +
-            '<input type="datetime-local" class="js-alloc-input" id="jsAllocStart">' +
-          '</label>' +
-          '<label class="js-alloc-lbl">End' +
-            '<input type="datetime-local" class="js-alloc-input" id="jsAllocEnd">' +
-          '</label>' +
-          '<label class="js-alloc-lbl" style="flex:2">Notes (optional)' +
-            '<input type="text" class="js-alloc-input" id="jsAllocNotes" placeholder="e.g. site supervisor">' +
-          '</label>' +
+          '<label class="js-alloc-lbl">Start<input type="datetime-local" class="js-alloc-input jsAllocStart"></label>' +
+          '<label class="js-alloc-lbl">End<input type="datetime-local" class="js-alloc-input jsAllocEnd"></label>' +
+          '<label class="js-alloc-lbl" style="flex:2">Notes (optional)<input type="text" class="js-alloc-input jsAllocNotes" placeholder="' + (isInspector ? "e.g. compliance inspection" : "e.g. site supervisor") + '"></label>' +
         '</div>' +
         '<div class="js-alloc-actions">' +
-          '<button class="js-alloc-save btn-primary">Save allocation</button>' +
+          '<button class="js-alloc-save btn-primary">Save</button>' +
           '<button class="js-alloc-cancel">Cancel</button>' +
           '<span class="js-alloc-err"></span>' +
         '</div>';
-      wrap.appendChild(form);
+      sec.appendChild(form);
 
-      /* pre-fill dates from booking */
-      var bStartVal = booking.startDate ? toDateTimeLocal(booking.startDate) : "";
-      var bEndVal   = booking.endDate   ? toDateTimeLocal(booking.endDate)   : "";
-      form.querySelector("#jsAllocStart").value = bStartVal;
-      form.querySelector("#jsAllocEnd").value   = bEndVal;
+      form.querySelector(".jsAllocStart").value = booking.startDate ? toDateTimeLocal(booking.startDate) : "";
+      form.querySelector(".jsAllocEnd").value   = booking.endDate   ? toDateTimeLocal(booking.endDate)   : "";
 
-      /* auto-calc hours when dates change */
       function recalcHours() {
-        var s = form.querySelector("#jsAllocStart").value;
-        var e = form.querySelector("#jsAllocEnd").value;
-        if (s && e) {
-          var diff = (new Date(e) - new Date(s)) / 3600000;
-          if (diff > 0) form.querySelector("#jsAllocHours").value = Math.round(diff * 2) / 2;
-        }
+        var s = form.querySelector(".jsAllocStart").value;
+        var e = form.querySelector(".jsAllocEnd").value;
+        if (s && e) { var diff = (new Date(e) - new Date(s)) / 3600000; if (diff > 0) form.querySelector(".jsAllocHours").value = Math.round(diff * 2) / 2; }
       }
-      form.querySelector("#jsAllocStart").addEventListener("change", recalcHours);
-      form.querySelector("#jsAllocEnd").addEventListener("change", recalcHours);
+      form.querySelector(".jsAllocStart").addEventListener("change", recalcHours);
+      form.querySelector(".jsAllocEnd").addEventListener("change", recalcHours);
       recalcHours();
 
-      /* load staff list into select */
-      fetch(jsStaffApiBase() + "/staff", { headers: { "Accept": "application/json" } })
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-          var sel = form.querySelector("#jsAllocStaff");
-          sel.innerHTML = '<option value="">— select staff member —</option>';
-          (d.staff || []).forEach(function(s) {
-            var opt = document.createElement("option");
-            opt.value = s.staff_id;
-            opt.textContent = s.name + (s.role ? " (" + s.role + ")" : "") + (s.staff_type === "contractor" ? " [C]" : "");
-            sel.appendChild(opt);
-          });
+      var sel = form.querySelector(".jsAllocStaff");
+      var pickable = staffList.filter(function(s){ return isInspector ? isInspectorRole(s.role) : !isInspectorRole(s.role); });
+      if (pickable.length) {
+        sel.innerHTML = '<option value="">— select ' + (isInspector ? "inspector" : "staff member") + " —</option>";
+        pickable.forEach(function(s) {
+          var opt = document.createElement("option");
+          opt.value = s.staff_id;
+          var licTxt = (isInspector && s.license_number) ? " — " + s.license_number : "";
+          opt.textContent = s.name + (s.role ? " (" + s.role + ")" : "") + (s.staff_type === "contractor" ? " [C]" : "") + licTxt;
+          sel.appendChild(opt);
         });
+      } else {
+        sel.innerHTML = '<option value="">' + (isInspector ? "No inspectors in resourcing list" : "No staff in resourcing list") + "</option>";
+      }
 
-      /* toggle form */
       addBtn.addEventListener("click", function() {
         form.hidden = !form.hidden;
-        addBtn.textContent = form.hidden ? "+ Add staff" : "− Cancel";
+        addBtn.textContent = form.hidden ? (isInspector ? "+ Add inspector" : "+ Add staff") : "− Cancel";
       });
       form.querySelector(".js-alloc-cancel").addEventListener("click", function() {
         form.hidden = true;
-        addBtn.textContent = "+ Add staff";
+        addBtn.textContent = isInspector ? "+ Add inspector" : "+ Add staff";
         form.querySelector(".js-alloc-err").textContent = "";
       });
 
-      /* save */
       form.querySelector(".js-alloc-save").addEventListener("click", function() {
-        var staffId  = form.querySelector("#jsAllocStaff").value;
-        var hours    = parseFloat(form.querySelector("#jsAllocHours").value);
-        var start    = form.querySelector("#jsAllocStart").value;
-        var end      = form.querySelector("#jsAllocEnd").value;
-        var billable = form.querySelector("#jsAllocBillable").checked;
-        var notes    = form.querySelector("#jsAllocNotes").value.trim();
+        var staffId  = form.querySelector(".jsAllocStaff").value;
+        var hours    = parseFloat(form.querySelector(".jsAllocHours").value);
+        var start    = form.querySelector(".jsAllocStart").value;
+        var end      = form.querySelector(".jsAllocEnd").value;
+        var billEl   = form.querySelector(".jsAllocBillable");
+        var billable = billEl ? billEl.checked : true;
+        var notes    = form.querySelector(".jsAllocNotes").value.trim();
         var errEl    = form.querySelector(".js-alloc-err");
         errEl.textContent = "";
-        if (!staffId)        { errEl.textContent = "Select a staff member."; return; }
+        if (!staffId)        { errEl.textContent = "Select " + (isInspector ? "an inspector." : "a staff member."); return; }
         if (!start || !end)  { errEl.textContent = "Start and end are required."; return; }
         if (new Date(end) <= new Date(start)) { errEl.textContent = "End must be after start."; return; }
         if (!hours || hours <= 0) { errEl.textContent = "Enter hours > 0."; return; }
         var saveBtn = form.querySelector(".js-alloc-save");
-        saveBtn.disabled = true;
-        saveBtn.textContent = "Saving…";
+        saveBtn.disabled = true; saveBtn.textContent = "Saving…";
         var payload = {
           staff_id: staffId,
           pipedrive_deal_id: String(booking.pipedriveDealId),
@@ -1544,30 +1563,26 @@ function jsRenderStaffAllocations(holder, booking, opts) {
           notes: notes || null
         };
         fetch(jsStaffApiBase() + "/staff?action=create-allocation", {
-          method: "POST",
-          headers: jsStaffAuthHeaders(),
-          body: JSON.stringify(payload)
+          method: "POST", headers: jsStaffAuthHeaders(), body: JSON.stringify(payload)
         }).then(function(r) { return r.json().then(function(j){ return {s:r.status,b:j}; }); })
           .then(function(res) {
             if (res.s >= 400) throw new Error(res.b.error || "Server error " + res.s);
-            var conflictMsg = (res.b.conflict && res.b.conflict_with && res.b.conflict_with.length)
-              ? res.b.conflict_with.join(", ")
-              : null;
-            jsRenderStaffAllocations(holder, booking, { conflictMsg: conflictMsg });
+            var conflictMsg = (!isInspector && res.b.conflict && res.b.conflict_with && res.b.conflict_with.length)
+              ? res.b.conflict_with.join(", ") : null;
+            reload({ conflictMsg: conflictMsg });
           })
           .catch(function(e) {
             errEl.textContent = e.message || "Failed to save.";
-            saveBtn.disabled = false;
-            saveBtn.textContent = "Save allocation";
+            saveBtn.disabled = false; saveBtn.textContent = "Save";
           });
       });
 
-      holder.innerHTML = "";
-      holder.appendChild(wrap);
-    })
-    .catch(function() {
-      holder.innerHTML = '<div class="js-staff-placeholder">Staff data unavailable.</div>';
-    });
+      return sec;
+    }
+  })
+  .catch(function() {
+    holder.innerHTML = '<div class="js-staff-placeholder">Staff data unavailable.</div>';
+  });
 }
 
 
