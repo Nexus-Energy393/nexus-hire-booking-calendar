@@ -933,6 +933,18 @@ function jsSaveLocalField(dealId, key, value) {
 
 /* ---------- computed resourcing status (shared with calendar) ---------- */
 /* Active operational alerts shown as pills on the jobsheet status line. */
+/* Compact "Site warnings" callout for safety-critical site conditions from the survey. */
+function jsSiteWarnings(b) {
+  var items = [];
+  if (b.solarPresent) items.push("Solar on site");
+  if (b.medicalEquipment && b.medicalEquipment.length) items.push("Medical equipment: " + b.medicalEquipment.join(", "));
+  else if (b.medicalFacility) items.push("Medical facility");
+  if (b.standbyGenerator) items.push("Standby generator on site");
+  if (!items.length) return "";
+  return '<div class="js-sitewarn"><span class="js-sitewarn-title">Site warnings</span>' +
+    items.map(function (x) { return '<span class="js-sitewarn-item">&#9888; ' + escapeHtml(x) + '</span>'; }).join("") +
+    '</div>';
+}
 function jsActiveAlerts(b) {
   var out = [];
   if (b.refuellingRequired) {
@@ -952,6 +964,21 @@ function jsActiveAlerts(b) {
     var ctext = partners.length ? "Labour conflict with Job #" + partners.join(", #") : "Labour conflict";
     out.push({ cls: "al-conflict", icon: "&#9888;", text: ctext,
                title: "Staff double-booked over this hire period" });
+  }
+  if (b.solarPresent) {
+    out.push({ cls: "js-chip-solar", icon: "&#9728;", text: "Solar on site",
+               title: "Live solar generation present \u2014 isolate/verify before connection." });
+  }
+  if (b.medicalEquipment && b.medicalEquipment.length) {
+    out.push({ cls: "js-chip-medical", icon: "&#9877;", text: "Medical equipment: " + b.medicalEquipment.join(", "),
+               title: "Sensitive medical equipment on site \u2014 coordinate the outage carefully." });
+  } else if (b.medicalFacility) {
+    out.push({ cls: "js-chip-medical", icon: "&#9877;", text: "Medical facility",
+               title: "Medical facility \u2014 confirm any sensitive equipment before the outage." });
+  }
+  if (b.standbyGenerator) {
+    out.push({ cls: "js-chip-standby", icon: "&#128268;", text: "Standby generator on site",
+               title: "Existing standby generator installed \u2014 confirm interface/isolation." });
   }
   return out;
 }
@@ -1244,6 +1271,8 @@ function renderJobSheet(b) {
   /* missing-item warning */
   html += '<div class="js-warning" id="jsWarning"' + (st.missing.length ? "" : " hidden") + '>' +
           (st.missing.length ? jsWarningInner(st) : "") + '</div>';
+
+  html += jsSiteWarnings(b);
 
   /* 1. SITE DETAILS */
   html += jsCard("Site details", "", '<div class="js-grid js-grid-2">' +
