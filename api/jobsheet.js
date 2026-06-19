@@ -10,6 +10,12 @@
  *     body { asset_id, pipedrive_deal_id, hours_out, hours_in, recorded_by, notes }
  *     -> records hours, computes runtime, updates asset current hours + service.
  *
+ *   POST /api/jobsheet?action=complete       (admin)
+ *     body { asset_id, pipedrive_deal_id, hours_in, fuel_level_return_pct,
+ *            fuel_added_litres, recorded_by, notes }
+ *     -> records hours-in + fuel used, returns the asset to the fleet,
+ *        recomputes service and releases the allocation (job completed).
+ *
  *   POST /api/jobsheet?action=service-record (admin)
  *     body { asset_id, service_type, service_completed_hours, service_completed_date,
  *            completed_by, service_form_url, notes }
@@ -54,6 +60,15 @@ module.exports = async function handler(req, res) {
         const rec = await store.recordEngineHours(body);
         const asset = await store.getAsset(body.asset_id);
         res.status(201).json({ ok: true, record: rec, asset: asset, service: asset ? R.serviceStatus(asset) : null });
+        return;
+      }
+
+      if (action === "complete") {
+        if (!body.asset_id) { res.status(400).json({ ok: false, error: "asset_id is required." }); return; }
+        if (!body.pipedrive_deal_id) { res.status(400).json({ ok: false, error: "pipedrive_deal_id is required." }); return; }
+        if (body.hours_in == null) { res.status(400).json({ ok: false, error: "hours_in (return meter reading) is required to complete a hire." }); return; }
+        const result = await store.completeHireJob(body);
+        res.status(201).json({ ok: true, ...result });
         return;
       }
 
