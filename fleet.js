@@ -886,18 +886,17 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           } else allocatedCell = "&mdash;";
           actions = can
             ? '<button class="fleet-btn sm" data-act="alloc-gen">' + (a ? "Change" : "Allocate generator") + "</button>" +
-              (a && a.allocation_status !== "cross_hire_required" ? "" : "") +
+              (a ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "") +
               (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen">Cross-hire</button>')
             : '<span class="fleet-write-off sm">read-only</span>';
         } else {
           allocatedCell = a ? esc(a.quantity_allocated || 0) : "&mdash;";
           actions = can
-            ? '<button class="fleet-btn sm" data-act="alloc-stock" data-req="' + idx + '">' + (a ? "Change qty" : "Allocate") + "</button>"
+            ? '<button class="fleet-btn sm" data-act="alloc-stock" data-req="' + idx + '">' + (a ? "Change qty" : "Allocate") + "</button>" + (a ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "")
             : "";
         }
         statusCell = a
-          ? (can ? '<button class="alloc-badge-btn" type="button" data-act="release" data-alloc="' + esc(a.allocation_id) + '" title="Click to release / un-allocate this item">' + allocBadge(a.allocation_status) + '<span class="abx" aria-hidden="true">&times;</span></button>'
-                 : allocBadge(a.allocation_status))
+          ? allocBadge(a.allocation_status)
           : '<span class="alloc-badge none">not allocated</span>';
         var picked = a && /^(picked|ready)$/i.test(a.dispatch_status || "");
         pickedCell = a
