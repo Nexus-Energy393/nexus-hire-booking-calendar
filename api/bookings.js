@@ -28,6 +28,17 @@ async function buildOptionLabels() {
   return map;
 }
 
+/* Build a map lowercased-field-name -> fieldKey, so survey fields that were
+   created/matched by NAME (Solar Installed, Imaging Equipment, etc.) can be read. */
+async function buildFieldsByName() {
+  const fields = await pipedrive.getDealFields();
+  const map = {};
+  fields.forEach(function (f) {
+    if (f && f.name && f.key) map[String(f.name).trim().toLowerCase()] = f.key;
+  });
+  return map;
+}
+
 /* Pipedrive person phone/email come back as an array of { value, primary, label }
    (or sometimes a plain string). Return the primary value, else the first. */
 function pickPrimary(field) {
@@ -42,7 +53,7 @@ function pickPrimary(field) {
   return '';
 }
 
-async function enrich(deal, optionLabels) {
+async function enrich(deal, optionLabels, fieldsByName) {
   let contactName = deal.person_name || '';
   let contactPhone = '';
   let contactEmail = '';
@@ -60,7 +71,7 @@ async function enrich(deal, optionLabels) {
   } catch (e) {
     console.warn('[api/bookings] enrich warning for deal ' + deal.id + ':', e.message);
   }
-  return { contactName: contactName, orgName: orgName, contactPhone: contactPhone, contactEmail: contactEmail, optionLabels: optionLabels };
+  return { contactName: contactName, orgName: orgName, contactPhone: contactPhone, contactEmail: contactEmail, optionLabels: optionLabels, fieldsByName: (fieldsByName || {}) };
 }
 
 /* Keep deals that are actual hire/outage jobs: those with a start date, OR whose
@@ -73,12 +84,13 @@ function isBoardDeal(deal, optionLabels) {
 
 async function buildBookings() {
   const optionLabels = await buildOptionLabels();
+  const fieldsByName = await buildFieldsByName();
   const deals = await pipedrive.getWonHireDeals();
   const bookings = [];
   for (const deal of deals) {
     try {
       if (!isBoardDeal(deal, optionLabels)) continue;
-      const extras = await enrich(deal, optionLabels);
+      const extras = await enrich(deal, optionLabels, fieldsByName);
       bookings.push(dealToBooking(deal, extras));
     } catch (e) {
       console.error('[api/bookings] transform failed for deal ' + deal.id + ':', e.message);
