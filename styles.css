@@ -307,6 +307,8 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
 .fleet-btn.ghost { background: transparent; }
 .fleet-btn.warn { background: #fb8c00; color: #fff; border-color: #fb8c00; }
 .fleet-btn.sm { padding: 4px 9px; font-size: 12px; }
+.fleet-btn.danger { background: #fff; color: #c62828; border-color: #e9a8a2; }
+.fleet-btn.danger:hover { background: #fdecea; border-color: #c62828; }
 
 /* ---- db-not-configured panel ---- */
 .fleet-warning-panel { background: var(--panel); border: 1px solid #fb8c00; border-left: 4px solid #fb8c00; border-radius: 10px; padding: 18px 20px; margin: 16px 20px; }
@@ -1769,6 +1771,13 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .js-chip.st-duration, .js-chip.st-equipment, .js-chip.al-fuel { background: #fff3e0; color: #b26a00; border-color: #f0c890; }
 .js-chip.st-review, .js-chip.al-conflict { background: #fdecea; color: #b71c1c; border-color: #f1b0a8; }
 .js-chip.js-chip-elec { background: #fff8e1; color: #8a6d00; border-color: #efd271; }
+.js-chip.js-chip-solar { background: #fff3e0; color: #b26a00; border-color: #f0c890; }
+.js-chip.js-chip-medical { background: #fdecea; color: #b71c1c; border-color: #f1b0a8; }
+.js-chip.js-chip-standby { background: #e7f0fb; color: #1c4f8a; border-color: #aac6e8; }
+/* Site warnings callout */
+.js-sitewarn { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: #fff8ef; border: 1px solid #f0c890; border-left: 4px solid #e8920c; border-radius: 8px; padding: 9px 12px; margin: 0 0 12px; }
+.js-sitewarn-title { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #8a5a00; margin-right: 2px; }
+.js-sitewarn-item { font-size: 12px; font-weight: 700; color: #5c4a2a; }
 
 /* missing-info warning */
 .js-warning[hidden] { display: none; }
