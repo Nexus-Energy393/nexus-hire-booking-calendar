@@ -351,6 +351,12 @@ function render() {
     updatePeriodLabel();
     return;
   }
+  else if (STATE.view === "offhire") {
+    if (window.NexusOffHire) window.NexusOffHire.render(root);
+    else root.innerHTML = "<p class='empty'>Off Hire module not loaded.</p>";
+    updatePeriodLabel();
+    return;
+  }
 
   updatePeriodLabel();
   var lu = document.getElementById("lastUpdated");
