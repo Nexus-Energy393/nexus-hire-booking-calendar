@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Nexus">
+  <style>
+    .leaf1,.leaf2{fill-opacity:0;stroke-width:3.4;stroke-linecap:round;stroke-linejoin:round;
+      stroke-dasharray:960;stroke-dashoffset:960;vector-effect:non-scaling-stroke;}
+    .leaf1{fill:#0BBF64;stroke:#0BBF64;
+      animation:nxDraw .95s ease-in-out 0s forwards, nxFill .55s ease .8s forwards, nxStroke .5s ease .95s forwards;}
+    .leaf2{fill:#FFFFFF;stroke:#FFFFFF;
+      animation:nxDraw .95s ease-in-out .45s forwards, nxFill .55s ease 1.25s forwards, nxStroke .5s ease 1.4s forwards;}
+    @keyframes nxDraw{to{stroke-dashoffset:0}}
+    @keyframes nxFill{to{fill-opacity:1}}
+    @keyframes nxStroke{to{stroke-opacity:0}}
+    @media (prefers-reduced-motion: reduce){
+      .leaf1,.leaf2{fill-opacity:1;stroke-opacity:0;animation:none}
+    }
+  </style>
+  <rect width="64" height="64" rx="14" fill="#0d1117"/>
+  <g transform="translate(10.5 10.5) scale(0.1908)">
+    <path class="leaf1" d="M29.06 230.21H0V1.44c76.45-9.85 177.83 67.71 175.19 170.05-16-8.24-29.57-15.5-35.21-35.53-14.44-51.3-49.11-84.46-99.9-100.62a45.27 45.27 0 0 0-6.71-1.53c-.83-.13-1.77.37-4.31 1v195.4z"/>
+    <path class="leaf2" d="M230.47 229.1C150 236.52 53.41 160 54.67 58c15.16 8.86 29.63 14.39 35 34.29 13.54 50.47 47 83.69 96.15 101.07a68.57 68.57 0 0 0 8 2.28 70.18 70.18 0 0 0 7.37.73V0h29.33z"/>
+  </g>
+</svg>
