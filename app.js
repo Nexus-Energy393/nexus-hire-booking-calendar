@@ -332,10 +332,13 @@ function render() {
   renderConflicts(detectConflicts(visible));
   document.body.setAttribute("data-mode", STATE.tv ? "tv" : "desktop");
 
-  if (STATE.view === "month") renderMonth(root, visible);
-  else if (STATE.view === "fortnight") renderFortnight(root, visible);
-  else if (STATE.view === "week") renderWeek(root, visible);
-  else if (STATE.view === "day") renderDay(root, visible);
+  // Overlay scheduled SERVICE jobs from the Nexus hub onto the calendar views
+  // only (never list/alerts/sync, and never conflict detection above).
+  var cal = (window.NexusServiceItems) ? visible.concat(window.NexusServiceItems(STATE.filters) || []) : visible;
+  if (STATE.view === "month") renderMonth(root, cal);
+  else if (STATE.view === "fortnight") renderFortnight(root, cal);
+  else if (STATE.view === "week") renderWeek(root, cal);
+  else if (STATE.view === "day") renderDay(root, cal);
   else if (STATE.view === "list") renderList(root, visible);
   else if (STATE.view === "missing") renderMissing(root, visible);
   else if (STATE.view === "sync") renderSync(root);
@@ -362,6 +365,7 @@ function render() {
   var lu = document.getElementById("lastUpdated");
   lu.textContent = "Last updated: " + (STATE.lastUpdated ? STATE.lastUpdated.toLocaleTimeString("en-AU") : "--");
 }
+window.__hireRerender = render;
 
 function renderMonth(root, bookings) {
   root.innerHTML = "";
