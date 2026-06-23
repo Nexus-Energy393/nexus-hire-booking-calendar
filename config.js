@@ -11,6 +11,10 @@
 window.NEXUS_CONFIG = {
   apiBase: '/api',
   pipedriveCompanyUrl: 'https://nexusenergy.pipedrive.com',
-  autoRefreshSeconds: 60
+  autoRefreshSeconds: 60,
+  // Read-only SERVICE feed from the Nexus hub, overlaid on the calendar views.
+  serviceApiBase: 'https://nexus-hub-ashy.vercel.app/api/service/calendar',
+  hubBase: 'https://nexus-hub-ashy.vercel.app',
+  serviceRefreshSeconds: 300
 };
 
