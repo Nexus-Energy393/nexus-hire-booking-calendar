@@ -2044,3 +2044,23 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .pill.st-onhire { background: #2563eb; color: #fff; }
 .chip.st-onhire, .js-tag.st-onhire { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
 .badge.st-onhire { color: #fff; background: #2563eb; border-color: #2563eb; }
+
+
+/* ---- Prospective (in-negotiation) planned outages: greyed "tentative" tiles ---- */
+.prospective-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; padding: 0 4px; white-space: nowrap; }
+.prospective-toggle input { accent-color: #9aa0a6; cursor: pointer; margin: 0; }
+.booking-span.is-prospective {
+  --span-accent: #9aa0a6;
+  background: repeating-linear-gradient(45deg, #f6f7f9, #f6f7f9 6px, #eef0f3 6px, #eef0f3 12px);
+  border: 1px dashed #c4c9d1; border-left: 3px dashed #9aa0a6; box-shadow: none; opacity: .9;
+}
+.booking-span.is-prospective:hover, .booking-span.is-prospective.span-hover { opacity: 1; border-color: #9aa0a6; }
+.booking-card.is-prospective {
+  background: repeating-linear-gradient(45deg, #f6f7f9, #f6f7f9 6px, #eef0f3 6px, #eef0f3 12px);
+  border-left: 3px dashed #9aa0a6 !important; opacity: .92;
+}
+.booking-span.is-prospective .bs-cust, .booking-card.is-prospective .bc-cust { color: #5f6571; font-style: italic; }
+.booking-span.is-prospective .bs-status, .booking-card.is-prospective .bc-status { background: #e5e7eb !important; color: #4b5563 !important; }
+.pill.st-prospective { background: #9aa0a6; color: #fff; }
+.chip.st-prospective, .js-tag.st-prospective { background: #eef0f3; color: #5f6571; border-color: #c4c9d1; }
+.badge.st-prospective { background: #9aa0a6; color: #fff; border-color: #9aa0a6; }
