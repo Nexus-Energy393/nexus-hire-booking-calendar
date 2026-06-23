@@ -78,6 +78,56 @@
     return d === "picked" || d === "ready";
   }
 
+  /* ---- On Hire window (auto-derived) ----------------------------------
+     A fully-resourced job is "On Hire" while NOW falls inside its active
+     window. Planned outages use the deal's outage window (time on - time off)
+     widened by a 2-hour buffer each end; if no window is recorded the whole
+     hire day(s) count as On Hire. Multi-day general / emergency hires use the
+     hire start -> end period. Schedule-driven only (no engine-hours needed). */
+  var ON_HIRE_BUFFER_MS = 2 * 60 * 60 * 1000;
+  function parseHM(s) {
+    var m = /(\d{1,2}):(\d{2})/.exec(String(s || "").trim());
+    if (!m) return null;
+    var h = +m[1], mi = +m[2];
+    if (h > 23 || mi > 59) return null;
+    return { h: h, mi: mi };
+  }
+  function splitOutageWindow(s) {
+    if (!s) return null;
+    var parts = String(s).split(/\s*(?:-|\u2013|\u2014|to)\s*/i);
+    if (parts.length !== 2) return null;
+    var a = parseHM(parts[0]), b = parseHM(parts[1]);
+    return (a && b) ? { start: a, end: b } : null;
+  }
+  function dateAt(dateStr, hm) {
+    var d = new Date(dateStr + "T00:00:00");
+    if (isNaN(d)) return null;
+    if (hm) d.setHours(hm.h, hm.mi, 0, 0);
+    return d;
+  }
+  function isOnHire(booking, now) {
+    now = now || new Date();
+    var startStr = booking && booking.startDate;
+    if (!startStr) return false;
+    var endStr = booking.endDate || startStr;
+    var win = splitOutageWindow(booking.outageWindow);
+    var lower, upper;
+    if (win) {
+      var ls = dateAt(startStr, win.start), ue = dateAt(endStr, win.end);
+      if (!ls || !ue) return false;
+      lower = ls.getTime() - ON_HIRE_BUFFER_MS;
+      upper = ue.getTime() + ON_HIRE_BUFFER_MS;
+    } else {
+      var sd = dateAt(startStr, null), ed = dateAt(endStr, null);
+      if (!sd || !ed) return false;
+      lower = sd.getTime();                       // start of first hire day
+      ed.setHours(23, 59, 59, 999);
+      upper = ed.getTime();                        // end of last hire day
+    }
+    var t = now.getTime();
+    return t >= lower && t <= upper;
+  }
+
   /*
    * computeJobStatus(booking, allocations, engineHours) ->
    *   { key, label, missing:[..], requirements:[..], genAlloc, allOk, allPicked }
@@ -140,12 +190,15 @@
       ended = new Date(booking.endDate + "T00:00:00") < today;
     }
 
+    var onHire = isOnHire(booking);
+
     var key;
     if (ended && hoursIn) key = "completed";
     else if (hasConflict) key = "conflict";
     else if (!genAlloc || (!reqSatisfied(genReq))) key = satisfied > 0 ? "part-allocated" : "needs-equipment";
     else if (!covered) key = "part-allocated";
     else if (crossHire) key = "cross-hire";
+    else if (onHire) key = "on-hire";
     else if (ready) key = "ready";
     else key = "allocated";
 
@@ -155,6 +208,7 @@
       "needs-equipment": "Needs equipment",
       "part-allocated": "Part allocated",
       "cross-hire": "Cross-hire required",
+      "on-hire": "On Hire",
       "ready": "Ready for dispatch",
       "allocated": "Allocated"
     };
@@ -175,7 +229,7 @@
     };
   }
 
-  var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked };
+  var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked, isOnHire: isOnHire };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

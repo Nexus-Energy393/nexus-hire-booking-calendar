@@ -2035,3 +2035,12 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 }
 .offhire-home-banner .fleet-btn { margin-left: auto; }
 .oh-banner-x { border: 0; background: transparent; font-size: 20px; line-height: 1; cursor: pointer; color: #8a5800; padding: 0 2px; }
+
+
+/* ---- On Hire: generator currently out (auto-derived from hire/outage window) ---- */
+.booking-span.st-onhire { --status-pill-bg: #dbeafe; --status-pill-text: #1e40af; --span-accent: #2563eb; }
+.booking-card.st-onhire { border-left-color: #2563eb; }
+.booking-card.st-onhire .bc-status { background: #dbeafe; color: #1e40af; }
+.pill.st-onhire { background: #2563eb; color: #fff; }
+.chip.st-onhire, .js-tag.st-onhire { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.badge.st-onhire { color: #fff; background: #2563eb; border-color: #2563eb; }
