@@ -39,12 +39,13 @@
       status: "service",
       startDate: date,
       endDate: date,
-      customer: s.asset || "Asset",                       // tile title
-      site: s.serviceTypeFull || s.serviceType || "Service",
-      suburb: s.serviceTypeFull || s.serviceType || "Service",
+      customer: [s.client, s.site].filter(Boolean).join(" \u2013 ") || s.asset || "Service", // tile title: Client – Site
+      site: s.serviceType || s.serviceTypeFull || "Service",
+      suburb: s.serviceType || s.serviceTypeFull || "Service",
       serviceType: s.serviceType || "",
       serviceTypeFull: s.serviceTypeFull || s.serviceType || "Service",
       jobStatusLabel: s.statusLabel || "",
+      done: s.status === "report_sent",
       hubUrl: HUB + path
     };
   }
@@ -78,7 +79,10 @@
       ".booking-card.jt-service{border-left:3px dashed #0d9488 !important;background:#e8fbf7;}" +
       ".booking-span.jt-service .bs-cust::before,.booking-card.jt-service .bc-cust::before{content:'\\1F527';margin-right:4px;}" +
       ".booking-span.jt-service .bs-status,.booking-card.jt-service .bc-status{background:#ccfbf1 !important;color:#0f766e !important;}" +
-      ".booking-span.jt-service{cursor:pointer;}";
+      ".booking-span.jt-service{cursor:pointer;}" +
+      ".booking-span.jt-service.is-svc-done,.booking-card.jt-service.is-svc-done{opacity:.62;}" +
+      ".booking-span.jt-service.is-svc-done .bs-cust::before,.booking-card.jt-service.is-svc-done .bc-cust::before{content:'\\2713';color:#16a34a;margin-right:4px;}" +
+      ".booking-span.jt-service.is-svc-done .bs-status,.booking-card.jt-service.is-svc-done .bc-status{background:#dcfce7 !important;color:#166534 !important;}";
     var st = document.createElement("style");
     st.id = "nexus-service-css";
     st.textContent = css;
@@ -103,22 +107,30 @@
   }
 
   // Map id -> hub url so decorate() can resolve the destination from the DOM.
+  function itemForId(id) {
+    for (var i = 0; i < cache.length; i++) if (cache[i].id === id) return cache[i];
+    return null;
+  }
   function urlForId(id) {
-    for (var i = 0; i < cache.length; i++) if (cache[i].id === id) return cache[i].hubUrl;
-    return "";
+    var it = itemForId(id);
+    return it ? it.hubUrl : "";
   }
 
   function scan() {
     // span tiles (month / fortnight): data-deal-id = "svc-<id>"
     var spans = document.querySelectorAll('.booking-span[data-deal-id^="svc-"]');
     spans.forEach(function (n) {
-      if (!n.getAttribute("data-svc-url")) n.setAttribute("data-svc-url", urlForId(n.getAttribute("data-deal-id")));
+      var it = itemForId(n.getAttribute("data-deal-id"));
+      if (!n.getAttribute("data-svc-url")) n.setAttribute("data-svc-url", (it && it.hubUrl) || "");
+      if (it && it.done) n.classList.add("is-svc-done");
       decorate(n);
     });
     // card tiles (week / day): data-id = "svc-<id>"
     var cards = document.querySelectorAll('.booking-card[data-id^="svc-"]');
     cards.forEach(function (n) {
-      if (!n.getAttribute("data-svc-url")) n.setAttribute("data-svc-url", urlForId(n.getAttribute("data-id")));
+      var it = itemForId(n.getAttribute("data-id"));
+      if (!n.getAttribute("data-svc-url")) n.setAttribute("data-svc-url", (it && it.hubUrl) || "");
+      if (it && it.done) n.classList.add("is-svc-done");
       decorate(n);
     });
   }
