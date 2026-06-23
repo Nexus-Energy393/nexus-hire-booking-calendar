@@ -88,6 +88,7 @@ function statusMeta(b) {
       "cross-hire":      { label: "Cross-hire required",cls: "st-equipment" },
       "conflict":        { label: "Conflict",           cls: "st-review" },
       "allocated":       { label: "Allocated",          cls: "st-confirmed" },
+      "on-hire":         { label: "On Hire",           cls: "st-onhire" },
       "ready":           { label: "Ready for dispatch", cls: "st-confirmed" },
       "completed":       { label: "Completed",          cls: "st-completed" }
     };
