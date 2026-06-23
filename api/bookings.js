@@ -107,6 +107,9 @@ async function buildProspective(optionLabels, fieldsByName) {
       const typeLabel = (optionLabels[F.jobType + ":" + deal[F.jobType]] || "").toLowerCase();
       if (typeLabel.indexOf("outage") === -1 && typeLabel.indexOf("planned") === -1) continue;
       if (!deal[F.start]) continue; // hide until a planned outage date is set
+      const pStart = String(deal[F.start]).slice(0, 10);
+      const todayUTC = new Date().toISOString().slice(0, 10);
+      if (pStart < todayUTC) continue; // hide prospective tiles whose outage date has already passed
       const extras = await enrich(deal, optionLabels, fieldsByName);
       extras.prospective = true;
       extras.stageName = "Negotiations Started";
