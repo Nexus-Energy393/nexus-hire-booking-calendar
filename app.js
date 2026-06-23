@@ -45,6 +45,7 @@ var STATE = {
   cursor: startOfDay(new Date()),
   bookings: [],
   filters: { search: "", type: "", status: "", size: "", owner: "" },
+  showProspective: true,   // forward-look: in-negotiation planned outages (greyed tiles)
   tv: false,
   live: false,
   everLive: false,
@@ -100,7 +101,8 @@ function statusMeta(b) {
     "needs-equipment":{ label: "Needs equipment",cls: "st-equipment" },
     "needs-review":  { label: "Needs review",   cls: "st-review" },
     "completed":     { label: "Completed",      cls: "st-completed" },
-    "cancelled":     { label: "Cancelled",      cls: "st-cancelled" }
+    "cancelled":     { label: "Cancelled",      cls: "st-cancelled" },
+    "prospective":   { label: "Tentative",      cls: "st-prospective" }
   };
   return map[b.status] || { label: b.status || "Unknown", cls: "st-review" };
 }
@@ -125,7 +127,7 @@ function spansDay(b, day) {
 function detectConflicts(bookings) {
   var conflicts = [];
   var active = bookings.filter(function (b) {
-    return b.status !== "cancelled" && b.status !== "completed" && (b.equipmentId || b.generatorSize) && bStart(b);
+    return !b.prospective && b.status !== "cancelled" && b.status !== "completed" && (b.equipmentId || b.generatorSize) && bStart(b);
   });
   for (var i = 0; i < active.length; i++) {
     for (var j = i + 1; j < active.length; j++) {
@@ -147,6 +149,7 @@ function applyFilters(bookings) {
   var f = STATE.filters;
   var q = f.search.trim().toLowerCase();
   return bookings.filter(function (b) {
+    if (b.prospective && !STATE.showProspective) return false;
     if (f.type && b.jobType !== f.type) return false;
     if (f.status && b.status !== f.status) return false;
     if (f.size && b.generatorSize !== f.size) return false;
@@ -214,7 +217,7 @@ function applyResourcingStatuses() {
   var hoursByDeal = STATE.hoursByDeal || {};
   STATE.bookings.forEach(function (b) {
     b.resourcingStatus = null; b.resourcing = null;
-    if (b.status === "cancelled" || b.status === "completed") return;
+    if (b.status === "cancelled" || b.status === "completed" || b.prospective) return;
     var allocs = byDeal[String(b.pipedriveDealId)];
     if (!allocs || !allocs.length) return;
     var st = window.NexusResourcing.computeJobStatus(b, allocs, hoursByDeal[String(b.pipedriveDealId)] || []);
@@ -307,7 +310,7 @@ function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.cl
 
 function bookingCard(b, compact) {
   var sm = statusMeta(b), tm = typeMeta(b);
-  var card = el("div", "booking-card " + tm.cls + " " + sm.cls + (compact ? " compact" : ""));
+  var card = el("div", "booking-card " + tm.cls + " " + sm.cls + (compact ? " compact" : "") + (b.prospective ? " is-prospective" : ""));
   card.setAttribute("data-id", b.id);
   var size = b.generatorSize ? b.generatorSize : "Size TBC";
   var dur = b.durationDays ? (b.durationDays + (b.durationDays === 1 ? " day" : " days")) : "Duration TBC";
@@ -322,7 +325,7 @@ function bookingCard(b, compact) {
       '<div class="bc-meta"><span>' + escapeHtml(size) + '</span><span>' + tm.label + '</span></div>' +
       '<div class="bc-dates">' + fmtShort(bStart(b)) + ' &rarr; ' + fmtShort(bEnd(b)) + ' &middot; ' + dur + '</div>' +
       '<div class="bc-owner">' + escapeHtml(b.dealOwner || "Unassigned") + '</div>');
-  card.addEventListener("click", function () { openModal(b); });
+  card.addEventListener("click", function () { if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); });
   return card;
 }
 
@@ -522,7 +525,7 @@ function bookingSpan(seg) {
   var b = seg.b;
   var sm = statusMeta(b);
   var tm = typeMeta(b);
-  var bar = el("div", "booking-span " + tm.cls + " " + sm.cls);
+  var bar = el("div", "booking-span " + tm.cls + " " + sm.cls + (b.prospective ? " is-prospective" : ""));
   if (seg.isTrueStart && !seg.continuesLeft)  bar.classList.add("span-start");
   if (seg.isTrueEnd   && !seg.continuesRight) bar.classList.add("span-end");
   if (seg.continuesLeft)  bar.classList.add("span-cont-left");
@@ -579,7 +582,7 @@ function bookingSpan(seg) {
     fuelPin.innerHTML = "&#9981;"; /* ⛽ fuel pump */
     bar.appendChild(fuelPin);
   }
-  var open = function () { openModal(b); };
+  var open = function () { if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
   bar.addEventListener("click", open);
   bar.addEventListener("keydown", function (e) {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
@@ -625,6 +628,7 @@ function renderDay(root, bookings) {
 function renderList(root, bookings) {
   var today = startOfDay(new Date());
   var upcoming = bookings.filter(function (b) {
+    if (b.prospective) return false;
     var e = bEnd(b);
     if (!e) return true;
     return e.getTime() >= today.getTime();
@@ -692,7 +696,7 @@ function renderList(root, bookings) {
 
 function renderMissing(root, bookings) {
   var flagged = bookings.filter(function (b) {
-    return ["needs-duration","needs-equipment","needs-review"].indexOf(b.status) !== -1 || !bStart(b);
+    return !b.prospective && (["needs-duration","needs-equipment","needs-review"].indexOf(b.status) !== -1 || !bStart(b));
   });
   var wrap = el("div", "list-wrap");
   wrap.appendChild(el("h2", "day-title", "Jobs needing attention"));
@@ -904,6 +908,8 @@ function init() {
   document.getElementById("filterStatus").addEventListener("change", function (e) { STATE.filters.status = e.target.value; render(); });
   document.getElementById("filterSize").addEventListener("change", function (e) { STATE.filters.size = e.target.value; render(); });
   document.getElementById("filterOwner").addEventListener("change", function (e) { STATE.filters.owner = e.target.value; render(); });
+  var _tp = document.getElementById("toggleProspective");
+  if (_tp) _tp.addEventListener("change", function (e) { STATE.showProspective = e.target.checked; render(); });
   document.getElementById("modalBackdrop").addEventListener("click", function (e) { if (e.target.id === "modalBackdrop") closeModal(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
 
