@@ -82,6 +82,42 @@ function isBoardDeal(deal, optionLabels) {
   return t.indexOf('hire') !== -1 || t.indexOf('outage') !== -1 || t.indexOf('planned') !== -1;
 }
 
+/* Resolve the "Negotiations Started" stage id (by name) in the hire pipeline,
+   unless pinned via PIPEDRIVE_NEGOTIATION_STAGE_ID. */
+async function negotiationStageId() {
+  if (process.env.PIPEDRIVE_NEGOTIATION_STAGE_ID) return String(process.env.PIPEDRIVE_NEGOTIATION_STAGE_ID);
+  const pipelineId = process.env.PIPEDRIVE_HIRE_PIPELINE_ID;
+  const stages = await pipedrive.getStages(pipelineId);
+  const hit = (stages || []).find(function (st) { return /negotiat/i.test(st && st.name || ""); });
+  return hit ? String(hit.id) : null;
+}
+
+/* Prospective tiles: OPEN deals at the Negotiations-Started stage whose Type is a
+   Planned Power Outage AND that already have a planned outage date. These render
+   greyed on the calendar as a forward look; when won they flow through the normal
+   won feed instead. */
+async function buildProspective(optionLabels, fieldsByName) {
+  const stageId = await negotiationStageId();
+  if (!stageId) return [];
+  const deals = await pipedrive.getOpenHireDeals();
+  const out = [];
+  for (const deal of deals) {
+    try {
+      if (String(deal.stage_id) !== String(stageId)) continue;
+      const typeLabel = (optionLabels[F.jobType + ":" + deal[F.jobType]] || "").toLowerCase();
+      if (typeLabel.indexOf("outage") === -1 && typeLabel.indexOf("planned") === -1) continue;
+      if (!deal[F.start]) continue; // hide until a planned outage date is set
+      const extras = await enrich(deal, optionLabels, fieldsByName);
+      extras.prospective = true;
+      extras.stageName = "Negotiations Started";
+      out.push(dealToBooking(deal, extras));
+    } catch (e) {
+      console.error('[api/bookings] prospective transform failed for deal ' + deal.id + ':', e.message);
+    }
+  }
+  return out;
+}
+
 async function buildBookings() {
   const optionLabels = await buildOptionLabels();
   const fieldsByName = await buildFieldsByName();
@@ -96,7 +132,13 @@ async function buildBookings() {
       console.error('[api/bookings] transform failed for deal ' + deal.id + ':', e.message);
     }
   }
-  return bookings;
+  let prospective = [];
+  try {
+    prospective = await buildProspective(optionLabels, fieldsByName);
+  } catch (e) {
+    console.warn('[api/bookings] prospective feed skipped:', e.message);
+  }
+  return bookings.concat(prospective);
 }
 
 module.exports = async function handler(req, res) {
