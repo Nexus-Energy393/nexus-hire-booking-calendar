@@ -31,8 +31,15 @@ async function resolveSerialisedStatus(body) {
   }
   if (body.allocation_status === "cross_hire_required") return { status: "cross_hire_required" };
   const allocs = await store.liveAllocationsForAsset(body.asset_id);
+  // Resolve the candidate's deal id so a deal never conflicts with its own
+  // allocations. On PATCH the body may omit it; fall back to the stored row.
+  let dealId = body.pipedrive_deal_id;
+  if (dealId == null && body.allocation_id) {
+    const existing = await store.getAllocation(body.allocation_id);
+    if (existing) dealId = existing.pipedrive_deal_id;
+  }
   const conflicts = R.findAssetConflicts(
-    { hire_start: body.hire_start, hire_end: body.hire_end, allocation_id: body.allocation_id },
+    { hire_start: body.hire_start, hire_end: body.hire_end, allocation_id: body.allocation_id, pipedrive_deal_id: dealId },
     allocs, body.allocation_id);
   if (conflicts.length) return { status: "conflict", conflicts: conflicts };
   return { status: "allocated", service: svc };
