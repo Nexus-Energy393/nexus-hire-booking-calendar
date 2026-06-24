@@ -724,12 +724,27 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
 }
 html, body { background: var(--app-bg); }
 body { color: var(--text); font-size: 14px; -webkit-font-smoothing: antialiased; }
-.app-shell { display: flex; min-height: 100vh; width: 100%; }
+/* Global Nexus Hub bar — consistent across the Hub and its apps. */
+.hub-bar { position: sticky; top: 0; z-index: 60; display: flex; align-items: center; gap: 10px;
+  height: 48px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.hub-back { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 8px;
+  color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; }
+.hub-back:hover { background: var(--panel-2); color: var(--text); }
+.hub-back svg { width: 16px; height: 16px; }
+.hub-div { width: 1px; height: 20px; background: var(--line); }
+.hub-mark { width: 24px; height: 24px; display: block; border-radius: 6px; }
+.hub-title { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
+
+.app-shell { display: flex; min-height: calc(100vh - 48px); width: 100%; }
 .app-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .side-rail { width: var(--rail-w); flex: 0 0 var(--rail-w); background: var(--brand-purple-rail);
   display: flex; flex-direction: column; align-items: stretch; padding: 10px 0 14px; gap: 4px;
-  position: sticky; top: 0; height: 100vh; }
-.rail-brand { display: flex; align-items: center; justify-content: center; height: 48px; margin-bottom: 8px; }
+  position: sticky; top: 48px; height: calc(100vh - 48px); }
+.rail-brand { display: none; }
+/* Office/TV display mode: drop the Hub bar for a clean full-screen board. */
+body[data-mode="tv"] .hub-bar { display: none; }
+body[data-mode="tv"] .app-shell { min-height: 100vh; }
+body[data-mode="tv"] .side-rail { top: 0; height: 100vh; }
 .rail-mark { width: 38px; height: 38px; border-radius: 10px; background: var(--brand-purple-2);
   color: #fff; font-weight: 800; font-size: 18px; display: flex; align-items: center; justify-content: center;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
