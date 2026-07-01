@@ -7,6 +7,7 @@
 <meta name="description" content="Operational booking board for Nexus Energy generator hire and planned outage jobs." />
 <link rel="stylesheet" href="styles.css" />
 <link rel="stylesheet" href="tablet.css" />
+<link rel="stylesheet" href="hub-switcher.css" />
   <link rel="icon" type="image/png" href="favicon.png" />
 </head>
 <body data-mode="desktop">
@@ -34,6 +35,8 @@
 <button class="tab" data-view="offhire" data-icon="offhire"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Off Hire</span></button>
 <button class="tab" data-view="missing" data-icon="alerts"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Alerts</span></button>
 <button class="tab" data-view="sync" data-icon="settings"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Sync</span></button>
+<a class="tab rail-link" data-icon="crm" href="https://nexus-hub-ashy.vercel.app/api/launch/crm" target="_blank" rel="noopener" title="Open the Nexy CRM"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">CRM</span></a>
+<a class="tab rail-link" data-icon="service" href="https://nexus-hub-ashy.vercel.app/service" target="_blank" rel="noopener" title="Open Service Reports"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Service</span></a>
 <a class="tab rail-link" data-icon="survey" href="https://nexus-site-survey.vercel.app/" target="_blank" rel="noopener" title="Open the Site Survey app"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Survey</span></a>
 </nav>
 </aside>
@@ -97,5 +100,6 @@
 <script src="app.js"></script>
 <script src="service-overlay.js"></script>
 <script src="staff.js"></script>
+<script src="hub-switcher.js"></script>
 </body>
 </html>
