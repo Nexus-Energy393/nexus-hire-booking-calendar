@@ -2,146 +2,29 @@
  * api/bookings.js (Vercel Serverless Function, repo-root /api)
  * READ-ONLY live booking feed for the front-end.
  *
- * Fetches WON deals from the Pipedrive HIRE pipeline, enriches them with
- * organisation / contact names, resolves enum option IDs to labels, transforms
- * each into the booking shape the calendar expects, and returns { bookings }.
+ * Source of truth: the Nexy CRM "Hire Operations" calendar feed
+ * (GET {HIRE_FEED_URL}) which returns WON hire-pipeline deals already shaped as
+ * bookings. This app fetches that feed server-side and passes the bookings
+ * through - Pipedrive has been retired as the data source.
  *
- * No database: computed per request with a short in-memory cache per warm lambda.
- * On error, responds 200 with an empty list + error note so the board can fall
- * back to sample data instead of hard-failing.
+ * No database for bookings: fetched per request with a short in-memory cache per
+ * warm lambda. On error, responds 200 with an empty list + error note so the
+ * board falls back to sample data instead of hard-failing.
  */
-const pipedrive = require('../lib/pipedrive');
-const { dealToBooking, F } = require('../lib/transform');
-
+const HIRE_FEED_URL = (process.env.HIRE_FEED_URL || 'https://nexus-crm-gilt.vercel.app/api/hire/calendar').replace(/\/+$/, '');
+const HIRE_FEED_TOKEN = process.env.HIRE_FEED_TOKEN || '';
 const CACHE_MS = (parseInt(process.env.BOOKINGS_CACHE_SECONDS, 10) || 60) * 1000;
 let CACHE = { at: 0, bookings: null };
 
-/* Build a map "fieldKey:optionId" -> label for all enum/set deal fields. */
-async function buildOptionLabels() {
-  const fields = await pipedrive.getDealFields();
-  const map = {};
-  fields.forEach(function (f) {
-    (f.options || []).forEach(function (o) {
-      if (o && o.id !== undefined) map[f.key + ":" + o.id] = o.label;
-    });
+async function fetchBookings() {
+  const url = HIRE_FEED_URL + (HIRE_FEED_TOKEN ? ('?token=' + encodeURIComponent(HIRE_FEED_TOKEN)) : '');
+  const res = await fetch(url, {
+    headers: HIRE_FEED_TOKEN ? { Authorization: 'Bearer ' + HIRE_FEED_TOKEN } : {},
   });
-  return map;
-}
-
-/* Build a map lowercased-field-name -> fieldKey, so survey fields that were
-   created/matched by NAME (Solar Installed, Imaging Equipment, etc.) can be read. */
-async function buildFieldsByName() {
-  const fields = await pipedrive.getDealFields();
-  const map = {};
-  fields.forEach(function (f) {
-    if (f && f.name && f.key) map[String(f.name).trim().toLowerCase()] = f.key;
-  });
-  return map;
-}
-
-/* Pipedrive person phone/email come back as an array of { value, primary, label }
-   (or sometimes a plain string). Return the primary value, else the first. */
-function pickPrimary(field) {
-  if (!field) return '';
-  if (typeof field === 'string') return field;
-  if (Array.isArray(field)) {
-    const primary = field.find(function (x) { return x && x.primary && x.value; });
-    if (primary) return primary.value;
-    const first = field.find(function (x) { return x && x.value; });
-    return first ? first.value : '';
-  }
-  return '';
-}
-
-async function enrich(deal, optionLabels, fieldsByName) {
-  let contactName = deal.person_name || '';
-  let contactPhone = '';
-  let contactEmail = '';
-  let orgName = deal.org_name || '';
-  try {
-    if (deal.person_id && deal.person_id.value) {
-      const p = await pipedrive.getPerson(deal.person_id.value);
-      if (p) contactName = p.name || contactName;
-        if (p) { contactPhone = pickPrimary(p.phone) || contactPhone; contactEmail = pickPrimary(p.email) || contactEmail; }
-    }
-    if (deal.org_id && deal.org_id.value) {
-      const o = await pipedrive.getOrganization(deal.org_id.value);
-      if (o) orgName = o.name || orgName;
-    }
-  } catch (e) {
-    console.warn('[api/bookings] enrich warning for deal ' + deal.id + ':', e.message);
-  }
-  return { contactName: contactName, orgName: orgName, contactPhone: contactPhone, contactEmail: contactEmail, optionLabels: optionLabels, fieldsByName: (fieldsByName || {}) };
-}
-
-/* Keep deals that are actual hire/outage jobs: those with a start date, OR whose
-   Type resolves to Hire / Planned Power Outage. Drops pure sales/service deals. */
-function isBoardDeal(deal, optionLabels) {
-  if (deal[F.start]) return true;
-  const t = (optionLabels[F.jobType + ":" + deal[F.jobType]] || '').toLowerCase();
-  return t.indexOf('hire') !== -1 || t.indexOf('outage') !== -1 || t.indexOf('planned') !== -1;
-}
-
-/* Resolve the "Negotiations Started" stage id (by name) in the hire pipeline,
-   unless pinned via PIPEDRIVE_NEGOTIATION_STAGE_ID. */
-async function negotiationStageId() {
-  if (process.env.PIPEDRIVE_NEGOTIATION_STAGE_ID) return String(process.env.PIPEDRIVE_NEGOTIATION_STAGE_ID);
-  const pipelineId = process.env.PIPEDRIVE_HIRE_PIPELINE_ID;
-  const stages = await pipedrive.getStages(pipelineId);
-  const hit = (stages || []).find(function (st) { return /negotiat/i.test(st && st.name || ""); });
-  return hit ? String(hit.id) : null;
-}
-
-/* Prospective tiles: OPEN deals at the Negotiations-Started stage whose Type is a
-   Planned Power Outage AND that already have a planned outage date. These render
-   greyed on the calendar as a forward look; when won they flow through the normal
-   won feed instead. */
-async function buildProspective(optionLabels, fieldsByName) {
-  const stageId = await negotiationStageId();
-  if (!stageId) return [];
-  const deals = await pipedrive.getOpenHireDeals();
-  const out = [];
-  for (const deal of deals) {
-    try {
-      if (String(deal.stage_id) !== String(stageId)) continue;
-      const typeLabel = (optionLabels[F.jobType + ":" + deal[F.jobType]] || "").toLowerCase();
-      if (typeLabel.indexOf("outage") === -1 && typeLabel.indexOf("planned") === -1) continue;
-      if (!deal[F.start]) continue; // hide until a planned outage date is set
-      const pStart = String(deal[F.start]).slice(0, 10);
-      const todayUTC = new Date().toISOString().slice(0, 10);
-      if (pStart < todayUTC) continue; // hide prospective tiles whose outage date has already passed
-      const extras = await enrich(deal, optionLabels, fieldsByName);
-      extras.prospective = true;
-      extras.stageName = "Negotiations Started";
-      out.push(dealToBooking(deal, extras));
-    } catch (e) {
-      console.error('[api/bookings] prospective transform failed for deal ' + deal.id + ':', e.message);
-    }
-  }
-  return out;
-}
-
-async function buildBookings() {
-  const optionLabels = await buildOptionLabels();
-  const fieldsByName = await buildFieldsByName();
-  const deals = await pipedrive.getWonHireDeals();
-  const bookings = [];
-  for (const deal of deals) {
-    try {
-      if (!isBoardDeal(deal, optionLabels)) continue;
-      const extras = await enrich(deal, optionLabels, fieldsByName);
-      bookings.push(dealToBooking(deal, extras));
-    } catch (e) {
-      console.error('[api/bookings] transform failed for deal ' + deal.id + ':', e.message);
-    }
-  }
-  let prospective = [];
-  try {
-    prospective = await buildProspective(optionLabels, fieldsByName);
-  } catch (e) {
-    console.warn('[api/bookings] prospective feed skipped:', e.message);
-  }
-  return bookings.concat(prospective);
+  if (!res.ok) throw new Error('Hire feed ' + res.status + ' ' + res.statusText);
+  const json = await res.json();
+  if (!json || json.ok === false) throw new Error((json && json.error) || 'Hire feed returned an error');
+  return Array.isArray(json.bookings) ? json.bookings : [];
 }
 
 module.exports = async function handler(req, res) {
@@ -149,11 +32,6 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); res.status(405).json({ ok: false, error: 'Method not allowed' }); return; }
-
-  if (!process.env.PIPEDRIVE_API_TOKEN) {
-    res.status(200).json({ ok: false, error: 'PIPEDRIVE_API_TOKEN not set', bookings: [] });
-    return;
-  }
 
   const force = req.query && (req.query.refresh === '1' || req.query.refresh === 'true');
   const now = Date.now();
@@ -164,7 +42,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const bookings = await buildBookings();
+    const bookings = await fetchBookings();
     CACHE = { at: now, bookings: bookings };
     try {
       const db = require('../lib/db');

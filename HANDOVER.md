@@ -1,46 +1,47 @@
 # Handover - Nexus Generator Hire Booking Calendar
 
-> **Status: BUILD COMPLETE & LIVE.** The board reads real won hire/outage deals directly from the Pipedrive API and renders them across all views. See README.md for full architecture and field-mapping detail. This file is the short orientation for the next person.
+> **Status: LIVE.** The board reads real won hire/outage deals from the Nexy CRM "Hire Operations" feed and renders them across all views. Pipedrive has been retired as the data source. See README.md for full architecture and field-mapping detail. This file is the short orientation for the next person.
 
 ## Links
 
 - Live app: https://nexus-hire-booking-calendar.vercel.app/
 - Repo: https://github.com/Nexus-Energy393/nexus-hire-booking-calendar
 - Hosting: Vercel (project "nexus-hire-booking-calendar"). Auto-deploys on every push to `main`.
+- Source of truth: Nexy CRM (https://nexus-crm-gilt.vercel.app), feed at `/api/hire/calendar`.
 
 ## What it is
 
-A read-only operational booking board. **Pipedrive is the single source of truth**: won deals in the HIRE pipeline (id `1`) become bookings on the calendar. The app never creates or edits Pipedrive deals. Booqable and the Google "Rental Calendar" are **not** used as data sources.
+A read-only operational booking board. **The Nexy CRM is the single source of truth**: won deals in the HIRE pipeline become bookings on the calendar. The app never creates or edits CRM deals. Pipedrive, Booqable and the Google "Rental Calendar" are **not** used as data sources.
 
-## How it is built (no Next.js, no database)
+## How it is built (no Next.js, no database for bookings)
 
-- Static front-end: `index.html`, `app.js`, `styles.css`, `config.js` (sets `window.NEXUS_CONFIG.apiBase = '/api'`).
-- Vercel zero-config serverless function `api/bookings.js` = **GET /api/bookings**: fetches won hire deals from Pipedrive on each request, enriches org/contact, resolves enum option ids to labels, transforms to bookings, returns `{ ok, count, bookings }`. Short in-memory cache (`?refresh=1` to bypass).
-- `lib/pipedrive.js` (read-only Pipedrive v1 client) and `lib/transform.js` (deal -> booking; the live field hashes are baked in as defaults).
+- Static front-end: `index.html`, `app.js`, `styles.css`, `config.js` (sets `window.NEXUS_CONFIG.apiBase = '/api'` and `crmBase`).
+- Vercel zero-config serverless function `api/bookings.js` = **GET /api/bookings**: fetches the CRM Hire Operations feed (`HIRE_FEED_URL`), passes the bookings through with a short in-memory cache (`?refresh=1` to bypass), and reconciles fleet allocation dates. The deal->booking shaping happens on the CRM side (`src/lib/hire-calendar.ts` in the nexus-crm repo).
 - If `/api/bookings` is empty/unreachable the UI falls back to `sample-data.js` so the screen is never blank.
+
+## Deal identity (important)
+
+Each booking keeps a numeric `pipedriveDealId` = the deal's **preserved Pipedrive id** (deals were imported into the CRM with their original id), so existing fleet allocations, notes and job sheets keyed on that numeric id keep matching. The feed also sends `crmDealId` + `crmUrl` for the deep link into Nexy. Deals created natively in Nexy (no Pipedrive id) carry their CRM cuid instead; they render and deep-link fine, and full fleet-DB allocation for them is a follow-up (the fleet tables still key on a numeric id).
 
 ## Views
 
 Calendar (month / office screen), List (current + upcoming only), 2 Week (this + next week, fixed even rows), Week, Day, Missing Info (deals lacking dates/equipment), Sync Status (mode + source + counts).
 
-## Field mapping (locked in)
-
-The live Pipedrive custom-field hashes are hard-coded as defaults in `lib/transform.js` (they are field identifiers, not secrets), each overridable via a `PD_FIELD_*` env var. Mapped: Planned Outage/Hire Start Date, Planned Outage/Hire End Date, Type, Generator Size Required (+ Generator model fallback), SERIAL/FLEET #, Site Address, Estimated Rental Term. Enum fields (Type, Generator Size) come back from the v1 list API as numeric option ids; `api/bookings.js` resolves them to labels via a /dealFields id->label map.
-
 ## Environment variables (Vercel)
 
-- `PIPEDRIVE_API_TOKEN` - **required, secret.** Without it the board runs in sample mode.
-- `PIPEDRIVE_COMPANY_DOMAIN` (default `nexusenergy`), `PIPEDRIVE_HIRE_PIPELINE_ID` (`1`), `BOOKINGS_CACHE_SECONDS` (default 120).
-- `PD_FIELD_*` only needed to override a changed field hash.
-- `PIPEDRIVE_WEBHOOK_SECRET` and `GOOGLE_CALENDAR_*` are reserved for future work.
+- `HIRE_FEED_URL` - the CRM Hire Operations feed. Default `https://nexus-crm-gilt.vercel.app/api/hire/calendar`.
+- `HIRE_FEED_TOKEN` - optional. Only if the CRM has `HIRE_FEED_TOKEN` set; use the SAME value here.
+- `BOOKINGS_CACHE_SECONDS` - feed cache window (default 60).
+- `DATABASE_URL` + `FLEET_ADMIN_TOKEN` - the fleet-resourcing layer (unchanged; see README section 11).
 
 ## Security notes
 
-- No secrets are committed to this public repo. The token lives only in Vercel env vars.
-- The temporary `api/deal-fields.js` setup helper used to discover field hashes has been **deleted** now that the mapping is locked in.
+- No secrets are committed to this public repo. Tokens live only in Vercel env vars.
+- The CRM feed is read-only and can be locked down with `HIRE_FEED_TOKEN` on both sides.
 
 ## Outstanding / roadmap
 
-- Many won hire deals in Pipedrive lack a hire **start date**, so they land in Missing Info / needs-review. That is a Pipedrive data-entry task for the team, not an app bug.
-- Optional one-way **Google Calendar** visibility mirror (Pipedrive stays source of truth). Not yet wired. Note the previously shared Google "Rental Calendar" `@import.calendar.google.com` address is read-only/import and cannot be written to; a writable calendar + service account would be required.
+- Many won deals lack a hire **start date**, so they land in Missing Info / needs-review. That is a data-entry task for the team in Nexy, not an app bug.
+- Fleet-DB allocation for Nexy-native (non-imported) deals needs the fleet tables migrated from a numeric `pipedrive_deal_id` key to a text deal key. Imported deals are unaffected.
+- Optional one-way Google Calendar visibility mirror (the CRM stays source of truth).
 - Per-generator fleet timeline view; alerts for deals missing end date/equipment.

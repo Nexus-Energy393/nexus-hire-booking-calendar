@@ -2,7 +2,7 @@
  * app.js - Nexus Generator Hire Booking Board
  * Front-end rendering for calendar (month) / 2-week / list (Jemena-style table) / week / day /
  * missing-info / sync views, desktop filters, large-screen office mode,
- * fleet-conflict detection and booking detail with a deep-link back to the Pipedrive deal.
+ * fleet-conflict detection and booking detail with a deep-link back to the Nexy CRM deal.
  *
  * Data source: in sample mode it reads window.NEXUS_SAMPLE_BOOKINGS.
  * In live mode set window.NEXUS_CONFIG.apiBase and it fetches GET {apiBase}/bookings,
@@ -12,7 +12,7 @@
 "use strict";
 
 var CONFIG = window.NEXUS_CONFIG || {};
-var PIPEDRIVE_BASE = CONFIG.pipedriveCompanyUrl || "https://nexusenergy.pipedrive.com";
+var CRM_BASE = (CONFIG.crmBase || "https://nexus-crm-gilt.vercel.app").replace(/\/+$/, "");
 var REFRESH_MS = (CONFIG.autoRefreshSeconds || 60) * 1000;
 
 /* ── inline SVG: staff conflict badge (appears on calendar tiles) ── */
@@ -114,7 +114,7 @@ function typeMeta(b) {
   };
   return map[b.jobType] || { label: "Hire", cls: "jt-general" };
 }
-function dealUrl(b) { return PIPEDRIVE_BASE + "/deal/" + b.pipedriveDealId; }
+function dealUrl(b) { return b.crmUrl || (CRM_BASE + "/deals/" + (b.crmDealId || b.pipedriveDealId)); }
 
 function spansDay(b, day) {
   var s = bStart(b), e = bEnd(b);
@@ -241,7 +241,7 @@ function loadAllocationSummary() {
       applyResourcingStatuses();
       render();
     })
-    .catch(function () { /* resourcing feed unavailable: Pipedrive statuses stand */ });
+    .catch(function () { /* resourcing feed unavailable: CRM statuses stand */ });
 }
 
 function loadStaffConflicts() {
@@ -295,13 +295,13 @@ function updateDataSourceNote() {
   var note = document.getElementById("dataSourceNote");
   if (!note) return;
   if (!STATE.loaded && CONFIG.apiBase) {
-    note.innerHTML = "Loading live data from the Pipedrive hire pipeline\u2026";
+    note.innerHTML = "Loading live data from the Nexy hire pipeline\u2026";
   } else if (STATE.live) {
-    note.innerHTML = "Live data &mdash; synced from the Pipedrive hire pipeline.";
+    note.innerHTML = "Live data - synced from the Nexy CRM hire pipeline.";
   } else if (CONFIG.apiBase) {
-    note.innerHTML = "Showing sample data &mdash; couldn't reach the live Pipedrive feed just now; it will retry automatically.";
+    note.innerHTML = "Showing sample data - couldn't reach the live Nexy feed just now; it will retry automatically.";
   } else {
-    note.innerHTML = "Sample data mode &mdash; connect Pipedrive credentials to go live. See README.";
+    note.innerHTML = "Sample data mode - connect the Nexy hire feed to go live. See README.";
   }
 }
 
@@ -682,7 +682,7 @@ function renderList(root, bookings) {
       '<td>' + escapeHtml(b.generatorSize || "TBC") + '</td>' +
       '<td>' + dash(b.equipmentId) + '</td>' +
       '<td>' + escapeHtml(b.dealOwner || "Unassigned") + '</td>' +
-      '<td class="cell-actions"><a class="row-link" target="_blank" rel="noopener" href="' + dealUrl(b) + '" data-stop="1">Pipedrive</a></td>';
+      '<td class="cell-actions"><a class="row-link" target="_blank" rel="noopener" href="' + dealUrl(b) + '" data-stop="1">Nexy CRM</a></td>';
     tr.addEventListener("click", function (e) {
       if (e.target.getAttribute("data-stop")) return;
       openModal(b);
@@ -700,7 +700,7 @@ function renderMissing(root, bookings) {
   });
   var wrap = el("div", "list-wrap");
   wrap.appendChild(el("h2", "day-title", "Jobs needing attention"));
-  wrap.appendChild(el("p", "subtle", "Won hire deals from Pipedrive that are missing duration, equipment or critical detail."));
+  wrap.appendChild(el("p", "subtle", "Won hire deals from Nexy that are missing duration, equipment or critical detail."));
   if (!flagged.length) wrap.appendChild(el("p", "empty", "Nothing flagged - all bookings have the detail needed."));
   flagged.forEach(function (b) {
     var card = bookingCard(b, false);
@@ -716,7 +716,7 @@ function renderMissing(root, bookings) {
 
 function renderSync(root) {
   var wrap = el("div", "list-wrap sync-wrap");
-  wrap.appendChild(el("h2", "day-title", "Pipedrive sync status"));
+  wrap.appendChild(el("h2", "day-title", "Nexy sync status"));
 
   /* Fleet admin token (this device) — enables job-sheet writes (allocations, notes) */
   var tokenCard = el("div", "sync-token-card");
@@ -757,12 +757,12 @@ function renderSync(root) {
   wrap.appendChild(tokenCard);
   var live = STATE.live;
   var rows = [
-    ["Mode", live ? "Live (Pipedrive API connected)" : (CONFIG.apiBase ? "Sample data (live feed empty/unavailable)" : "Sample data mode")],
+    ["Mode", live ? "Live (Nexy CRM feed connected)" : (CONFIG.apiBase ? "Sample data (live feed empty/unavailable)" : "Sample data mode")],
     ["API base", CONFIG.apiBase || "(not configured)"],
-    ["Source of truth", "Won deals in the Pipedrive hire pipeline (read-only)"],
+    ["Source of truth", "Won deals in the Nexy CRM hire pipeline (read-only)"],
     ["Total bookings loaded", String(STATE.bookings.length)],
     ["Last refreshed", STATE.lastUpdated ? STATE.lastUpdated.toLocaleString("en-AU") : "--"],
-    ["Auto-refresh", "Every " + Math.round(REFRESH_MS / 1000) + "s (board re-polls Pipedrive on its own)"]
+    ["Auto-refresh", "Every " + Math.round(REFRESH_MS / 1000) + "s (board re-polls the Nexy feed on its own)"]
   ];
   var table = el("table", "sync-table");
   rows.forEach(function (r) {
@@ -773,7 +773,7 @@ function renderSync(root) {
   });
   wrap.appendChild(table);
   if (CONFIG.apiBase) {
-    wrap.appendChild(el("p", "subtle", "A deal marked won in Pipedrive appears here on the next refresh \u2014 within about a minute once the server cache (\u224860s) clears. Hit \u201CRefresh now\u201D to pull the latest immediately."));
+    wrap.appendChild(el("p", "subtle", "A deal marked won in Nexy appears here on the next refresh, within about a minute once the server cache (\u224860s) clears. Hit \u201CRefresh now\u201D to pull the latest immediately."));
   }
   root.appendChild(wrap);
 }
@@ -809,7 +809,7 @@ function openModal(b) { renderJobSheet(b); return; } function openModal_legacy(b
     detailRow("Delivery required", b.deliveryRequired ? "Yes" : "No") +
     detailRow("Electrical connection", b.electricalConnectionRequired ? "Yes" : "No") +
     detailRow("Notes", b.notes) +
-    '<a class="btn pipedrive-link" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Open Pipedrive deal #' + b.pipedriveDealId + ' &rarr;</a>';
+    '<a class="btn pipedrive-link" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Open Nexy deal &rarr;</a>';
   document.getElementById("modalBackdrop").hidden = false;
   document.getElementById("modalClose").addEventListener("click", closeModal);
 }
@@ -923,9 +923,9 @@ else init();
    DISPATCH JOBSHEET (feature/dispatch-jobsheet)
    Upgrades the booking popup into a generator-hire dispatch jobsheet.
    Works as: on-screen modal, responsive field sheet, and A4 print.
-   IMPORTANT: this app reads Pipedrive READ-ONLY and has no write backend,
+   IMPORTANT: this app reads the Nexy CRM feed READ-ONLY and has no write backend,
    so pick/dispatch checkboxes are saved LOCALLY in this browser only
-   (localStorage). They are NOT written back to Pipedrive. See README /
+   (localStorage). They are NOT written back to the CRM. See README /
    "Persisting dispatch state" for the backend required to make this real.
    ============================================================ */
 
@@ -1260,7 +1260,7 @@ function renderJobSheet(b) {
   html += '<span class="js-title-min">Dispatch jobsheet &mdash; ' + escapeHtml(b.customer || "Unknown customer") + '</span>';
   html += '<button class="js-btn primary" id="jsPdfBtn" type="button">Download PDF</button>';
   html += '<button class="js-btn" id="jsPrintBtn" type="button">Print</button>';
-  html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Pipedrive #' + dealId + ' &rarr;</a>';
+  html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Nexy deal &rarr;</a>';
   html += '<a class="js-btn survey" id="jsSurveyBtn" target="_blank" rel="noopener" href="https://nexus-site-survey.vercel.app/survey?dealId=' + encodeURIComponent(dealId) + '">Site Survey &rarr;</a>';
   html += '<button class="js-btn ready" id="jsReadyBtn" type="button">Mark ready for dispatch</button>';
   html += '<button class="modal-close" id="modalClose" type="button">&times;</button>';
@@ -1396,7 +1396,7 @@ function renderJobSheet(b) {
 }
 
 /* Static (print-safe) equipment table used before/without the live fleet data.
-   Shows Pipedrive-derived requirements with manual tick boxes so the sheet is
+   Shows CRM-derived requirements with manual tick boxes so the sheet is
    still usable on paper if the database is unreachable. */
 function jsStaticEquipmentTable(b, st) {
   var rows = "";
@@ -1856,7 +1856,7 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
     month: "Generator hire bookings", fortnight: "Two-week dispatch view",
     week: "Weekly hire schedule", day: "Daily run sheet",
     list: "All current & upcoming hires", fleet: "Fleet control centre \u2014 assets, stock & service",
-    missing: "Alerts & jobs needing attention", sync: "Pipedrive sync status", staff: "Staff resourcing & utilisation"
+    missing: "Alerts & jobs needing attention", sync: "Nexy sync status", staff: "Staff resourcing & utilisation"
   };
   function setSubtitle(view) {
     try {

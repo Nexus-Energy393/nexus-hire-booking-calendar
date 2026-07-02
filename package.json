@@ -2,9 +2,8 @@
   "name": "nexus-hire-booking-calendar",
   "version": "1.0.0",
   "private": true,
-  "description": "Operational booking board for Nexus Energy generator hire and planned outage jobs. Static front-end plus Vercel serverless API that reads won deals from the Pipedrive hire pipeline (read-only).",
+  "description": "Operational booking board for Nexus Energy generator hire and planned outage jobs. Static front-end plus Vercel serverless API that reads won deals from the Nexy CRM Hire Operations feed (read-only).",
   "scripts": {
-    "list-fields": "node scripts/list-fields.js",
     "migrate": "node scripts/migrate.js",
     "seed-staff": "node scripts/seed-staff.js"
   },
