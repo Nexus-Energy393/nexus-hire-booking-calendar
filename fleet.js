@@ -1075,20 +1075,55 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
   function openAllocateModal(booking) {
     if (!ensureToken()) return;
     var size = parseGenSize(booking.generatorSize);
-    var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") + "&end=" + encodeURIComponent(booking.endDate || "") + (size ? "&sizeKva=" + size : "");
+    // Fetch ALL available assets for the window (no size filter) — the
+    // requested size is a recommendation, not a hard gate: dispatch can
+    // allocate a different unit rather than being forced into a cross-hire.
+    var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") + "&end=" + encodeURIComponent(booking.endDate || "");
     var m = openModal("Allocate generator - deal #" + booking.pipedriveDealId,
       '<p class="subtle">Required size: <strong>' + esc(booking.generatorSize || "TBC") + "</strong> &middot; " + esc(booking.startDate || "?") + " &rarr; " + esc(booking.endDate || "?") + "</p>" +
       '<div id="allocList">Loading available generators&hellip;</div>');
     apiGet(qs).then(function (r) {
       var listEl = m.body.querySelector("#allocList");
       if (r.body.dbConfigured === false) { listEl.innerHTML = "Database not configured."; return; }
-      var avail = r.body.available || [], conf = r.body.conflicted || [];
-      var html = "";
-      if (!avail.length) html += '<div class="rs-alert warn">No matching generator available &mdash; cross-hire required.</div>';
+      var avail = r.body.available || [], confAll = r.body.conflicted || [];
+      // Only show same-size units in the "unavailable" list — every other
+      // size that's busy is just noise here.
+      var conf = size ? confAll.filter(function (c) { return Number(c.asset && c.asset.generator_size_kva) === size; }) : confAll;
+
+      var exact = [], others = [];
       avail.forEach(function (a) {
-        html += '<div class="alloc-opt"><span>#' + esc(a.fleet_number) + " " + esc(a.asset_name) + " (" + esc(a.generator_size_kva) + " kVA)</span>" +
-          '<button class="fleet-btn sm" data-alloc="' + esc(a.asset_id) + '">Allocate</button></div>';
+        if (size && Number(a.generator_size_kva) === size) exact.push(a);
+        else others.push(a);
       });
+      // Alternatives: larger units first (nearest step up — safe substitution),
+      // then smaller ones (nearest step down) for dispatch judgement calls.
+      others.sort(function (x, y) {
+        var xk = Number(x.generator_size_kva) || 0, yk = Number(y.generator_size_kva) || 0;
+        if (!size) return xk - yk;
+        var xUp = xk >= size ? 0 : 1, yUp = yk >= size ? 0 : 1;
+        if (xUp !== yUp) return xUp - yUp;
+        return xUp === 0 ? xk - yk : yk - xk;
+      });
+
+      function row(a, sub) {
+        var kva = Number(a.generator_size_kva) || 0;
+        var tag = sub && size ? ' <span class="subtle">(' + (kva > size ? "larger" : "smaller") + " than requested)</span>" : "";
+        return '<div class="alloc-opt"><span>#' + esc(a.fleet_number) + " " + esc(a.asset_name) + " (" + esc(a.generator_size_kva) + " kVA)" + tag + "</span>" +
+          '<button class="fleet-btn sm" data-alloc="' + esc(a.asset_id) + '"' + (sub ? ' data-sub-kva="' + esc(a.generator_size_kva) + '"' : "") + ">Allocate</button></div>";
+      }
+
+      var html = "";
+      if (!exact.length) {
+        html += others.length
+          ? '<div class="rs-alert warn">No ' + esc(booking.generatorSize || "matching") + ' generator available &mdash; pick another size below, or mark a cross-hire.</div>'
+          : '<div class="rs-alert warn">No generator of any size available &mdash; cross-hire required.</div>';
+      }
+      exact.forEach(function (a) { html += row(a, false); });
+      if (others.length) {
+        html += '<div class="subtle" style="margin:8px 0 4px;font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.04em;">' +
+          (size ? "Other available sizes" : "Available generators") + "</div>";
+        others.forEach(function (a) { html += row(a, !!size); });
+      }
       if (conf.length) {
         html += '<div class="alloc-conf"><strong>Unavailable:</strong>';
         conf.forEach(function (c) {
@@ -1118,7 +1153,17 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
             }).catch(function (er) { alert(er.message); });
           return;
         }
-        if (b) doAllocate(booking, b.getAttribute("data-alloc"), null, m);
+        if (b) {
+          // Different-size allocation: confirm and record the substitution so
+          // the jobsheet trail shows what was actually sent vs requested.
+          var subKva = b.getAttribute("data-sub-kva");
+          if (subKva) {
+            if (!window.confirm("Allocate a " + subKva + " kVA unit against a " + (booking.generatorSize || "?") + " request?")) return;
+            doAllocate(booking, b.getAttribute("data-alloc"), "Size substitution: " + subKva + " kVA allocated (requested " + (booking.generatorSize || "unspecified") + ")", m);
+            return;
+          }
+          doAllocate(booking, b.getAttribute("data-alloc"), null, m);
+        }
         else if (x) {
           var note = window.prompt("Cross-hire supplier name + notes (required):", "");
           if (!note || !note.trim()) { alert("Cross-hire needs the supplier name (or a note) so dispatch knows where the unit is coming from."); return; }
