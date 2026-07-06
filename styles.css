@@ -7,6 +7,17 @@ Light "Jemena" theme. Two display modes via <body data-mode>: "desktop" (staff) 
    --confirmed: #2e7d32; --duration: #b26a00; --equipment: #6a1b9a;
    --review: #b71c1c; --completed: #9aa0a6; --cancelled: #c4c8cc;
 }
+/* Dark mode — token flip only (board is fully token-driven). Follows the
+   shared .nexusenergy.au theme cookie set from the Hub/CRM. Category accent
+   colours brighten slightly for contrast on the dark canvas. */
+html.dark {
+   color-scheme: dark;
+   --bg: #0b1120; --panel: #151d2b; --panel-2: #1b2536; --line: #2a3648;
+   --text: #e6edf5; --muted: #98a6bd; --accent: #4f8cf5; --accent-2: #6ba1ff;
+   --outage: #ffa733; --emergency: #f26b6b; --general: #4f8cf5;
+   --confirmed: #4caf6a; --duration: #d79a3a; --equipment: #b07ad6;
+   --review: #f26b6b; --completed: #8a919b; --cancelled: #5b636d;
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column; }
