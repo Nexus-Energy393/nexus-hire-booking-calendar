@@ -9,13 +9,13 @@
 (function () {
   "use strict";
 
-  var HUB = "https://nexus-hub-ashy.vercel.app";
+  var HUB = "https://hub.nexusenergy.au";
   var APPS = [
     { name: "Hub", url: HUB + "/", target: "_top", icon: "grid" },
     { name: "Hire Operations", current: true, icon: "calendar" },
     { name: "Nexy CRM", url: HUB + "/api/launch/crm", target: "_blank", icon: "crm" },
     { name: "Service Reports", url: HUB + "/service", target: "_blank", icon: "service" },
-    { name: "Site Survey", url: "https://nexus-site-survey.vercel.app/", target: "_blank", icon: "survey" },
+    { name: "Site Survey", url: "https://survey.nexusenergy.au/", target: "_blank", icon: "survey" },
   ];
 
   var ICONS = {
