@@ -4,7 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <script>(function(){try{var p=new URLSearchParams(location.search).get('nx-theme');var m=document.cookie.match(/(?:^|; )nexus-theme=(dark|light)/);var t=p||(m?m[1]:localStorage.getItem('nexus-theme'));var dark=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',dark);}catch(e){}
-window.addEventListener('message',function(e){if(e.data&&e.data.type==='nexus-theme'){document.documentElement.classList.toggle('dark',e.data.theme==='dark');}});})();</script>
+window.addEventListener('message',function(e){if(e.data&&e.data.type==='nexus-theme'){document.documentElement.classList.toggle('dark',e.data.theme==='dark');}});
+/* Inside the Nexus Hub (iframe) the Hub provides the top chrome — flag it so
+   our own hub bar hides and the page doesn't stack duplicate headers. */
+try{if(window.self!==window.top){document.documentElement.classList.add('nx-embedded');}}catch(e){document.documentElement.classList.add('nx-embedded');}})();</script>
 <title>Nexus Hire Operations</title>
 <meta name="description" content="Operational booking board for Nexus Energy generator hire and planned outage jobs." />
 <link rel="stylesheet" href="styles.css" />
