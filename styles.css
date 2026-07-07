@@ -2205,4 +2205,95 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .bs-ms-refuel   { color: var(--warning, #e8920c); }
 .bs-ms-offhire  { color: var(--brand-green, #20a052); }
 
+/* ===================== Week-row architecture v2: dates → hire band → day cells =====================
+   (v2-spanband) Each week row is now three stacked IN-FLOW sections:
+     1. .month-row-dates    — the 7-column date strip (day number + ops pills)
+     2. .month-row-spanband — a full-width reserved band holding ONLY the
+                              multi-day hire ribbons; nothing paints day-column
+                              dividers here so a ribbon reads as one clean,
+                              unbroken bar. Collapses to zero height when the
+                              week has no multi-day hire.
+     3. .month-row-cells    — the 7-column day cells (single-day tiles), BELOW.
+   The old absolutely-positioned .month-row-spans overlay is gone from the DOM;
+   its rules further up are inert. All three sections share identical column
+   geometry (repeat(7,1fr) + 6px gutters) so ribbons align exactly with days. */
+.month-row { display: flex; flex-direction: column; }
+.month-row-dates, .month-row-spanband, .month-row-cells {
+  display: grid; grid-template-columns: repeat(7, 1fr); column-gap: 6px; min-width: 0;
+}
+
+/* 1 ── date strip: caps each day column. On weeks WITHOUT a band it sits flush
+   on its day cell (no bottom border → the cell's top border is the divider),
+   so the column still reads as one card, exactly like the old layout. */
+.mc-date {
+  min-width: 0; overflow: hidden;
+  background: var(--column-bg);
+  border: 1px solid var(--calendar-cell-border);
+  border-bottom: 0;
+  border-radius: var(--radius-sm, 6px) var(--radius-sm, 6px) 0 0;
+}
+.mc-date .mc-head { border-bottom: 0; background: transparent; }
+.mc-date.other-month { background: var(--calendar-cell-muted-bg); border-color: #e2e4e9; }
+.mc-date.today { background: #e7effd; border-color: var(--accent); }
+.mc-date.today .mc-num { color: var(--accent); }
+/* …and on weeks WITH a band, the strip closes with its own bottom edge */
+.month-row.has-band .mc-date { border-bottom: 1px solid var(--calendar-cell-border); }
+.month-row.has-band .mc-date.today { border-bottom-color: var(--accent); }
+.month-row.has-band .mc-date.other-month { border-bottom-color: #e2e4e9; }
+
+/* 2 ── the multi-day hire band: its own in-flow lane between dates and cells */
+.month-row-spanband {
+  grid-auto-rows: 34px; row-gap: 4px;
+  align-items: center;
+  padding: 6px 0;
+}
+.month-row-spanband:empty { display: none; }
+.month-row-spanband .booking-span { margin: 0; min-width: 0; }
+
+/* 3 ── day cells: single-day tiles stack in flow, below the band */
+.month-row-cells { flex: 1 1 auto; grid-template-rows: 1fr; }
+.month-row-cells .month-cell {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 6px;
+  min-height: 86px;
+  min-width: 0;
+  border-top: 1px solid var(--calendar-cell-border);
+  border-radius: 0 0 var(--radius-sm, 6px) var(--radius-sm, 6px);
+}
+.month-row-cells .booking-span { margin: 0; flex: 0 0 auto; }
+.month-row-cells .mc-more {
+  cursor: pointer;
+  align-self: flex-start; margin-top: auto;
+  font-weight: 700; font-size: 10px; color: var(--accent);
+  background: #eef3fe; border: 1px solid #d3e0fb; border-radius: 999px;
+  padding: 2px 8px;
+}
+.month-row-cells .mc-more:hover { background: #dfe9fd; }
+
+/* fortnight rows keep their full-height stretch: the cells section absorbs the
+   leftover height under the (auto-sized) date strip and band */
+.fortnight-spans .month-row { min-height: 0; }
+.fortnight-spans .month-cell { height: auto; }
+
+/* TV + small screens */
+body[data-mode="tv"] .month-row-cells .month-cell { min-height: 112px; }
+body[data-mode="tv"] .month-row-spanband { grid-auto-rows: 40px; }
+body[data-mode="tv"] .booking-span.span-multi { height: 34px; }
+@media (max-width: 640px) {
+  .month-row-spanband { grid-auto-rows: 30px; }
+  .booking-span.span-multi { height: 26px; }
+  .month-row-cells .month-cell { min-height: 62px; }
+}
+/* keep column gutters aligned with the dow header on touch portrait (tablet.css) */
+@media (any-pointer: coarse) and (orientation: portrait) and (max-width: 699px) {
+  .month-row-dates, .month-row-spanband, .month-row-cells { column-gap: 4px; }
+}
+
+/* dark: the strip/cells read the shared tokens; pin the few hardcoded tints */
+html.dark .mc-date.other-month { border-color: #22303f; }
+html.dark .mc-date.today { background: rgba(79,140,245,.16); }
+html.dark .month-row.has-band .mc-date.other-month { border-bottom-color: #22303f; }
+html.dark .month-row-cells .mc-more { background: rgba(79,140,245,.16); border-color: #2a3648; color: #a9c7ff; }
+html.dark .month-row-cells .mc-more:hover { background: rgba(79,140,245,.26); }
+
 /* end styles.css */

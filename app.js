@@ -402,29 +402,41 @@ function appendDowHeader(grid) {
   grid.appendChild(dowRow);
 }
 
-// Shared week-row renderer: one connected bar per booking per week row, lane-stacked.
+// Shared week-row renderer. Each week row stacks three in-flow sections:
+//   1. .month-row-dates    \u2014 7-column strip of date headers (day number + ops pills)
+//   2. .month-row-spanband \u2014 a full-width reserved band holding ONLY multi-day
+//                            hire ribbons. No day-column dividers cross it, and
+//                            it collapses to zero height on weeks without one.
+//   3. .month-row-cells    \u2014 7-column day cells holding the single-day tiles.
+// Multi-day hires therefore sit in their own lane BELOW the dates and ABOVE
+// the day cells, instead of floating over the day columns (old .month-row-spans
+// absolute overlay \u2014 removed).
 function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
   opts = opts || {};
   var maxLanes = opts.maxLanes || 3;
   for (var w = 0; w < weeks; w++) {
     var rowWrap = el("div", "month-row");
     grid.appendChild(rowWrap);
-    var dayRow = el("div", "month-row-days");
-    var spanLayer = el("div", "month-row-spans");
-    rowWrap.appendChild(dayRow);
-    rowWrap.appendChild(spanLayer);
+    var dateRow = el("div", "month-row-dates");
+    var bandRow = el("div", "month-row-spanband");
+    var cellRow = el("div", "month-row-cells");
+    rowWrap.appendChild(dateRow);
+    rowWrap.appendChild(bandRow);
+    rowWrap.appendChild(cellRow);
     var rowDates = [];
+    var bodyCells = [];
     for (var d = 0; d < 7; d++) {
       var date = addDays(gridStart, w * 7 + d);
       rowDates.push(date);
-      var cell = el("div", "month-cell" + (opts.cellCls ? " " + opts.cellCls : ""));
-      if (opts.month != null && date.getMonth() !== opts.month) cell.classList.add("other-month");
-      if (sameDay(date, new Date())) cell.classList.add("today");
+      var mods = "";
+      if (opts.month != null && date.getMonth() !== opts.month) mods += " other-month";
+      if (sameDay(date, new Date())) mods += " today";
       var dow = date.toLocaleDateString("en-AU", { weekday: "short" });
       var label = dow + " " + date.getDate();
       if (opts.monthInLabel && (date.getDate() === 1 || (w === 0 && d === 0))) {
         label = dow + " " + date.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
       }
+      var dcell = el("div", "mc-date" + mods);
       var head = el("div", "mc-head");
       head.appendChild(el("span", "mc-num", label));
       var starts = 0, ends = 0;
@@ -450,8 +462,11 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
         }
         head.appendChild(ops);
       }
-      cell.appendChild(head);
-      dayRow.appendChild(cell);
+      dcell.appendChild(head);
+      dateRow.appendChild(dcell);
+      var cell = el("div", "month-cell" + (opts.cellCls ? " " + opts.cellCls : "") + mods);
+      bodyCells.push(cell);
+      cellRow.appendChild(cell);
     }
     var rowStart = startOfDay(addDays(gridStart, w * 7));
     var rowEnd   = startOfDay(addDays(gridStart, w * 7 + 6));
@@ -479,18 +494,25 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
       return (a.startCol - z.startCol) ||
              ((z.endCol - z.startCol) - (a.endCol - a.startCol));
     });
-    var lanes = [];
+    /* Split the week's segments: multi-day segments (including one-day
+       continuation stubs of longer hires) go to the span band; true one-day
+       bookings go straight into their day cell. */
+    var multiSegs = [];
+    var singlesByCol = {};
     segments.forEach(function (seg) {
+      if (seg.endCol > seg.startCol || seg.continuesLeft || seg.continuesRight) multiSegs.push(seg);
+      else (singlesByCol[seg.startCol] = singlesByCol[seg.startCol] || []).push(seg);
+    });
+    var overflowByCol = {};
+    /* Multi-day ribbons lane-pack among themselves inside the band. */
+    var lanes = [];
+    multiSegs.forEach(function (seg) {
       var lane = 0;
       while (lane < lanes.length && lanes[lane] >= seg.startCol) lane++;
       lanes[lane] = seg.endCol;
       seg.lane = lane;
     });
-    var visibleLanes = Math.max(1, Math.min(lanes.length, maxLanes));
-    var hasOverflow = lanes.length > maxLanes;
-    rowWrap.style.setProperty("--lanes", visibleLanes + (hasOverflow ? 1 : 0));
-    var overflowByCol = {};
-    segments.forEach(function (seg) {
+    multiSegs.forEach(function (seg) {
       if (seg.lane >= maxLanes) {
         for (var c = seg.startCol; c <= seg.endCol; c++) {
           overflowByCol[c] = (overflowByCol[c] || 0) + 1;
@@ -500,14 +522,20 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
       var bar = bookingSpan(seg);
       bar.style.gridColumn = (seg.startCol + 1) + " / " + (seg.endCol + 2);
       bar.style.gridRow = String(seg.lane + 1);
-      spanLayer.appendChild(bar);
+      bandRow.appendChild(bar);
+    });
+    if (bandRow.childNodes.length) rowWrap.classList.add("has-band");
+    /* Single-day tiles stack in flow inside their own day cell, below the band. */
+    Object.keys(singlesByCol).forEach(function (col) {
+      singlesByCol[col].forEach(function (seg, i) {
+        if (i >= maxLanes) { overflowByCol[col] = (overflowByCol[col] || 0) + 1; return; }
+        bodyCells[Number(col)].appendChild(bookingSpan(seg));
+      });
     });
     Object.keys(overflowByCol).forEach(function (col) {
       var n = overflowByCol[col];
       var more = el("div", "mc-more", "+" + n + " more");
       var date = rowDates[Number(col)];
-      more.style.gridColumn = (Number(col) + 1) + " / " + (Number(col) + 2);
-      more.style.gridRow = String(visibleLanes + 1); // row below visible lanes, no overlap
       more.addEventListener("click", function () {
         STATE.view = "day";
         STATE.cursor = date;
@@ -516,7 +544,7 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
         });
         render();
       });
-      spanLayer.appendChild(more);
+      bodyCells[Number(col)].appendChild(more);
     });
   }
 }
