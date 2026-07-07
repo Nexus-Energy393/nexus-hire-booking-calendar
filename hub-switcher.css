@@ -2,9 +2,10 @@
    Uses the app's existing theme variables so it matches light/dark. */
 
 .hub-switch {
-  position: relative;
-  margin-left: auto; /* push to the far right of the hub bar */
+  position: relative; /* sits after the brand logo in .header-actions */
 }
+/* Anchor the menu to the right edge so it never overflows the viewport. */
+.header-actions .hub-switch-panel { right: 0; left: auto; }
 
 .hub-switch-btn {
   display: inline-flex;
@@ -99,7 +100,16 @@
 }
 
 /* Embedded in the Nexus Hub: the Hub renders the top chrome (back button,
-   app title, switcher), so our own hub bar would stack a duplicate header.
+   app title, switcher), so our own Hub link + switcher would duplicate it.
    index.html adds .nx-embedded on <html> when framed — same convention as
-   the Site Survey app. One page, one header. */
-html.nx-embedded .hub-bar { display: none !important; }
+   the Site Survey app. One page, one set of chrome. */
+html.nx-embedded .hub-bar,
+html.nx-embedded .hub-back,
+html.nx-embedded .app-header .hub-div,
+html.nx-embedded .hub-switch { display: none !important; }
+
+/* TV / office-screen mode: no navigation chrome at all (same as the old
+   hub bar, which was hidden in TV mode). */
+body[data-mode="tv"] .hub-back,
+body[data-mode="tv"] .app-header .hub-div,
+body[data-mode="tv"] .hub-switch { display: none !important; }

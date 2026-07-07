@@ -36,7 +36,9 @@
   }
 
   function build() {
-    var bar = document.querySelector(".hub-bar");
+    /* The switcher lives at the far right of the app header (after the brand
+       logo) — the standalone hub bar row is gone. */
+    var bar = document.querySelector(".app-header .header-actions") || document.querySelector(".hub-bar");
     if (!bar || bar.querySelector(".hub-switch")) return;
 
     var wrap = document.createElement("div");
