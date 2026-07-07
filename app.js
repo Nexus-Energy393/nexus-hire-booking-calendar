@@ -820,10 +820,19 @@ function closeModal() {
   document.title = APP_TITLE; /* restore after a jobsheet set a job-specific title */
 }
 
+/* Clean job reference, mirroring the CRM quote ref (NEX-XXXXXX) but with a
+   JOB- prefix: the last 6 chars of the deal id, upper-cased. Turns the raw
+   cuid (e.g. cmr4jnd9500038mrb2elus20m) into a readable "JOB-LUS20M". */
+function jobRef(b) {
+  var id = String((b && (b.pipedriveDealId || b.crmDealId)) || "").replace(/[^A-Za-z0-9]/g, "");
+  var short = id.slice(-6).toUpperCase();
+  return "JOB-" + (short || "NEW");
+}
+
 /* Job-specific document title so a printed/saved PDF gets a meaningful
-   filename, e.g. "JOB 458 - ACE Contractors - 15 Jun 2026 - Nexus Jobsheet". */
+   filename, e.g. "JOB-LUS20M - ACE Contractors - 15 Jun 2026 - Nexus Jobsheet". */
 function jsDocumentTitle(b) {
-  var parts = ["JOB " + b.pipedriveDealId, b.customer || "Unknown customer"];
+  var parts = [jobRef(b), b.customer || "Unknown customer"];
   if (bStart(b)) parts.push(fmtShort(bStart(b)) + " " + bStart(b).getFullYear());
   parts.push("Nexus Jobsheet");
   return parts.join(" - ").replace(/[\/\\:*?"<>|]/g, "");
@@ -1271,7 +1280,7 @@ function renderJobSheet(b) {
   /* document header */
   html += '<header class="js-doc-head">';
   html += '<div class="js-doc-brand"><img src="nexus-logo.png" alt="Nexus Generator Hire &amp; Electrical" class="js-logo-img"></div>';
-  html += '<div class="js-doc-title"><div class="job-no">JOB #' + dealId + '</div>';
+  html += '<div class="js-doc-title"><div class="job-no">' + jobRef(b) + '</div>';
   html += '<div class="js-doc-cust">' + custLine + '</div>';
   html += '<div class="js-print-date">Printed ' + printStamp + '</div></div>';
   html += '</header>';
@@ -1741,7 +1750,7 @@ function jsWire(m, b) {
     var node = document.getElementById("jsSheetBody");
     if (!window.html2pdf || !node) { window.print(); return; }
     document.body.classList.add("js-exporting");
-    var fname = (jsDocumentTitle(b) || ("JOB-" + b.pipedriveDealId)).replace(/[^\w\- ]+/g, "").trim() + ".pdf";
+    var fname = (jsDocumentTitle(b) || jobRef(b)).replace(/[^\w\- ]+/g, "").trim() + ".pdf";
     window.html2pdf().set({
       margin: [10, 10, 12, 10],
       filename: fname,

@@ -60,6 +60,28 @@ html.dark .booking-span.is-prospective,
 html.dark .booking-card.is-prospective {
   background: repeating-linear-gradient(45deg, #1b2536 0, #1b2536 6px, #141c2a 6px, #141c2a 12px);
 }
+
+/* ── Dispatch jobsheet: always render LIGHT ─────────────────────────────
+   The jobsheet is a white, printable document. Its PDF is produced by
+   html2pdf / html2canvas, which rasterises the element as it appears on
+   screen (screen media) — so the existing @media print resets never reach
+   the export. In dark mode, fields styled `background: var(--bg)` (engine
+   hours, asset hours, fuel levels, inspector time) therefore captured as
+   solid black boxes. Fix: re-declare the design tokens to their LIGHT values
+   on the sheet itself (descendants inherit these, overriding the html.dark
+   tokens set higher up) and hard-set every control surface to light. This
+   keeps the on-screen preview and the exported PDF identical and legible. */
+.jobsheet {
+  --bg: #ffffff; --panel: #ffffff; --panel-2: #f4f6f8; --line: #e2e6ea;
+  --text: #1f2733; --muted: #5b6472; --border: #e4e6eb; --border-strong: #d4d7dd;
+  --app-bg: #ffffff; --panel-bg: #ffffff; --column-bg: #f4f6f8;
+  color: #1f2733;
+}
+.jobsheet input, .jobsheet select, .jobsheet textarea, .jobsheet output {
+  background: #ffffff !important; color: #1f2733 !important; border-color: #d4d7dd !important;
+}
+.jobsheet .rs-fuel { background: #f4f6f8 !important; border-color: #e4e6eb !important; }
+
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column; }
