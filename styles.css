@@ -2164,6 +2164,18 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
   display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: 8px;
   height: 30px; align-self: center;
   padding: 0 8px; overflow: hidden; white-space: nowrap; min-width: 0;
+  /* Read as a flush BAND spanning the hire's days — not a floating pill over
+     the grid. Zero side margins so it covers the day-column dividers within
+     the span; drop the card shadow so it sits flat in its own lane. Rounded
+     caps only at the true start / end (handled by span-start / span-end). */
+  margin: 0;
+  box-shadow: none;
+}
+.booking-span.span-multi:hover, .booking-span.span-multi.span-hover, .booking-span.span-multi:focus-visible {
+  box-shadow: none;
+  transform: none;
+  border-color: var(--booking-border-strong, #465773);
+  background: var(--booking-bg-hover, #202c40);
 }
 .booking-span.span-multi .bs-idpill {
   display: inline-flex; align-items: center; gap: 5px; min-width: 0;
