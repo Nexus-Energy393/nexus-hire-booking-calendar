@@ -17,6 +17,48 @@ html.dark {
    --outage: #ffa733; --emergency: #f26b6b; --general: #4f8cf5;
    --confirmed: #4caf6a; --duration: #d79a3a; --equipment: #b07ad6;
    --review: #f26b6b; --completed: #8a919b; --cancelled: #5b636d;
+   /* Redesign ("Pipedrive-style") token layer — the visible surfaces read
+      these names directly (--app-bg / --panel-bg / --column-bg / --border…),
+      so the dark flip MUST override them too, not just the legacy tokens. */
+   --app-bg: #0b1120; --panel-bg: #151d2b; --column-bg: #131c2b;
+   --border: #2a3648; --border-strong: #3a4a63;
+   --brand-purple: #1a1440; --brand-purple-2: #241a5a;
+   --warning-bg: rgba(232,146,12,.18); --danger-bg: rgba(210,63,63,.20); --success-bg: rgba(32,160,82,.20);
+   /* Third layer — the "UI polish" :root block drives the actual month grid
+      and booking tiles via --calendar-cell-* / --booking-* / --status-*. */
+   --calendar-cell-bg: #151d2b; --calendar-cell-muted-bg: #101826; --calendar-cell-border: #2a3648;
+   --booking-bg: #182231; --booking-bg-multi: #1e2a42; --booking-bg-hover: #202c40;
+   --booking-border: #33415c; --booking-border-strong: #465773;
+   --booking-text: #e6edf5; --booking-muted: #98a6bd;
+   --status-needs-bg: rgba(232,146,12,.20); --status-needs-text: #e6b877;
+   --status-allocated-bg: rgba(32,160,82,.20); --status-allocated-text: #7fd8a3;
+   --status-conflict-bg: rgba(210,63,63,.22); --status-conflict-text: #f0a0a0;
+   --status-service-bg: rgba(232,146,12,.20); --status-service-text: #e6b877;
+   --status-done-bg: rgba(148,163,184,.20); --status-done-text: #aeb8c6;
+}
+/* Hardcoded grid colours in the polish pass that need a dark counterpart. */
+html.dark .month-grid-spans .month-cell.other-month { border-color: #22303f; }
+html.dark .month-grid-spans .month-cell.today { background: rgba(79,140,245,.14); }
+html.dark .month-grid-spans .mc-num { color: #c6d0de; }
+html.dark .month-grid-spans .other-month .mc-num { color: #6b7686; }
+html.dark .month-dow-row .month-dow, html.dark .month-dow { color: #98a6bd; }
+/* Dark tints for the few board badges that hardcode light backgrounds. The
+   jobsheet / PDF export (.jobsheet, .js-*) is intentionally left white. */
+html.dark .chip { background: rgba(79,140,245,.18); color: #a9c7ff; }
+html.dark .pill.st-cancelled { background: #2a3648; color: #c6d0de; }
+html.dark .mc-op.back { background: rgba(79,140,245,.16); color: #a9c7ff; border-color: #2a3648; }
+html.dark .month-grid-spans .mc-op.back { background: rgba(79,140,245,.16); border-color: #2a3648; color: #a9c7ff; }
+html.dark .month-grid-spans .month-cell.today .mc-head { background: rgba(79,140,245,.16); border-bottom-color: #2a3648; }
+html.dark .booking-card.jt-emergency { background: rgba(210,63,63,.18); }
+html.dark .fp-allocated { background: rgba(79,140,245,.16); color: #a9c7ff; }
+html.dark .fp-on_hire { background: rgba(47,159,232,.16); color: #8fd0f5; }
+html.dark .fp-in_service { background: rgba(123,92,196,.18); color: #c4aef0; }
+html.dark .fp-unavailable, html.dark .fp-retired { background: #1b2536; color: #98a6bd; }
+/* Prospective / tentative tiles use a light diagonal hatch — swap it for a
+   dark hatch so tentative deals stay legible on the dark board. */
+html.dark .booking-span.is-prospective,
+html.dark .booking-card.is-prospective {
+  background: repeating-linear-gradient(45deg, #1b2536 0, #1b2536 6px, #141c2a 6px, #141c2a 12px);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
@@ -2090,3 +2132,4 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .pill.st-prospective { background: #9aa0a6; color: #fff; }
 .chip.st-prospective, .js-tag.st-prospective { background: #eef0f3; color: #5f6571; border-color: #c4c9d1; }
 .badge.st-prospective { background: #9aa0a6; color: #fff; border-color: #9aa0a6; }
+/* end styles.css */
