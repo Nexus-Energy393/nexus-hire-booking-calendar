@@ -521,6 +521,55 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
   }
 }
 
+/* Milestone icons for the multi-day hire ribbon (stroke, inherit currentColor). */
+var MS_SVG = {
+  delivery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h9v9H3z"/><path d="M12 9h4l4 3v3h-8z"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/></svg>',
+  connect: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2 4 13h6l-1 9 9-12h-6l1-8z"/></svg>',
+  refuel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15"/><path d="M3 20h12"/><path d="M13 9h3l2 2v6a2 2 0 0 0 4 0v-8l-3-3"/></svg>',
+  offhire: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h12l-2 4 2 4H5"/></svg>'
+};
+function milestoneDot(kind, title) {
+  return '<span class="bs-ms bs-ms-' + kind + '" title="' + title + '" aria-label="' + title + '">' + (MS_SVG[kind] || "") + '</span>';
+}
+
+/* Multi-day hires render as a slim "hire ribbon": an anchored identity pill
+   (customer + suburb, tinted by status) then the operational milestones plotted
+   along the run (delivery + connect at the start, off-hire flag at the end),
+   with the duration inline. The label repeats at the start of every week the
+   hire crosses, so continuation segments never read as an orphaned fragment. */
+function buildHireRibbon(bar, b, seg, sm, hasStaffConflict) {
+  var suburb = b.suburb || b.site || "";
+  var pill = el("div", "bs-idpill");
+  var inner = seg.continuesLeft
+    ? '<span class="bs-chev" aria-hidden="true">‹</span>'
+    : '<span class="bs-dot" aria-hidden="true"></span>';
+  inner += '<span class="bs-cust">' + escapeHtml(b.customer || "Unknown customer") + '</span>';
+  if (suburb) inner += '<span class="bs-idsub">· ' + escapeHtml(suburb) + '</span>';
+  pill.innerHTML = inner;
+  bar.appendChild(pill);
+
+  if (seg.isTrueStart && !seg.continuesLeft) {
+    var miles = el("div", "bs-miles");
+    var m = milestoneDot("delivery", "Delivery to site");
+    if (b.electricalConnectionRequired) m += milestoneDot("connect", "Electrical connection");
+    if (b.refuellingRequired) m += milestoneDot("refuel", "Ongoing refuelling");
+    if (hasStaffConflict) m += '<span class="bs-staff-conflict-ico" title="Labour conflict — staff double-booked">' + STAFF_CONFLICT_SVG + '</span>';
+    miles.innerHTML = m;
+    bar.appendChild(miles);
+
+    var days = b.durationDays;
+    if (!days) { var s = bStart(b), e = bEnd(b); days = (s && e) ? Math.max(1, Math.round((e - s) / 86400000) + 1) : null; }
+    var dur = el("div", "bs-dur");
+    dur.textContent = fmtShort(bStart(b)) + " → " + fmtShort(bEnd(b)) + (days ? " · " + days + "d" : "");
+    bar.appendChild(dur);
+  }
+
+  var end = el("div", "bs-end");
+  if (seg.isTrueEnd && !seg.continuesRight) end.innerHTML = milestoneDot("offhire", "Off-hire / pickup");
+  else if (seg.continuesRight) end.innerHTML = '<span class="bs-chev" aria-hidden="true">›</span>';
+  bar.appendChild(end);
+}
+
 function bookingSpan(seg) {
   var b = seg.b;
   var sm = statusMeta(b);
@@ -543,7 +592,11 @@ function bookingSpan(seg) {
     (b.customer || "Unknown customer") + ", " +
     (b.suburb || b.site || "") + ", " +
     fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)));
-  if (seg.isTrueStart && !seg.continuesLeft) {
+  var isMulti = (seg.endCol > seg.startCol) || seg.continuesLeft || seg.continuesRight;
+  if (isMulti) {
+    /* multi-day hire → slim milestone ribbon (label repeats each week) */
+    buildHireRibbon(bar, b, seg, sm, hasStaffConflict);
+  } else if (seg.isTrueStart && !seg.continuesLeft) {
     var top = el("div", "bs-top");
     top.appendChild(el("span", "bs-cust", escapeHtml(b.customer || "Unknown customer")));
     if (b.refuellingRequired || hasStaffConflict) {
@@ -576,7 +629,7 @@ function bookingSpan(seg) {
   }
   /* refuelling: start tiles render it in the alert cluster above; multi-day
      continuation segments keep the small corner pin */
-  if (b.refuellingRequired && !(seg.isTrueStart && !seg.continuesLeft)) {
+  if (b.refuellingRequired && !isMulti && !(seg.isTrueStart && !seg.continuesLeft)) {
     var fuelPin = el("div", "bs-fuel-warn");
     fuelPin.setAttribute("title", "Ongoing refuelling scheduled for this hire");
     fuelPin.innerHTML = "&#9981;"; /* ⛽ fuel pump */

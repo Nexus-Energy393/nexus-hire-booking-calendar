@@ -2154,4 +2154,43 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .pill.st-prospective { background: #9aa0a6; color: #fff; }
 .chip.st-prospective, .js-tag.st-prospective { background: #eef0f3; color: #5f6571; border-color: #c4c9d1; }
 .badge.st-prospective { background: #9aa0a6; color: #fff; border-color: #9aa0a6; }
+/* ── Multi-day hire ribbon ──────────────────────────────────────────────
+   A spanning hire renders as a slim single-line timeline: an identity pill
+   (customer + suburb, tinted by status) at the left, the operational
+   milestones plotted along the run (delivery + connect at the start, off-hire
+   flag at the end), the duration inline, and a chevron where it crosses into
+   the next week. Single-day tiles keep their existing two-line layout. */
+.booking-span.span-multi {
+  display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: 8px;
+  height: 30px; align-self: center;
+  padding: 0 8px; overflow: hidden; white-space: nowrap; min-width: 0;
+}
+.booking-span.span-multi .bs-idpill {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0;
+  max-width: 70%; flex: 0 1 auto;
+  padding: 2px 9px; border-radius: 999px;
+  background: var(--status-pill-bg, var(--status-done-bg));
+  color: var(--status-pill-text, var(--status-done-text));
+  font-size: 11px; line-height: 1.4;
+}
+.booking-span.span-multi .bs-idpill .bs-cust {
+  font-weight: 700; color: inherit; overflow: hidden; text-overflow: ellipsis;
+}
+.booking-span.span-multi .bs-idsub { color: inherit; opacity: .82; overflow: hidden; text-overflow: ellipsis; }
+.booking-span.span-multi .bs-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+.booking-span.span-multi .bs-chev { font-weight: 700; opacity: .85; flex: 0 0 auto; font-size: 13px; }
+.booking-span.span-multi .bs-miles { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.booking-span.span-multi .bs-dur { font-size: 10.5px; color: var(--booking-muted, var(--muted)); flex: 1 1 auto; text-align: center; overflow: hidden; text-overflow: ellipsis; }
+.booking-span.span-multi .bs-end { margin-left: auto; display: inline-flex; align-items: center; flex: 0 0 auto; }
+.bs-ms {
+  width: 19px; height: 19px; border-radius: 50%; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--panel, #fff); border: 1px solid currentColor;
+}
+.bs-ms svg { width: 11px; height: 11px; display: block; }
+.bs-ms-delivery { color: var(--accent-blue, #2f6fed); }
+.bs-ms-connect  { color: var(--warning, #e8920c); }
+.bs-ms-refuel   { color: var(--warning, #e8920c); }
+.bs-ms-offhire  { color: var(--brand-green, #20a052); }
+
 /* end styles.css */
