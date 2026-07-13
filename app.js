@@ -41,7 +41,9 @@ var NEXUS_LOGO_SVG =
   '</svg>';
 
 var STATE = {
-  view: "month",
+  // The board opens on the fortnight: a week is too short to see a job coming,
+  // a month is too dense to read. Two weeks is the window crews plan in.
+  view: "fortnight",
   cursor: startOfDay(new Date()),
   bookings: [],
   filters: { search: "", type: "", status: "", size: "", owner: "" },

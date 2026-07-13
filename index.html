@@ -22,10 +22,14 @@ try{if(window.self!==window.top){document.documentElement.classList.add('nx-embe
 
 <aside class="side-rail" id="sideRail" aria-label="Primary">
   <div class="rail-brand" title="Nexus hire operations"><span class="rail-mark"><img class="rail-mark-img" src="nexus-mark.svg" alt="Nexus" /></span></div>
+<!-- The rail is for VIEWS of this board. Cross-app links (CRM, Service, Survey)
+     used to live down here; app switching belongs to the Hub, and the CRM now
+     frames this board directly — a link back to the CRM from inside the CRM is
+     just noise. -->
 <nav class="view-tabs rail-nav" id="viewTabs" aria-label="Views">
-<button class="tab active" data-view="month" data-icon="calendar"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Calendar</span></button>
+<button class="tab" data-view="month" data-icon="calendar"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Calendar</span></button>
 <button class="tab" data-view="list" data-icon="list"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">List</span></button>
-<button class="tab" data-view="fortnight" data-icon="fortnight"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">2 Week</span></button>
+<button class="tab active" data-view="fortnight" data-icon="fortnight"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">2 Week</span></button>
 <button class="tab" data-view="week" data-icon="week"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Week</span></button>
 <button class="tab" data-view="day" data-icon="day"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Day</span></button>
 <button class="tab" data-view="fleet" data-icon="fleet"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Fleet</span></button>
@@ -33,9 +37,6 @@ try{if(window.self!==window.top){document.documentElement.classList.add('nx-embe
 <button class="tab" data-view="offhire" data-icon="offhire"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Off Hire</span></button>
 <button class="tab" data-view="missing" data-icon="alerts"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Alerts</span></button>
 <button class="tab" data-view="sync" data-icon="settings"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Sync</span></button>
-<a class="tab rail-link" data-icon="crm" href="https://hub.nexusenergy.au/api/launch/crm" target="_blank" rel="noopener" title="Open the Nexy CRM"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">CRM</span></a>
-<a class="tab rail-link" data-icon="service" href="https://hub.nexusenergy.au/service" target="_blank" rel="noopener" title="Open Service Reports"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Service</span></a>
-<a class="tab rail-link" data-icon="survey" href="https://survey.nexusenergy.au/" target="_blank" rel="noopener" title="Open the Site Survey app"><span class="rail-ico" aria-hidden="true"></span><span class="rail-lbl">Survey</span></a>
 </nav>
 </aside>
 
