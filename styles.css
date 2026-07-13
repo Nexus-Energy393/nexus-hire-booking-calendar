@@ -2094,7 +2094,12 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .oh-field input[type="number"], .oh-field input[type="date"], #ohTotLitres {
   width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border-strong, #d4d7dd);
   border-radius: 9px; font-size: 15px; background: #fff; color: var(--text, #1f2733);
-}
+
+  /* The field was hard-coded white while its ink followed the theme:
+     in dark mode that put near-white text on a white box. Both now come
+     from the theme, so a fitter can read the meter reading he just typed. */
+  border: 1px solid var(--border, #d5dbe4);
+  color-scheme: light dark;}
 .oh-field input:focus { outline: none; border-color: var(--brand-green, #20a052); box-shadow: 0 0 0 3px rgba(32,160,82,.15); }
 .oh-runtime { margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--muted, #6b7280); }
 .oh-runtime.ok { color: #156c39; }
@@ -2297,3 +2302,10 @@ html.dark .month-row-cells .mc-more { background: rgba(79,140,245,.16); border-c
 html.dark .month-row-cells .mc-more:hover { background: rgba(79,140,245,.26); }
 
 /* end styles.css */
+
+/* Placeholders were pale grey on a pale field — a hint nobody could read.
+   Same treatment: take the muted colour from the theme, not from a guess. */
+.oh-field input::placeholder, #ohTotLitres::placeholder, .oh-log-row input::placeholder {
+  color: var(--muted, #7a8699);
+  opacity: 1;
+}
