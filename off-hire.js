@@ -310,7 +310,11 @@
       elSubmit.addEventListener("click", function () {
         if (!ensureToken()) { elResult.innerHTML = '<span class="bad">An admin token is required to off-hire.</span>'; return; }
         var payload = {
-          pipedrive_deal_id: Number(dealId),
+          // Job ids are CRM cuids now that Pipedrive is retired — Number() on
+          // "cmr4jnd95…" is NaN, which the API reads as "no job id" and refuses
+          // the off-hire. Send it as the string it is. (The DB column is still
+          // named pipedrive_deal_id; renaming it is a migration for another day.)
+          pipedrive_deal_id: String(dealId),
           asset_id: assetId,
           hours_in: Number(elHin.value),
           returned_to_yard: !!elBack.checked,
