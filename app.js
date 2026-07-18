@@ -40,9 +40,24 @@ var NEXUS_LOGO_SVG =
   ' font-size="11.5" fill="#888" letter-spacing="3.8">GENERATOR HIRE &amp; ELECTRICAL</text>' +
   '</svg>';
 
+/*
+ * How many weeks the default board view spans.
+ *
+ * A named constant because four separate places have to agree about it: the
+ * renderer, the period label, the arrow-key nav step, and the CSS grid rows.
+ * As four literal 2s they could drift apart, and a period label that disagrees
+ * with the grid it sits above is the kind of bug nobody reports, they just stop
+ * trusting the screen.
+ *
+ * The view's internal id is still "fortnight". That is historical and it is
+ * deliberately left alone: renaming 38 references across the app to change a
+ * number is churn, not clarity, and nothing a user ever sees says "fortnight".
+ */
+var SPAN_WEEKS = 3;
+
 var STATE = {
-  // The board opens on the fortnight: a week is too short to see a job coming,
-  // a month is too dense to read. Two weeks is the window crews plan in.
+  // The board opens on the multi-week span: a week is too short to see a job
+  // coming, a month is too dense to read. This is the window crews plan in.
   view: "fortnight",
   cursor: startOfDay(new Date()),
   bookings: [],
@@ -385,13 +400,13 @@ function renderMonth(root, bookings) {
   });
 }
 
-// ---------- 2-WEEK (FORTNIGHT) VIEW: this week + next week ----------
+// ---------- MULTI-WEEK SPAN VIEW: this week + the next SPAN_WEEKS-1 ----------
 function renderFortnight(root, bookings) {
   root.innerHTML = "";
   var grid = el("div", "month-grid month-grid-spans fortnight-spans");
   root.appendChild(grid);
   appendDowHeader(grid);
-  renderSpanWeeks(grid, bookings, startOfWeek(STATE.cursor), 2, {
+  renderSpanWeeks(grid, bookings, startOfWeek(STATE.cursor), SPAN_WEEKS, {
     maxLanes: STATE.tv ? 10 : 8,
     cellCls: "fortnight-cell",
     monthInLabel: true
@@ -950,7 +965,7 @@ function updatePeriodLabel() {
   if (STATE.view === "month") lbl.textContent = STATE.cursor.toLocaleDateString("en-AU", {month:"long", year:"numeric"});
   else if (STATE.view === "fortnight") {
     var fs = startOfWeek(STATE.cursor);
-    var fe = addDays(fs, 13);
+    var fe = addDays(fs, SPAN_WEEKS * 7 - 1);
     lbl.textContent = fmt(fs, {day:"numeric", month:"short"}) + " \u2013 " + fmt(fe, {day:"numeric", month:"short", year:"numeric"});
   }
   else if (STATE.view === "week") {
@@ -963,7 +978,7 @@ function updatePeriodLabel() {
 // ---------- navigation ----------
 function nav(dir) {
   if (STATE.view === "month") STATE.cursor = new Date(STATE.cursor.getFullYear(), STATE.cursor.getMonth() + dir, 1);
-  else if (STATE.view === "fortnight") STATE.cursor = addDays(STATE.cursor, 14 * dir);
+  else if (STATE.view === "fortnight") STATE.cursor = addDays(STATE.cursor, SPAN_WEEKS * 7 * dir);
   else if (STATE.view === "week") STATE.cursor = addDays(STATE.cursor, 7 * dir);
   else if (STATE.view === "day") STATE.cursor = addDays(STATE.cursor, dir);
   render();
@@ -1945,7 +1960,7 @@ window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); 
 (function () {
   "use strict";
   var SUBTITLES = {
-    month: "Generator hire bookings", fortnight: "Two-week dispatch view",
+    month: "Generator hire bookings", fortnight: "Three-week dispatch view",
     week: "Weekly hire schedule", day: "Daily run sheet",
     list: "All current & upcoming hires", fleet: "Fleet control centre \u2014 assets, stock & service",
     missing: "Alerts & jobs needing attention", sync: "Nexy sync status", staff: "Staff resourcing & utilisation"
