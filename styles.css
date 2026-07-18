@@ -2309,3 +2309,28 @@ html.dark .month-row-cells .mc-more:hover { background: rgba(79,140,245,.26); }
   color: var(--muted, #7a8699);
   opacity: 1;
 }
+
+/* ---------- Framed inside the Nexy CRM ----------------------------------
+   hub-switcher.css already hides the HUB's chrome when this board is framed
+   (.nx-embedded, set on <html> by index.html). Nothing has ever hidden OUR
+   chrome, which is why the CRM showed the page three times over: the CRM's
+   own title bar, then this board's "Nexus Hire Operations" title, then the
+   Nexus logo again on the right. Two logos, two titles, one screen.
+
+   Framed, the CRM owns identity and page naming. The board keeps only what is
+   its own job and the CRM cannot do for it: searching bookings, saying whether
+   the data is live, refreshing, and the office-screen switch.
+
+   Standalone (the office screen, hire.nexusenergy.au direct) is untouched -
+   there, the board IS the page and needs its own name on it.
+   ----------------------------------------------------------------------- */
+html.nx-embedded .app-titlewrap,
+html.nx-embedded .brand-logo { display: none; }
+
+/* The rail is offset 48px for the hub bar. Framed, that bar is hidden, so the
+   offset reserved space for nothing and pushed the rail 48px past the bottom
+   of the frame. Same correction TV mode already makes for the same reason. */
+html.nx-embedded .side-rail { top: 0; height: 100vh; }
+
+/* A header is chrome; a two-week grid is the work. Give the grid the height. */
+html.nx-embedded .app-header { padding-top: 8px; padding-bottom: 8px; }
