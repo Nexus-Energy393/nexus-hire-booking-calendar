@@ -2371,3 +2371,49 @@ html.nx-embedded body:not([data-mode="tv"]) .fortnight-cell {
   height: auto;
   min-height: 90px;
 }
+
+/* ---------- Office screen button: readable in the dark ------------------
+   .btn-tv takes its text colour from --brand-purple. That token is a SURFACE:
+   it paints the side rail. In the dark theme it is #1a1440, and the header it
+   sits on is #151d2b - roughly a 1.1:1 contrast ratio, which is not "hard to
+   read", it is invisible. The button has been a blank outline in dark mode
+   since the dark flip; it only got noticed because something else was briefly
+   covering it.
+
+   Light mode is untouched: purple on white is fine, and it is on-brand there.
+   ----------------------------------------------------------------------- */
+html.dark .btn-tv { color: var(--text); }
+html.dark .btn-tv:hover { color: var(--text); border-color: var(--accent); }
+
+/* ---------- Framed: wear the host's colours -----------------------------
+   Standalone, the purple rail is this board's identity and it stays exactly
+   as it is - on the office screen it is the Nexus hire board and it should
+   look like itself.
+
+   Framed in the Nexy CRM it is the opposite: the CRM's own navy rail is
+   directly to its left, so the page shows two vertical rails in two different
+   brand colours, six pixels apart. Everything else we do to hide the seam is
+   undone by that stripe of purple announcing "different program".
+
+   So framed, the rail takes the CRM's navy and the Nexus green active marker.
+   Same idea as nx-theme, which the CRM already passes in: the host owns the
+   chrome, and the board dresses to match.
+
+   Note --brand-purple-rail is not overridden in html.dark, so the rail is
+   #1c1340 in both themes and never took part in theming at all.
+   ----------------------------------------------------------------------- */
+html.nx-embedded .side-rail {
+  background: linear-gradient(to bottom, #0f2744, #091a30);
+}
+html.nx-embedded .side-rail .tab {
+  color: #cbd5e1;
+}
+html.nx-embedded .side-rail .tab:hover {
+  background: rgba(255, 255, 255, .06);
+  color: #fff;
+}
+html.nx-embedded .side-rail .tab.active {
+  background: rgba(255, 255, 255, .10);
+  color: #fff;
+  box-shadow: inset 2px 0 0 0 #0BBF64;
+}
