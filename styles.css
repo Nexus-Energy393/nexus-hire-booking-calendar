@@ -2334,3 +2334,40 @@ html.nx-embedded .side-rail { top: 0; height: 100vh; }
 
 /* A header is chrome; a two-week grid is the work. Give the grid the height. */
 html.nx-embedded .app-header { padding-top: 8px; padding-bottom: 8px; }
+
+/* ---------- Framed: a desk is not a wall ---------------------------------
+   The 2-week view is built to "fill the screen with fixed, even day rows",
+   which is exactly right for the office TV: readable from across the room,
+   no scrolling, the day boxes always in the same place.
+
+   At a desk inside the CRM it is the opposite of right. Four bookings across
+   fourteen days get stretched over ~600px of empty cells, so the eye has to
+   cross an acre of nothing to find the two jobs that matter.
+
+   This is not a new idea: the mobile breakpoint below already collapses the
+   same grid to its content for the same reason. Embedded gets the same
+   treatment, and the cells keep their lane-based min-height so a day with
+   overlapping hires still has room to draw them.
+
+   Office screen mode is explicitly excluded. If someone hits "Office screen"
+   while the board is framed, they want the wall behaviour and they get it.
+   ------------------------------------------------------------------------ */
+html.nx-embedded body:not([data-mode="tv"]) .month-grid-spans.fortnight-spans {
+  height: auto;
+  grid-template-rows: none;
+}
+html.nx-embedded body:not([data-mode="tv"]) .fortnight-spans .month-row {
+  height: auto;
+}
+html.nx-embedded body:not([data-mode="tv"]) .fortnight-spans .month-cell {
+  height: auto;
+  min-height: calc(36px + var(--lanes, 1) * 42px);
+}
+html.nx-embedded body:not([data-mode="tv"]) .fortnight-grid {
+  height: auto;
+  grid-template-rows: none;
+}
+html.nx-embedded body:not([data-mode="tv"]) .fortnight-cell {
+  height: auto;
+  min-height: 90px;
+}

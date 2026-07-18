@@ -5,9 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <script>(function(){try{var p=new URLSearchParams(location.search).get('nx-theme');var m=document.cookie.match(/(?:^|; )nexus-theme=(dark|light)/);var t=p||(m?m[1]:localStorage.getItem('nexus-theme'));var dark=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',dark);}catch(e){}
 window.addEventListener('message',function(e){if(e.data&&e.data.type==='nexus-theme'){document.documentElement.classList.toggle('dark',e.data.theme==='dark');}});
-/* Inside the Nexus Hub (iframe) the Hub provides the top chrome — flag it so
-   our own hub bar hides and the page doesn't stack duplicate headers. */
-try{if(window.self!==window.top){document.documentElement.classList.add('nx-embedded');}}catch(e){document.documentElement.classList.add('nx-embedded');}})();</script>
+/* Framed (the Hub, and now the Nexy CRM) the host provides the top chrome — flag
+   it so our own hub bar hides and the page doesn't stack duplicate headers. */
+try{if(window.self!==window.top){document.documentElement.classList.add('nx-embedded');}}catch(e){document.documentElement.classList.add('nx-embedded');}
+/* Framed, the host's own global search sits directly above ours, and two
+   identically-styled search boxes 45px apart read as one broken thing rather
+   than two tools. They are not the same tool: theirs finds records anywhere in
+   the CRM, ours filters the bookings on this board and nothing else. So say so.
+   Standalone keeps "Search ..." — there, it IS the page's search. */
+try{document.addEventListener('DOMContentLoaded',function(){
+  if(!document.documentElement.classList.contains('nx-embedded'))return;
+  var i=document.getElementById('searchInput');
+  if(!i)return;
+  i.setAttribute('placeholder','Filter this board: customer, site, owner, job #…');
+  i.setAttribute('aria-label','Filter the bookings on this board');
+});}catch(e){}})();</script>
 <title>Nexus Hire Operations</title>
 <meta name="description" content="Operational booking board for Nexus Energy generator hire and planned outage jobs." />
 <link rel="stylesheet" href="styles.css" />
