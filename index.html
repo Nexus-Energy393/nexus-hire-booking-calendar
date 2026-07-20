@@ -107,6 +107,8 @@ try{document.addEventListener('DOMContentLoaded',function(){
 <script src="resourcing-status.js"></script>
 <script src="fleet.js"></script>
 <script src="off-hire.js"></script>
+<!-- Before app.js: app.js reads window.NexusEvents during its first render. -->
+<script src="events.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="app.js"></script>
 <script src="service-overlay.js"></script>

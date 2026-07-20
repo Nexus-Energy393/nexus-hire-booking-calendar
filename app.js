@@ -61,6 +61,10 @@ var STATE = {
   view: "fortnight",
   cursor: startOfDay(new Date()),
   bookings: [],
+  // Typed events (installs, deliveries, refuels, ad-hoc jobs) from the board's
+  // own database. Kept separate from bookings, which are the CRM's and remain
+  // read-only, and merged only at render time.
+  events: [],
   filters: { search: "", type: "", status: "", size: "", owner: "" },
   showProspective: true,   // forward-look: in-negotiation planned outages (greyed tiles)
   tv: false,
@@ -305,7 +309,48 @@ function refresh() {
     render();
     loadAllocationSummary();
     loadStaffConflicts();
+    loadEvents();
   });
+}
+
+/*
+ * Typed events for a generous window around the cursor.
+ *
+ * Deliberately wide (a year back, a year forward) and loaded once rather than
+ * per navigation: these are hundreds of rows, not thousands, and refetching on
+ * every arrow press made the board flicker. Failure is silent by design - if
+ * the events endpoint is down the board shows hires exactly as it always did.
+ */
+function loadEvents() {
+  if (!window.NexusEvents) return Promise.resolve();
+  var from = addDays(STATE.cursor, -365), to = addDays(STATE.cursor, 365);
+  var ymd = function (d) { return d.toISOString().slice(0, 10); };
+  return window.NexusEvents.load(ymd(from), ymd(to)).then(function (items) {
+    STATE.events = items || [];
+    render();
+  });
+}
+
+/*
+ * The type toggle bar.
+ *
+ * Injected next to the existing filters rather than into the rail, because it
+ * is a filter and belongs with the others. Created once and reused; re-running
+ * only repaints the chips.
+ */
+function renderTypeToggles() {
+  if (!window.NexusEvents) return;
+  var host = document.getElementById("eventToggles");
+  if (!host) {
+    var bar = document.querySelector(".filters") || document.querySelector(".toolbar");
+    if (!bar) return;
+    host = document.createElement("div");
+    host.id = "eventToggles";
+    bar.appendChild(host);
+  }
+  if (host.dataset.painted === "1") return;
+  window.NexusEvents.renderToggles(host, function () { render(); });
+  host.dataset.painted = "1";
 }
 
 function updateDataSourceNote() {
@@ -356,6 +401,23 @@ function render() {
   // Overlay scheduled SERVICE jobs from the Nexus hub onto the calendar views
   // only (never list/alerts/sync, and never conflict detection above).
   var cal = (window.NexusServiceItems) ? visible.concat(window.NexusServiceItems(STATE.filters) || []) : visible;
+
+  /*
+   * Typed events join the same stream, so every renderer below - month, week,
+   * day, the span band, lane packing - handles them without knowing they are
+   * new. Type toggles apply to hires and outages too, which is why the filter
+   * runs over `cal` rather than only over the events: switching "Hire" off has
+   * to actually hide hires, not just the events.
+   */
+  if (window.NexusEvents) {
+    cal = cal.concat(STATE.events || []);
+    cal = cal.filter(function (item) {
+      var key = item.kind === "event" ? item.eventType
+              : (item.jobType === "planned-outage" ? "outage" : "hire");
+      return !window.NexusEvents.isHidden(key);
+    });
+    renderTypeToggles();
+  }
   if (STATE.view === "month") renderMonth(root, cal);
   else if (STATE.view === "fortnight") renderFortnight(root, cal);
   else if (STATE.view === "week") renderWeek(root, cal);
@@ -482,6 +544,32 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
       dcell.appendChild(head);
       dateRow.appendChild(dcell);
       var cell = el("div", "month-cell" + (opts.cellCls ? " " + opts.cellCls : "") + mods);
+
+      /*
+       * Click an empty part of a day to add something on that day.
+       *
+       * Bound on the cell, not the tiles, and guarded on e.target === cell so
+       * clicking a booking still opens the booking. Without that guard every
+       * mis-aimed click on a card edge would open a blank new-event form over
+       * the job the user was actually reaching for.
+       *
+       * Not offered on the office screen: it is a wall display nobody stands at
+       * with a keyboard, and a modal opened by a passing sleeve would sit there
+       * all afternoon covering the board.
+       */
+      if (window.NexusEvents && !STATE.tv) {
+        cell.classList.add("is-addable");
+        cell.title = "Click to add an event on this day";
+        (function (dayDate, dayCell) {
+          dayCell.addEventListener("click", function (e) {
+            if (e.target !== dayCell) return;
+            window.NexusEvents.openEditor({
+              date: dayDate.toISOString().slice(0, 10),
+              onDone: loadEvents
+            });
+          });
+        })(date, cell);
+      }
       bodyCells.push(cell);
       cellRow.appendChild(cell);
     }
@@ -887,7 +975,24 @@ function renderConflicts(conflicts) {
 }
 
 // ---------- modal ----------
-function openModal(b) { renderJobSheet(b); return; } function openModal_legacy(b) {
+/*
+ * A board event opens its own editor; a CRM booking opens the job sheet.
+ *
+ * The job sheet is built entirely around a deal - allocations, engine hours,
+ * the deep link back to Nexy - and an ad-hoc refuel has none of that. Sending
+ * one through it produced a sheet of empty rows and a dead "Open Nexy deal"
+ * link, which reads like the board has lost the job rather than like the job
+ * was never a deal.
+ */
+function openModal(b) {
+  if (b && b.kind === "event" && window.NexusEvents) {
+    window.NexusEvents.openEditor({ event: b, onDone: loadEvents });
+    return;
+  }
+  renderJobSheet(b);
+  return;
+}
+function openModal_legacy(b) {
   var sm = statusMeta(b), tm = typeMeta(b);
   var m = document.getElementById("bookingModal");
   m.innerHTML =
