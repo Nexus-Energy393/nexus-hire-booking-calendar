@@ -59,11 +59,58 @@
   /* ---------- admin token (shared with Fleet / Off Hire) ---------- */
   function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
   function hasToken() { return !!getToken(); }
+  function setToken(t) { try { localStorage.setItem(TOKEN_KEY, (t || "").trim()); } catch (e) {} }
+
+  /*
+   * Ask for the token WITHOUT window.prompt / window.confirm.
+   *
+   * This board runs embedded in the Nexy CRM inside a cross-origin <iframe>, and
+   * Chrome SILENTLY suppresses window.prompt / confirm / alert fired from such a
+   * frame: no dialog is shown and the call returns the default (null / false).
+   * That is exactly why "Add event" and "Delete" looked dead inside the CRM -
+   * the token prompt and the delete confirm never actually appeared. So every
+   * prompt and confirmation the write path needs is drawn in-page instead, which
+   * works identically whether the board is embedded or standalone.
+   */
+  function askTokenInline() {
+    return new Promise(function (resolve) {
+      var back = document.createElement("div");
+      back.className = "ev-modal-back";
+      back.innerHTML =
+        '<div class="ev-modal ev-modal-sm" role="dialog" aria-modal="true">' +
+          '<div class="ev-modal-head"><strong>Admin token</strong>' +
+            '<button class="ev-x" type="button" aria-label="Close">&times;</button></div>' +
+          '<div class="ev-modal-body">' +
+            '<p class="ev-hint">Paste the Fleet admin token to add or change events. It is stored only in this browser and never leaves it.</p>' +
+            '<input class="ev-token-in" type="password" autocomplete="off" placeholder="Fleet admin token" />' +
+            '<p class="ev-err" hidden></p>' +
+          '</div>' +
+          '<div class="ev-modal-foot"><span></span><span class="ev-foot-right">' +
+            '<button class="ev-cancel" type="button">Cancel</button>' +
+            '<button class="ev-save" type="button">Save token</button>' +
+          '</span></div>' +
+        '</div>';
+      document.body.appendChild(back);
+      var input = back.querySelector(".ev-token-in");
+      function done(ok) { if (back.parentNode) back.parentNode.removeChild(back); resolve(ok); }
+      back.querySelector(".ev-x").addEventListener("click", function () { done(false); });
+      back.querySelector(".ev-cancel").addEventListener("click", function () { done(false); });
+      back.addEventListener("mousedown", function (e) { if (e.target === back) done(false); });
+      back.querySelector(".ev-save").addEventListener("click", function () {
+        var v = (input.value || "").trim();
+        if (!v) { var er = back.querySelector(".ev-err"); er.textContent = "Paste the token first."; er.hidden = false; return; }
+        setToken(v); done(true);
+      });
+      input.addEventListener("keydown", function (e) { if (e.key === "Enter") back.querySelector(".ev-save").click(); });
+      setTimeout(function () { input.focus(); }, 30);
+    });
+  }
+
+  /* Resolves true once a token is present. Never touches window.prompt, so it
+   * works embedded in the CRM iframe as well as standalone. */
   function ensureToken() {
-    if (hasToken()) return true;
-    var t = window.prompt("Enter the Fleet admin token to add or change events.\n(Stored only in this browser; never committed.)");
-    if (t && t.trim()) { try { localStorage.setItem(TOKEN_KEY, t.trim()); } catch (e) {} return true; }
-    return false;
+    if (hasToken()) return Promise.resolve(true);
+    return askTokenInline();
   }
   function authHeaders() {
     var h = { "Content-Type": "application/json" };
@@ -138,26 +185,32 @@
   }
 
   function save(payload, id) {
-    if (!ensureToken()) return Promise.resolve({ ok: false, error: "No admin token." });
-    var url = API + "/events" + (id ? "?id=" + encodeURIComponent(id) : "");
-    return fetch(url, { method: id ? "PATCH" : "POST", headers: authHeaders(), body: JSON.stringify(payload) })
-      .then(function (r) { return r.json(); })
-      .catch(function (e) { return { ok: false, error: e.message }; });
+    return ensureToken().then(function (ok) {
+      if (!ok) return { ok: false, error: "No admin token." };
+      var url = API + "/events" + (id ? "?id=" + encodeURIComponent(id) : "");
+      return fetch(url, { method: id ? "PATCH" : "POST", headers: authHeaders(), body: JSON.stringify(payload) })
+        .then(function (r) { return r.json(); })
+        .catch(function (e) { return { ok: false, error: e.message }; });
+    });
   }
 
   function remove(id) {
-    if (!ensureToken()) return Promise.resolve({ ok: false });
-    return fetch(API + "/events?id=" + encodeURIComponent(id), { method: "DELETE", headers: authHeaders() })
-      .then(function (r) { return r.json(); })
-      .catch(function (e) { return { ok: false, error: e.message }; });
+    return ensureToken().then(function (ok) {
+      if (!ok) return { ok: false, error: "No admin token." };
+      return fetch(API + "/events?id=" + encodeURIComponent(id), { method: "DELETE", headers: authHeaders() })
+        .then(function (r) { return r.json(); })
+        .catch(function (e) { return { ok: false, error: e.message }; });
+    });
   }
 
   function setStaff(eventId, staffIds) {
-    if (!ensureToken()) return Promise.resolve({ ok: false });
-    return fetch(API + "/events?action=staff", {
-      method: "POST", headers: authHeaders(),
-      body: JSON.stringify({ event_id: eventId, staff: staffIds })
-    }).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; });
+    return ensureToken().then(function (ok) {
+      if (!ok) return { ok: false };
+      return fetch(API + "/events?action=staff", {
+        method: "POST", headers: authHeaders(),
+        body: JSON.stringify({ event_id: eventId, staff: staffIds })
+      }).then(function (r) { return r.json(); }).catch(function () { return { ok: false }; });
+    });
   }
 
   function listStaff() {
@@ -170,11 +223,13 @@
   /* Rebuild derived events from the bookings currently on the board. Pinned
    * events are left alone by the server, so this is safe to run at will. */
   function syncDerived(bookings) {
-    if (!ensureToken()) return Promise.resolve({ ok: false });
-    var payload = (bookings || []).filter(function (b) { return b && b.kind !== "event"; });
-    return fetch(API + "/events?action=sync-derived", {
-      method: "POST", headers: authHeaders(), body: JSON.stringify({ bookings: payload })
-    }).then(function (r) { return r.json(); }).catch(function (e) { return { ok: false, error: e.message }; });
+    return ensureToken().then(function (ok) {
+      if (!ok) return { ok: false };
+      var payload = (bookings || []).filter(function (b) { return b && b.kind !== "event"; });
+      return fetch(API + "/events?action=sync-derived", {
+        method: "POST", headers: authHeaders(), body: JSON.stringify({ bookings: payload })
+      }).then(function (r) { return r.json(); }).catch(function (e) { return { ok: false, error: e.message }; });
+    });
   }
 
   /* ---------- type toggle bar ---------- */
@@ -318,11 +373,29 @@
 
     if (existing) {
       $(".ev-del").addEventListener("click", function () {
-        if (!window.confirm("Delete this event?")) return;
-        remove(existing.eventId).then(function (r) {
-          if (!r || !r.ok) return fail((r && r.error) || "Could not delete.");
-          close();
-          if (typeof o.onDone === "function") o.onDone();
+        // In-page confirm. window.confirm is silently blocked in the CRM iframe,
+        // so a native "Delete this event?" never appeared and the delete aborted.
+        if (wrap.querySelector(".ev-confirm")) return;
+        var bar = document.createElement("div");
+        bar.className = "ev-confirm";
+        bar.innerHTML =
+          '<span class="ev-confirm-msg">Delete this event? This can’t be undone.</span>' +
+          '<span class="ev-confirm-actions">' +
+            '<button class="ev-keep" type="button">Keep</button>' +
+            '<button class="ev-del-yes" type="button">Delete</button>' +
+          '</span>';
+        var body = wrap.querySelector(".ev-modal-body");
+        body.appendChild(bar);
+        bar.scrollIntoView({ block: "nearest" });
+        bar.querySelector(".ev-keep").addEventListener("click", function () { bar.remove(); });
+        bar.querySelector(".ev-del-yes").addEventListener("click", function () {
+          var yes = bar.querySelector(".ev-del-yes");
+          yes.disabled = true; yes.textContent = "Deleting…";
+          remove(existing.eventId).then(function (r) {
+            if (!r || !r.ok) { bar.remove(); return fail((r && r.error) || "Could not delete."); }
+            close();
+            if (typeof o.onDone === "function") o.onDone();
+          });
         });
       });
     }

@@ -370,6 +370,108 @@ function updateDataSourceNote() {
 // ---------- rendering ----------
 function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
 
+/* ==========================================================================
+ * Drag a typed event to another day to reschedule it.
+ *
+ * Only typed events move: a HIRE or PLANNED OUTAGE comes from the CRM feed and
+ * its dates live in the CRM, so there is nowhere here to save a move to - those
+ * tiles stay put. A single-day event dropped on a new day starts on that day; a
+ * multi-day event keeps its length, shifting its end by the same number of days.
+ *
+ * The move is saved through the same PATCH the editor uses (which also pins the
+ * event, so the next feed sync will not drag it back). Wiring is delegated on
+ * the calendar root once, so it survives every re-render without re-binding.
+ * ======================================================================== */
+var EVENT_DRAG = null;
+
+function ymdStr(d) {
+  var x = startOfDay(d), m = x.getMonth() + 1, day = x.getDate();
+  return x.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+}
+function dayDiff(a, b) {
+  return Math.round((new Date(b + "T00:00:00").getTime() - new Date(a + "T00:00:00").getTime()) / 86400000);
+}
+function addDaysStr(s, n) {
+  var d = new Date(s + "T00:00:00"); d.setDate(d.getDate() + n);
+  return ymdStr(d);
+}
+
+/* Mark an event tile as draggable and stash what a drop needs to know. */
+function makeEventDraggable(elm, b) {
+  if (!elm || !b || b.kind !== "event" || !b.eventId) return;
+  elm.setAttribute("draggable", "true");
+  elm.classList.add("ev-draggable");
+  elm.dataset.eventId = b.eventId;
+  elm.dataset.evStart = b.startDate || "";
+  elm.dataset.evEnd = b.endDate || "";
+  elm.dataset.evTitle = b.customer || "Event";
+}
+
+/* A brief, non-blocking status message (drag save feedback, iframe-safe). */
+function evToast(msg, ok) {
+  var t = el("div", "ev-toast " + (ok ? "ok" : "err")); t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(function () { t.classList.add("show"); });
+  setTimeout(function () {
+    t.classList.remove("show");
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 300);
+  }, 2400);
+}
+
+function setupEventDrag() {
+  var root = document.getElementById("calendarRoot");
+  if (!root || root.__evDragWired) return;
+  root.__evDragWired = true;
+
+  function clearTargets() {
+    var ns = root.querySelectorAll(".ev-drop-target");
+    for (var i = 0; i < ns.length; i++) ns[i].classList.remove("ev-drop-target");
+  }
+  function cellFrom(target) { return target && target.closest ? target.closest("[data-date]") : null; }
+
+  root.addEventListener("dragstart", function (e) {
+    var tile = e.target && e.target.closest ? e.target.closest(".ev-draggable[data-event-id]") : null;
+    if (!tile) return;
+    EVENT_DRAG = { id: tile.dataset.eventId, start: tile.dataset.evStart, end: tile.dataset.evEnd, title: tile.dataset.evTitle };
+    try { e.dataTransfer.setData("text/plain", EVENT_DRAG.id); e.dataTransfer.effectAllowed = "move"; } catch (x) {}
+    tile.classList.add("ev-dragging");
+  });
+
+  root.addEventListener("dragend", function () {
+    EVENT_DRAG = null;
+    clearTargets();
+    var ds = root.querySelectorAll(".ev-dragging");
+    for (var i = 0; i < ds.length; i++) ds[i].classList.remove("ev-dragging");
+  });
+
+  root.addEventListener("dragover", function (e) {
+    if (!EVENT_DRAG) return;
+    var cell = cellFrom(e.target);
+    if (!cell) return;
+    e.preventDefault();                                   // required, or drop never fires
+    try { e.dataTransfer.dropEffect = "move"; } catch (x) {}
+    if (!cell.classList.contains("ev-drop-target")) { clearTargets(); cell.classList.add("ev-drop-target"); }
+  });
+
+  root.addEventListener("drop", function (e) {
+    if (!EVENT_DRAG) return;
+    var cell = cellFrom(e.target);
+    if (!cell) return;
+    e.preventDefault();
+    var to = cell.getAttribute("data-date");
+    var payload = EVENT_DRAG;
+    clearTargets();
+    if (!to || !payload || !window.NexusEvents) return;
+    if (to === payload.start) return;                     // dropped back on the same day
+    var delta = dayDiff(payload.start, to);
+    var newEnd = payload.end ? addDaysStr(payload.end, delta) : null;
+    window.NexusEvents.save({ start_date: to, end_date: newEnd }, payload.id).then(function (r) {
+      if (r && r.ok) { loadEvents(); }
+      else { evToast((r && r.error) || "Could not move the event.", false); }
+    });
+  });
+}
+
 function bookingCard(b, compact) {
   var sm = statusMeta(b), tm = typeMeta(b);
   var card = el("div", "booking-card " + tm.cls + " " + sm.cls + (compact ? " compact" : "") + (b.prospective ? " is-prospective" : ""));
@@ -388,6 +490,7 @@ function bookingCard(b, compact) {
       '<div class="bc-dates">' + fmtShort(bStart(b)) + ' &rarr; ' + fmtShort(bEnd(b)) + ' &middot; ' + dur + '</div>' +
       '<div class="bc-owner">' + escapeHtml(b.dealOwner || "Unassigned") + '</div>');
   card.addEventListener("click", function () { if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); });
+  makeEventDraggable(card, b);
   return card;
 }
 
@@ -544,6 +647,7 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
       dcell.appendChild(head);
       dateRow.appendChild(dcell);
       var cell = el("div", "month-cell" + (opts.cellCls ? " " + opts.cellCls : "") + mods);
+      cell.setAttribute("data-date", ymdStr(date));   // drop target for event drag-to-reschedule
 
       /*
        * Click an empty part of a day to add something on that day.
@@ -775,6 +879,7 @@ function bookingSpan(seg) {
   });
   bar.addEventListener("mouseenter", function () { highlightDeal(b.pipedriveDealId, true); });
   bar.addEventListener("mouseleave", function () { highlightDeal(b.pipedriveDealId, false); });
+  makeEventDraggable(bar, b);
   return bar;
 }
 
@@ -791,6 +896,7 @@ function renderWeek(root, bookings) {
   for (var i = 0; i < 7; i++) {
     var day = addDays(wk, i);
     var col = el("div", "week-col");
+    col.setAttribute("data-date", ymdStr(day));   // drop target for event drag-to-reschedule
     if (sameDay(day, new Date())) col.classList.add("today");
     col.appendChild(el("div", "wc-head", day.toLocaleDateString("en-AU", {weekday:"short", day:"numeric", month:"short"})));
     bookings.filter(function (b) { return spansDay(b, day); })
@@ -1125,6 +1231,7 @@ function init() {
   document.getElementById("modalBackdrop").addEventListener("click", function (e) { if (e.target.id === "modalBackdrop") closeModal(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
 
+  setupEventDrag();   // drag typed events between days (delegated, survives re-renders)
   refresh();
   setInterval(refresh, REFRESH_MS); // auto-refresh for the office screen
 }

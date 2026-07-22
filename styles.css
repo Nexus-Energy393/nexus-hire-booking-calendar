@@ -2535,4 +2535,46 @@ html.nx-embedded .side-rail .tab.active {
 .ev-cancel { background:transparent; border:1px solid var(--nx-border, #cbd5e1); color:inherit; }
 .ev-del { background:transparent; border:1px solid #ef4444; color:#ef4444; }
 
+/* Compact modal (admin-token prompt) */
+.ev-modal-sm { max-width:400px; }
+
+/* In-page delete confirmation (replaces the iframe-blocked window.confirm) */
+.ev-confirm {
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  margin-top:2px; padding:10px 12px; border-radius:10px; font-size:13px;
+  background:color-mix(in srgb, #ef4444 12%, transparent);
+  border:1px solid color-mix(in srgb, #ef4444 40%, transparent);
+}
+.ev-confirm-msg { font-weight:600; }
+.ev-confirm-actions { display:flex; gap:8px; flex:0 0 auto; }
+.ev-confirm .ev-keep {
+  padding:6px 12px; border-radius:8px; font:inherit; font-size:13px; font-weight:600; cursor:pointer;
+  background:transparent; border:1px solid var(--nx-border, #cbd5e1); color:inherit;
+}
+.ev-confirm .ev-del-yes {
+  padding:6px 12px; border-radius:8px; font:inherit; font-size:13px; font-weight:700; cursor:pointer;
+  background:#ef4444; border:1px solid #ef4444; color:#fff;
+}
+.ev-confirm .ev-del-yes:disabled { opacity:.6; cursor:default; }
+
+/* Drag a typed event to another day */
+.ev-draggable { cursor:grab; }
+.ev-draggable:active { cursor:grabbing; }
+.ev-dragging { opacity:.4; }
+.month-cell.ev-drop-target, .week-col.ev-drop-target {
+  outline:2px dashed var(--brand-green, #20a052); outline-offset:-2px;
+  background:color-mix(in srgb, var(--brand-green, #20a052) 12%, transparent);
+}
+
+/* Non-blocking status toast (drag save feedback) */
+.ev-toast {
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
+  z-index:2000; max-width:80vw; padding:9px 15px; border-radius:9px; color:#fff;
+  font-size:13px; font-weight:600; box-shadow:0 10px 30px -6px rgba(0,0,0,.5);
+  opacity:0; transition:opacity .25s, transform .25s; pointer-events:none;
+}
+.ev-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+.ev-toast.ok  { background:#178a44; }
+.ev-toast.err { background:#b3261e; }
+
 @media (max-width: 560px) { .ev-row { grid-template-columns:1fr; } }
