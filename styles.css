@@ -2092,14 +2092,20 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .oh-field { margin-bottom: 18px; }
 .oh-field > label { display: block; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted, #6b7280); font-weight: 700; margin-bottom: 6px; }
 .oh-field input[type="number"], .oh-field input[type="date"], #ohTotLitres {
-  width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border-strong, #d4d7dd);
-  border-radius: 9px; font-size: 15px; background: #fff; color: var(--text, #1f2733);
-
-  /* The field was hard-coded white while its ink followed the theme:
-     in dark mode that put near-white text on a white box. Both now come
-     from the theme, so a fitter can read the meter reading he just typed. */
+  width: 100%; box-sizing: border-box; padding: 10px 12px;
   border: 1px solid var(--border, #d5dbe4);
-  color-scheme: light dark;}
+  border-radius: 9px; font-size: 15px;
+  /* Both surfaces from the theme. The first pass at this fix themed the ink
+     and the border but left `background: #fff` standing, which is precisely
+     the near-white-on-white it set out to cure. Field and ink now travel
+     together: light mode is white with dark text, dark mode is a dark panel
+     with light text, and a fitter can read the meter reading he just typed. */
+  background: var(--panel, #fff);
+  color: var(--text, #1f2733);
+  color-scheme: light dark;
+}
+/* The refuel-log rows: same surface discipline, layout left to the grid. */
+.oh-log-row input { background: var(--panel, #fff); color: var(--text, #1f2733); color-scheme: light dark; }
 .oh-field input:focus { outline: none; border-color: var(--brand-green, #20a052); box-shadow: 0 0 0 3px rgba(32,160,82,.15); }
 .oh-runtime { margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--muted, #6b7280); }
 .oh-runtime.ok { color: #156c39; }
@@ -2110,7 +2116,7 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .oh-seg button { border: 0; background: transparent; padding: 6px 12px; font-size: 12px; cursor: pointer; color: var(--muted, #6b7280); }
 .oh-seg button.active { background: var(--brand-green, #20a052); color: #fff; }
 .oh-log-row { display: grid; grid-template-columns: 1fr 150px 34px; gap: 8px; margin-bottom: 8px; align-items: center; }
-.oh-del { border: 1px solid var(--border-strong, #d4d7dd); background: #fff; border-radius: 8px; cursor: pointer; height: 38px; font-size: 16px; color: var(--muted, #6b7280); }
+.oh-del { border: 1px solid var(--border-strong, #d4d7dd); background: var(--panel, #fff); border-radius: 8px; cursor: pointer; height: 38px; font-size: 16px; color: var(--muted, #6b7280); }
 .oh-del:hover { border-color: var(--danger, #d23f3f); color: var(--danger, #d23f3f); }
 .oh-fuel-total { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border, #e4e6eb); }
 .oh-fuel-total span { font-size: 13px; color: var(--muted, #6b7280); }
