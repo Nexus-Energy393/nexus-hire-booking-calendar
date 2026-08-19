@@ -937,6 +937,18 @@ button:disabled, .btn:disabled, .fleet-btn:disabled { opacity: .5; cursor: not-a
 .fleet-table th { font-weight: 700; }
 .fleet-table td { color: var(--text); }
 .fleet-table .cell-strong { color: var(--brand-purple); }
+
+/* --brand-purple is a BACKGROUND token, and html.dark redefines it to #1a1440
+   for the brand rail. These three rules use it as a foreground colour, so in
+   dark mode they render near-black text on a near-black panel: 1.02:1, which
+   is invisible rather than merely low-contrast. It hid the fleet numbers, the
+   active fleet tab's label, and the .btn-tv caption.
+
+   #c4b5fd is the same hue lightened for a dark surface — 9.15:1 on the panel
+   (AAA), so it still reads as the brand purple without disappearing. */
+html.dark .fleet-table .cell-strong,
+html.dark .fleet-tab.active,
+html.dark .btn-tv { color: #c4b5fd; }
 .fleet-short, td.fleet-short { color: var(--danger); font-weight: 700; }
 .fleet-pill { font-weight: 700; padding: 3px 9px; }
 .fp-available { background: var(--success-bg); color: var(--success); }
