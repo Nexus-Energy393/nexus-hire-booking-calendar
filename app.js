@@ -1778,10 +1778,6 @@ var JS_HERO_SVG = {
 function jsHero(b, st) {
   var tm = typeMeta(b);
   var lc = jsLifecycle(b);
-  var local = jsLoadLocal(b.pipedriveDealId);
-  var CHK = ["chk_equip", "chk_cable", "chk_ramps", "chk_fuel", "chk_elec", "chk_contact", "chk_staff", "chk_dispatch"];
-  var done = CHK.filter(function (k) { return local[k]; }).length;
-  var pct = Math.round((done / CHK.length) * 100);
 
   var readyTone, readyLabel, readySub;
   if (st.key === "ready") { readyTone = "ready"; readyLabel = "Ready for dispatch"; readySub = "Cleared to go"; }
@@ -1830,8 +1826,6 @@ function jsHero(b, st) {
       '<div class="jh-ready is-' + readyTone + '">' +
         '<div class="jh-ready-lbl">' + escapeHtml(readyLabel) + '</div>' +
         '<div class="jh-ready-sub">' + escapeHtml(readySub) + '</div>' +
-        '<div class="jh-prog" title="' + done + ' of ' + CHK.length + ' dispatch checks done"><span style="width:' + pct + '%"></span></div>' +
-        '<div class="jh-prog-n">' + done + '/' + CHK.length + ' checks</div>' +
       '</div>' +
     '</div>' +
     '<div class="jh-life is-' + lc.tone + '">' +
@@ -1911,8 +1905,6 @@ function renderJobSheet(b) {
     jsField("Contact email", b.contactEmail, {full:true}) +
     jsSiteAddressField(b, {label:"Site address", full:true}) +
     jsField("Suburb / state", [b.suburb, b.state].filter(Boolean).join(" ")) +
-    jsNoteField(dealId, "Site access notes", "site_access_notes") +
-    jsNoteField(dealId, "Site hazards / instructions", "site_hazards") +
   '</div>');
 
   /* 2. HIRE PERIOD & OUTAGE */
@@ -1973,20 +1965,6 @@ function renderJobSheet(b) {
       '<div class="js-write-line"><span class="lbl">Job notes</span><div class="rule"></div></div>' +
       jsNoteField(dealId, "Internal dispatch notes", "internal_dispatch_notes"));
   }
-
-  /* 8. DISPATCH CHECKLIST & SIGN-OFF */
-  var checkItems = [
-    {key:"chk_equip", label:"Equipment picked"},
-    {key:"chk_cable", label:"Cable set picked"},
-    {key:"chk_ramps", label:"Cable ramps picked"},
-    {key:"chk_fuel", label:"Fuel checked"},
-    {key:"chk_elec", label:"Electrical booking confirmed"},
-    {key:"chk_contact", label:"Site contact confirmed"},
-    {key:"chk_staff", label:"Staff allocation confirmed"},
-    {key:"chk_dispatch", label:"Dispatch approved"}
-  ];
-  html += jsCard("Dispatch checklist & sign-off", "js-card-signoff",
-    jsChecklist(dealId, checkItems) + jsSignBlock(b));
 
   html += '</div>'; /* js-cards */
 
