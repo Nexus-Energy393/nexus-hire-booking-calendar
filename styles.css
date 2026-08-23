@@ -2596,3 +2596,208 @@ html.nx-embedded .side-rail .tab.active {
 .ev-toast.err { background:#b3261e; }
 
 @media (max-width: 560px) { .ev-row { grid-template-columns:1fr; } }
+
+/* ==========================================================================
+ * CONTINUOUS TIMELINE  (3-Week + Week views)  — added to replace the old
+ * week-row "span band" grid. One day axis, one bar per hire, sticky identity
+ * column + sticky day header, weekends/today banded straight down the grid.
+ * Colour = job type (matches the Hire / Planned-outage legend); the status
+ * dot + texture carry readiness. Themed via existing tokens (light/dark/TV).
+ * ======================================================================== */
+.tl {
+  --tl-head: 244px;         /* sticky identity column width */
+  --tl-col-min: 46px;       /* min day-column width before horizontal scroll */
+  --tl-row-h: 40px;
+  --tl-bar-h: 30px;
+  width: 100%;
+  font-size: 13px;
+  color: var(--text);
+}
+.tl * { box-sizing: border-box; }
+
+/* ---- sticky day header ---- */
+.tl-headrow {
+  display: flex;
+  position: sticky; top: 0; z-index: 6;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border-strong, var(--line));
+}
+.tl-corner {
+  position: sticky; left: 0; z-index: 7;
+  flex: 0 0 var(--tl-head); width: var(--tl-head);
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-right: 1px solid var(--border-strong, var(--line));
+}
+.tl-corner-lbl { font-weight: 700; font-size: 12px; letter-spacing: .02em; color: var(--text); }
+.tl-corner-n {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  background: var(--panel-2); border-radius: 999px; padding: 1px 8px;
+}
+.tl-daycols {
+  flex: 1 1 auto; min-width: 0;
+  display: grid; grid-template-columns: repeat(var(--tl-days), minmax(var(--tl-col-min), 1fr));
+}
+.tl-day {
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  padding: 5px 2px 6px; position: relative;
+  border-left: 1px solid var(--line);
+  line-height: 1.05; text-align: center;
+}
+.tl-day:first-child { border-left: 0; }
+.tl-day.is-weekstart { border-left: 1px solid var(--border-strong, var(--line)); }
+.tl-dow { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.tl-dnum { font-size: 14px; font-weight: 700; color: var(--text); margin-top: 1px; line-height: 1.4; min-width: 22px; border-radius: 999px; }
+.tl-mon { font-size: 9px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; margin-top: 1px; }
+.tl-day.is-weekend { background: color-mix(in srgb, var(--muted) 9%, transparent); }
+.tl-day.is-today { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.tl-day.is-today .tl-dnum { background: var(--accent); color: #fff; padding: 0 2px; }
+.tl-day.is-today .tl-dow { color: var(--accent); }
+
+/* ---- group headers ---- */
+.tl-group { position: relative; padding: 0; }
+.tl-group-inner {
+  position: sticky; left: 0; z-index: 4;
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 10px 0 3px; padding: 3px 11px 3px 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--muted);
+  text-transform: uppercase;
+}
+.tl-group-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.tl-group-now  .tl-group-dot { background: var(--confirmed); }
+.tl-group-next .tl-group-dot { background: var(--accent); }
+.tl-group-done .tl-group-dot { background: var(--completed); }
+.tl-group-lbl { color: var(--text); }
+.tl-group-n { color: var(--muted); font-weight: 700; }
+
+/* ---- body rows ---- */
+.tl-row {
+  display: flex; align-items: stretch;
+  min-height: var(--tl-row-h);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.tl-row.span-hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.tl-rowhead {
+  position: sticky; left: 0; z-index: 3;
+  flex: 0 0 var(--tl-head); width: var(--tl-head);
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 12px 5px 11px;
+  background: var(--panel);
+  border-right: 1px solid var(--border-strong, var(--line));
+  border-left: 3px solid var(--tl-accent, var(--general));
+  cursor: pointer;
+}
+.tl-row:hover .tl-rowhead { background: var(--booking-bg-hover, color-mix(in srgb, var(--accent) 5%, var(--panel))); }
+.tl-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--tl-dot, var(--muted)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--tl-dot, var(--muted)) 22%, transparent); }
+.tl-rh-main { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.tl-cust { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.tl-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.tl-gen { color: var(--muted); }
+.tl-job { flex: 0 0 auto; font-size: 10px; font-weight: 700; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 1px 5px; letter-spacing: .01em; }
+
+/* ---- day track + banding ---- */
+.tl-track {
+  flex: 1 1 auto; min-width: 0; position: relative;
+  display: grid; grid-template-columns: repeat(var(--tl-days), minmax(var(--tl-col-min), 1fr));
+  grid-auto-rows: minmax(var(--tl-row-h), 1fr);
+  align-items: center;
+}
+.tl-cell {
+  grid-row: 1; height: 100%;
+  border-left: 1px solid var(--line);
+}
+.tl-cell:first-child { border-left: 0; }
+.tl-cell.is-weekstart { border-left: 1px solid var(--border-strong, var(--line)); }
+.tl-cell.is-weekend { background: color-mix(in srgb, var(--muted) 7%, transparent); }
+.tl-cell.is-today { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+
+/* ---- the hire bar ---- */
+.tl-bar {
+  grid-row: 1; z-index: 1; position: relative;
+  min-height: var(--tl-bar-h); margin: 4px 0;
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 9px; overflow: hidden;
+  border-radius: 8px;
+  background: var(--panel);
+  background: color-mix(in srgb, var(--tl-accent, var(--general)) 16%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--tl-accent, var(--general)) 45%, var(--panel));
+  border-left: 4px solid var(--tl-accent, var(--general));
+  color: var(--text); cursor: pointer;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(16,24,40,.06));
+  transition: box-shadow .12s ease, transform .12s ease, filter .12s ease;
+}
+.tl-bar.cont-left  { border-top-left-radius: 3px; border-bottom-left-radius: 3px; border-left-style: dashed; margin-left: -1px; }
+.tl-bar.cont-right { border-top-right-radius: 3px; border-bottom-right-radius: 3px; border-right-style: dashed; margin-right: -1px; }
+.tl-row:hover .tl-bar, .tl-bar:focus-visible { box-shadow: var(--shadow-md, 0 4px 12px rgba(16,24,40,.14)); filter: brightness(1.02); outline: none; }
+.tl-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.tl-bar-cap { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; }
+.tl-bar-r { margin-left: auto; }
+.tl-bar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tl-dot, var(--tl-accent, var(--general))); }
+.tl-bar-miles { display: inline-flex; align-items: center; gap: 3px; }
+.tl-bar-miles .bs-ms { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; color: color-mix(in srgb, var(--tl-accent, var(--general)) 78%, var(--text)); }
+.tl-bar-miles .bs-ms svg { width: 13px; height: 13px; }
+.tl-bar-lbl { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.tl-bar-dur { font-size: 11px; color: color-mix(in srgb, var(--text) 62%, transparent); white-space: nowrap; flex: 0 0 auto; }
+.tl-chev { font-weight: 800; color: var(--tl-accent, var(--general)); font-size: 15px; line-height: 1; }
+.tl-staff-conflict { display: inline-flex; color: var(--danger, #d23f3f); }
+.tl-staff-conflict svg { width: 13px; height: 13px; }
+
+/* type = colour (matches toolbar legend) */
+.tl-bar.jt-general,  .tl-row.jt-general  .tl-rowhead { --tl-accent: var(--general); }
+.tl-bar.jt-outage,   .tl-row.jt-outage   .tl-rowhead { --tl-accent: var(--outage); }
+.tl-bar.jt-emergency,.tl-row.jt-emergency .tl-rowhead { --tl-accent: var(--emergency); }
+
+/* status = the dot colour + texture */
+.tl-bar.st-confirmed, .tl-row.st-confirmed .tl-rowhead { --tl-dot: var(--confirmed); }
+.tl-bar.st-onhire,    .tl-row.st-onhire    .tl-rowhead { --tl-dot: #2563eb; }
+.tl-bar.st-duration,  .tl-row.st-duration  .tl-rowhead { --tl-dot: var(--duration); }
+.tl-bar.st-equipment, .tl-row.st-equipment .tl-rowhead { --tl-dot: var(--equipment); }
+.tl-bar.st-review,    .tl-row.st-review    .tl-rowhead { --tl-dot: var(--review); }
+.tl-bar.st-completed, .tl-row.st-completed .tl-rowhead { --tl-dot: var(--completed); }
+.tl-bar.st-prospective,.tl-row.st-prospective .tl-rowhead { --tl-dot: var(--muted); }
+
+/* readiness texture: needs-* get a dashed attention ring; completed fades;
+   prospective is hatched + dashed (tentative). */
+.tl-bar.st-duration, .tl-bar.st-equipment, .tl-bar.st-review {
+  border-style: dashed;
+  border-left-style: solid;
+}
+.tl-bar.st-completed { opacity: .6; }
+.tl-bar.is-prospective {
+  opacity: .82;
+  border-style: dashed; border-left-style: solid;
+  background-image: repeating-linear-gradient(135deg,
+    color-mix(in srgb, var(--muted) 14%, transparent) 0 6px, transparent 6px 12px);
+}
+.tl-bar.st-cancelled .tl-bar-lbl { text-decoration: line-through; }
+
+/* empty state */
+.tl-empty { padding: 40px 16px; text-align: center; }
+.tl-empty-title { font-weight: 700; font-size: 15px; color: var(--text); margin: 0 0 4px; }
+.tl-empty-sub { color: var(--muted); font-size: 13px; margin: 0; }
+
+/* ---- Office screen (TV) ---- */
+body[data-mode="tv"] .tl { --tl-head: 300px; --tl-col-min: 70px; --tl-row-h: 52px; --tl-bar-h: 40px; font-size: 16px; }
+body[data-mode="tv"] .tl-cust { font-size: 16px; }
+body[data-mode="tv"] .tl-sub { font-size: 13px; }
+body[data-mode="tv"] .tl-bar-lbl { font-size: 15px; }
+body[data-mode="tv"] .tl-dnum { font-size: 17px; }
+
+/* ---- narrow screens: shrink the identity column, let the grid scroll ---- */
+@media (max-width: 720px) {
+  .tl { --tl-head: 150px; --tl-col-min: 40px; }
+  .tl-job { display: none; }
+  .tl-bar-dur { display: none; }
+}
+
+/* ==========================================================================
+ * DAY VIEW polish — a clean agenda column that matches the timeline look.
+ * ======================================================================== */
+.day-wrap { max-width: 780px; margin: 0 auto; padding: 4px 0 24px; }
+.day-title { font-size: 17px; font-weight: 700; color: var(--text); margin: 6px 2px 14px; }
+.day-wrap .booking-card { margin-bottom: 10px; }
+.day-wrap .empty { color: var(--muted); background: var(--panel-2); border: 1px dashed var(--line); border-radius: 10px; padding: 26px; text-align: center; }
