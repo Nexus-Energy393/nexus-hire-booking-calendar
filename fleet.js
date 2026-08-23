@@ -108,7 +108,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var a = res[0].body, s = res[1].body, al = res[2].body;
       STATE.dbConfigured = a.dbConfigured !== false;
       STATE.writesEnabled = !!a.writesEnabled;
-      STATE.assets = a.assets || [];
+      STATE.assets = (a.assets || []).map(function (x) {
+        if (x && x.fleet_number != null) x.fleet_number = String(x.fleet_number).replace(/^#+\s*/, "").trim();
+        return x;
+      });
       STATE.stock = s.stock || [];
       STATE.alerts = al.alerts || [];
       STATE.loading = false;
