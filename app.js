@@ -1858,7 +1858,6 @@ function renderJobSheet(b) {
   html += '<div class="js-toolbar">';
   html += '<span class="js-title-min">Dispatch jobsheet &mdash; ' + escapeHtml(b.customer || "Unknown customer") + '</span>';
   html += '<button class="js-btn primary" id="jsPdfBtn" type="button">Download PDF</button>';
-  html += '<button class="js-btn" id="jsPrintBtn" type="button">Print</button>';
   html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Nexy deal &rarr;</a>';
   html += '<a class="js-btn survey" id="jsSurveyBtn" target="_blank" rel="noopener" href="https://nexus-site-survey.vercel.app/survey?dealId=' + encodeURIComponent(dealId) + '">Site Survey &rarr;</a>';
   html += '<button class="js-btn ready" id="jsReadyBtn" type="button">Mark ready for dispatch</button>';
