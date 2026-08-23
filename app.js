@@ -68,6 +68,8 @@ var STATE = {
   filters: { search: "", type: "", status: "", size: "", owner: "" },
   showProspective: true,   // forward-look: in-negotiation planned outages (greyed tiles)
   tv: false,
+  groups: {},
+  mergeBarHidden: false,
   live: false,
   everLive: false,
   loaded: false,
@@ -494,11 +496,194 @@ function bookingCard(b, compact) {
   return card;
 }
 
+/* ============================================================================
+ * MERGE GROUPS — bookings that are really ONE job (e.g. JB Sheetmetal split
+ * across two deals) are linked so the board draws them as a single row. This is
+ * non-destructive: the CRM deals + invoices are untouched, we only record the
+ * grouping (api/groups). Detection suggests likely merges; a manager confirms.
+ * ========================================================================== */
+function groupsApiBase() { return (CONFIG.apiBase || "/api").replace(/\/$/, ""); }
+function groupsAuthHeaders() {
+  var h = { "Content-Type": "application/json" };
+  var t = ""; try { t = localStorage.getItem("nexusFleetAdminToken") || ""; } catch (e) {}
+  if (t) h["x-fleet-admin-token"] = t;
+  return h;
+}
+function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+
+function loadGroups() {
+  return fetch(groupsApiBase() + "/groups", { headers: { Accept: "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { STATE.groups = (d && d.groups) || {}; })
+    .catch(function () { STATE.groups = STATE.groups || {}; });
+}
+function groupOfBooking(b) {
+  var g = STATE.groups || {};
+  return g[String(b.pipedriveDealId)] || g[String(b.crmDealId)] || null;
+}
+
+/* Collapse bookings sharing a group into one synthetic "grouped" booking. */
+function applyGroups(bookings) {
+  var g = STATE.groups || {};
+  if (!g || !Object.keys(g).length) return bookings;
+  var byGroup = {}, out = [];
+  bookings.forEach(function (b) {
+    var m = groupOfBooking(b);
+    if (!m) { out.push(b); return; }
+    (byGroup[m.group_id] = byGroup[m.group_id] || { members: [], label: m.label }).members.push(b);
+  });
+  Object.keys(byGroup).forEach(function (gid) {
+    var members = byGroup[gid].members;
+    if (members.length === 1) { out.push(members[0]); return; }
+    out.push(makeGroupBooking(gid, members, byGroup[gid].label));
+  });
+  return out;
+}
+function makeGroupBooking(gid, members, label) {
+  members = members.slice().sort(function (a, z) { return (bStart(a) || new Date(0)) - (bStart(z) || new Date(0)); });
+  var start = null, end = null;
+  members.forEach(function (b) {
+    var s = bStart(b), e = bEnd(b) || s;
+    if (s && (!start || s < start)) start = s;
+    if (e && (!end || e > end)) end = e;
+  });
+  var sizes = members.map(function (b) { return b.generatorSize; }).filter(Boolean);
+  var head = members[0];
+  return Object.assign({}, head, {
+    isGroup: true, groupId: gid, members: members, memberCount: members.length,
+    pipedriveDealId: "grp:" + gid,
+    customer: label || head.customer,
+    generatorSize: sizes.length ? (sizes.length > 2 ? sizes.slice(0, 2).join(", ") + " +" + (sizes.length - 2) : sizes.join(", ")) : head.generatorSize,
+    jobNumber: null,
+    startDate: start ? ymdStr(start) : head.startDate,
+    endDate: end ? ymdStr(end) : head.endDate,
+    durationDays: (start && end) ? Math.round((startOfDay(end) - startOfDay(start)) / 86400000) + 1 : head.durationDays,
+    status: members.some(function (b) { return b.status !== "confirmed" && b.status !== "completed" && !b.prospective; }) ? "needs-review" : head.status,
+  });
+}
+
+function datesNearby(a, b, gapDays) {
+  var as = startOfDay(bStart(a)).getTime(), ae = startOfDay(bEnd(a) || bStart(a)).getTime();
+  var bs = startOfDay(bStart(b)).getTime(), be = startOfDay(bEnd(b) || bStart(b)).getTime();
+  var gap = gapDays * 86400000;
+  return (as - gap) <= be && (bs - gap) <= ae;
+}
+/* Same customer + same suburb + overlapping/adjacent dates, among ungrouped. */
+function suggestGroups(bookings) {
+  var pool = bookings.filter(function (b) {
+    return !b.isGroup && !b.prospective && b.status !== "cancelled" && b.status !== "completed" && bStart(b) && !groupOfBooking(b);
+  });
+  var byCust = {};
+  pool.forEach(function (b) { var k = normName(b.customer); if (k) (byCust[k] = byCust[k] || []).push(b); });
+  var out = [];
+  Object.keys(byCust).forEach(function (k) {
+    var list = byCust[k]; if (list.length < 2) return;
+    var used = {};
+    list.forEach(function (b, i) {
+      if (used[i]) return;
+      var cluster = [b]; used[i] = 1;
+      for (var j = i + 1; j < list.length; j++) {
+        if (used[j]) continue;
+        var c = list[j];
+        var sameSub = normName(b.suburb || b.site) === normName(c.suburb || c.site) || !b.suburb || !c.suburb;
+        if (sameSub && datesNearby(b, c, 2)) { cluster.push(c); used[j] = 1; }
+      }
+      if (cluster.length >= 2) out.push(cluster);
+    });
+  });
+  return out;
+}
+
+function mergeBookings(dealIds, label) {
+  if (!groupsAuthHeaders()["x-fleet-admin-token"]) { alert("Enter the Fleet admin token (Sync view) to merge bookings."); return Promise.resolve(); }
+  return fetch(groupsApiBase() + "/groups", { method: "POST", headers: groupsAuthHeaders(), body: JSON.stringify({ dealIds: dealIds, label: label }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) { if (!res.ok) throw new Error(res.error || "Merge failed"); return loadGroups(); })
+    .then(function () { render(); })
+    .catch(function (e) { alert(e.message); });
+}
+function unmergeGroup(groupId) {
+  return fetch(groupsApiBase() + "/groups?groupId=" + encodeURIComponent(groupId), { method: "DELETE", headers: groupsAuthHeaders() })
+    .then(function (r) { return r.json(); })
+    .then(function (res) { if (!res.ok) throw new Error(res.error || "Unmerge failed"); return loadGroups(); })
+    .then(function () { closeModal(); render(); })
+    .catch(function (e) { alert(e.message); });
+}
+
+/* Suggestions banner above the board. */
+function renderMergeBar(suggestions) {
+  var host = document.getElementById("calendarRoot");
+  var bar = document.getElementById("mergeBar");
+  if (!suggestions.length) { if (bar) bar.parentNode.removeChild(bar); return; }
+  if (!bar) { bar = el("div"); bar.id = "mergeBar"; host.parentNode.insertBefore(bar, host); }
+  bar.className = "merge-bar";
+  var names = suggestions.slice(0, 3).map(function (c) { return escapeHtml(c[0].customer || "?") + " (" + c.length + ")"; }).join(", ");
+  bar.innerHTML =
+    '<span class="merge-bar-txt"><strong>' + suggestions.length + '</strong> possible ' + (suggestions.length === 1 ? "merge" : "merges") +
+    ' &mdash; ' + names + (suggestions.length > 3 ? "…" : "") + '</span>' +
+    '<button class="merge-bar-btn" id="mergeReviewBtn" type="button">Review merges</button>' +
+    '<button class="merge-bar-x" id="mergeDismiss" type="button" title="Hide for now">×</button>';
+  bar.querySelector("#mergeReviewBtn").addEventListener("click", function () { openMergeReview(suggestions); });
+  bar.querySelector("#mergeDismiss").addEventListener("click", function () { STATE.mergeBarHidden = true; bar.parentNode.removeChild(bar); });
+}
+
+function openMergeReview(suggestions) {
+  var m = document.getElementById("bookingModal");
+  m.classList.remove("jobsheet-modal");
+  var rows = suggestions.map(function (c, i) {
+    var when = fmtShort(bStart(c[0])) + " – " + fmtShort(c.reduce(function (mx, b) { var e = bEnd(b) || bStart(b); return (!mx || e > mx) ? e : mx; }, null));
+    var items = c.map(function (b) { return '<li>' + escapeHtml((b.jobNumber ? b.jobNumber + " · " : "") + (b.generatorSize || "")) + " · " + fmtShort(bStart(b)) + "–" + fmtShort(bEnd(b) || bStart(b)) + '</li>'; }).join("");
+    return '<div class="mg-sug"><div class="mg-sug-head"><div><div class="mg-sug-cust">' + escapeHtml(c[0].customer || "Unknown") + '</div>' +
+      '<div class="mg-sug-sub">' + escapeHtml(c[0].suburb || c[0].site || "") + ' · ' + when + ' · ' + c.length + ' bookings</div></div>' +
+      '<button class="btn primary sm mg-do" data-i="' + i + '">Merge as one job</button></div><ul class="mg-sug-items">' + items + '</ul></div>';
+  }).join("");
+  m.innerHTML = '<div class="mg-modal"><div class="mg-modal-head"><h3>Suggested merges</h3><button class="modal-close" id="mgClose">×</button></div>' +
+    '<p class="mg-modal-intro">These look like one job split across bookings — same customer, site and overlapping dates. Merging groups them into a single row on the board; the deals and invoices stay separate.</p>' +
+    '<div class="mg-list">' + rows + '</div></div>';
+  document.getElementById("modalBackdrop").hidden = false;
+  m.querySelector("#mgClose").addEventListener("click", closeModal);
+  m.querySelectorAll(".mg-do").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var c = suggestions[Number(btn.getAttribute("data-i"))];
+      btn.disabled = true; btn.textContent = "Merging…";
+      mergeBookings(c.map(function (b) { return b.pipedriveDealId; }), c[0].customer).then(function () { closeModal(); });
+    });
+  });
+}
+
+/* A grouped bar/row opens a small chooser of its member jobs. */
+function openGroupModal(group) {
+  var m = document.getElementById("bookingModal");
+  m.classList.remove("jobsheet-modal");
+  var items = (group.members || []).map(function (b) {
+    return '<button class="mg-member" data-deal="' + escapeHtml(String(b.pipedriveDealId)) + '">' +
+      '<span class="mg-member-main">' + escapeHtml((b.jobNumber ? b.jobNumber + " · " : "") + (b.generatorSize || "Booking")) + '</span>' +
+      '<span class="mg-member-sub">' + fmtShort(bStart(b)) + " – " + fmtShort(bEnd(b) || bStart(b)) + '</span></button>';
+  }).join("");
+  m.innerHTML = '<div class="mg-modal"><div class="mg-modal-head"><h3>' + escapeHtml(group.customer || "Merged job") +
+    ' <span class="mg-count">' + group.memberCount + ' bookings</span></h3><button class="modal-close" id="mgClose2">×</button></div>' +
+    '<p class="mg-modal-intro">One job, grouped from ' + group.memberCount + ' bookings. Open any to see its jobsheet.</p>' +
+    '<div class="mg-members">' + items + '</div>' +
+    '<div class="mg-modal-foot"><button class="btn ghost sm" id="mgUnmerge">Unmerge</button></div></div>';
+  document.getElementById("modalBackdrop").hidden = false;
+  m.querySelector("#mgClose2").addEventListener("click", closeModal);
+  m.querySelector("#mgUnmerge").addEventListener("click", function () { if (window.confirm("Unmerge this job back into separate bookings?")) unmergeGroup(group.groupId); });
+  m.querySelectorAll(".mg-member").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var id = btn.getAttribute("data-deal");
+      var bk = (group.members || []).filter(function (x) { return String(x.pipedriveDealId) === id; })[0];
+      if (bk) openModal(bk);
+    });
+  });
+}
+
 function render() {
   var root = document.getElementById("calendarRoot");
   root.innerHTML = "";
-  var visible = applyFilters(STATE.bookings);
+  var filtered = applyFilters(STATE.bookings);
+  var visible = applyGroups(filtered);
   renderConflicts(detectConflicts(visible));
+  renderMergeBar(STATE.mergeBarHidden ? [] : suggestGroups(filtered));
   document.body.setAttribute("data-mode", STATE.tv ? "tv" : "desktop");
 
   // Overlay scheduled SERVICE jobs from the Nexus hub onto the calendar views
@@ -683,7 +868,7 @@ function timelineRow(b, gridStart, numDays, todayCol) {
   row.setAttribute("data-deal-id", b.pipedriveDealId);
 
   var head = el("div", "tl-rowhead");
-  var job = b.jobNumber ? '<span class="tl-job">' + escapeHtml(b.jobNumber) + '</span>' : '';
+  var job = b.isGroup ? '<span class="tl-job tl-job-grp">' + b.memberCount + ' jobs</span>' : (b.jobNumber ? '<span class="tl-job">' + escapeHtml(b.jobNumber) + '</span>' : '');
   head.innerHTML =
     '<span class="tl-dot" title="' + escapeHtml(sm.label) + '"></span>' +
     '<span class="tl-rh-main">' +
@@ -693,6 +878,7 @@ function timelineRow(b, gridStart, numDays, todayCol) {
       '</span>' +
     '</span>' + job;
   head.addEventListener("click", function () {
+    if (b.isGroup) { openGroupModal(b); return; }
     if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; }
     openModal(b);
   });
@@ -741,6 +927,7 @@ function buildTimelineBar(b, sm, tm, seg) {
   bar.innerHTML =
     '<span class="tl-bar-cap tl-bar-l">' + left + (miles ? '<span class="tl-bar-miles">' + miles + '</span>' : '') + '</span>' +
     '<span class="tl-bar-lbl">' + escapeHtml(b.customer || "") + '</span>' +
+    (b.isGroup ? '<span class="tl-bar-grp">' + b.memberCount + ' jobs</span>' : '') +
     '<span class="tl-bar-dur">' + dur + '</span>' +
     '<span class="tl-bar-cap tl-bar-r">' + right + '</span>';
 
@@ -755,7 +942,7 @@ function buildTimelineBar(b, sm, tm, seg) {
     (b.customer || "Unknown customer") + ", " + (b.suburb || b.site || "") + ", " +
     fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) + ", " + sm.label);
 
-  var open = function () { if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
+  var open = function () { if (b.isGroup) { openGroupModal(b); return; } if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
   bar.addEventListener("click", open);
   bar.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
   bar.addEventListener("mouseenter", function () { highlightDeal(b.pipedriveDealId, true); });
@@ -1409,6 +1596,7 @@ function init() {
 
   setupEventDrag();   // drag typed events between days (delegated, survives re-renders)
   refresh();
+  loadGroups().then(function () { if ((STATE.bookings || []).length) render(); });
   setInterval(refresh, REFRESH_MS); // auto-refresh for the office screen
 }
 
