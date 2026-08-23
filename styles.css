@@ -2921,3 +2921,107 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
 .js-cards .js-field .v { text-align: left; overflow-wrap: break-word; word-break: normal; }
 .js-exporting .js-cards .js-grid, .js-exporting .js-cards .js-grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
 @media print { .js-cards .js-grid, .js-cards .js-grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+
+/* ==========================================================================
+ * DISPATCH JOBSHEET — v3: a themed app panel, not a white A4 sheet.
+ * Nexus doesn't print these, so the paper metaphor is gone: the modal now
+ * follows the board's own light/dark theme via CSS tokens, the detail flows in
+ * a real grid where wide cards (equipment, staff) span full width so nothing
+ * clips, and the picking table can never cut off its action buttons.
+ * (Export still forces a clean light document — see the .js-exporting block.)
+ * ======================================================================== */
+
+.modal.jobsheet-modal { background: var(--panel-bg) !important; border: 1px solid var(--border) !important; }
+.jobsheet { background: var(--panel-bg) !important; color: var(--text) !important; }
+
+/* toolbar */
+.js-toolbar { background: var(--panel-2) !important; border-bottom: 1px solid var(--border) !important; }
+.js-toolbar .js-title-min { color: var(--muted) !important; }
+
+/* ---- hero, themed ---- */
+.js-hero { background: linear-gradient(180deg, var(--panel-2), var(--panel-bg)) !important; border-bottom: 1px solid var(--border) !important; color: var(--text); }
+.jh-job { color: var(--text) !important; }
+.jh-cust { color: var(--text) !important; }
+.jh-cust .jh-sub, .jh-ready-sub, .jh-prog-n, .jh-stat-k, .jh-life-sub { color: var(--muted) !important; }
+.jh-type { background: var(--panel) !important; border: 1px solid var(--border) !important; color: var(--text) !important; }
+.jh-ready, .jh-life, .jh-stat { background: var(--panel) !important; border: 1px solid var(--border) !important; }
+.jh-ready-lbl, .jh-life-lbl, .jh-stat-v { color: var(--text) !important; }
+.jh-prog { background: color-mix(in srgb, var(--muted) 24%, transparent) !important; }
+.jh-life-ic, .jh-stat-ic { color: var(--muted); }
+
+.jh-ready.is-ready { background: color-mix(in srgb, var(--success) 16%, var(--panel)) !important; border-color: color-mix(in srgb, var(--success) 45%, var(--panel)) !important; }
+.jh-ready.is-ready .jh-ready-lbl { color: var(--success) !important; }
+.jh-ready.is-ok { background: color-mix(in srgb, var(--accent) 14%, var(--panel)) !important; border-color: color-mix(in srgb, var(--accent) 40%, var(--panel)) !important; }
+.jh-ready.is-warn { background: color-mix(in srgb, var(--warning) 16%, var(--panel)) !important; border-color: color-mix(in srgb, var(--warning) 45%, var(--panel)) !important; }
+.jh-ready.is-warn .jh-ready-lbl { color: var(--warning) !important; }
+.jh-ready.is-warn .jh-prog > span { background: var(--warning) !important; }
+
+.jh-life.is-soon { background: color-mix(in srgb, var(--warning) 14%, var(--panel)) !important; border-color: color-mix(in srgb, var(--warning) 40%, var(--panel)) !important; }
+.jh-life.is-soon .jh-life-lbl, .jh-life.is-soon .jh-life-ic { color: var(--warning) !important; }
+.jh-life.is-active { background: color-mix(in srgb, var(--accent) 12%, var(--panel)) !important; border-color: color-mix(in srgb, var(--accent) 38%, var(--panel)) !important; }
+.jh-life.is-active .jh-life-ic { color: var(--accent) !important; }
+.jh-life.is-done { background: var(--panel-2) !important; }
+.jh-life.is-done .jh-life-lbl { color: var(--muted) !important; }
+.jh-life.is-warn { background: color-mix(in srgb, var(--danger) 14%, var(--panel)) !important; border-color: color-mix(in srgb, var(--danger) 40%, var(--panel)) !important; }
+.jh-life.is-warn .jh-life-lbl { color: var(--danger) !important; }
+
+.jh-stat.is-hot { background: color-mix(in srgb, var(--warning) 12%, var(--panel)) !important; border-color: color-mix(in srgb, var(--warning) 38%, var(--panel)) !important; }
+.jh-stat.is-hot .jh-stat-ic { color: var(--warning) !important; }
+.jh-stat.is-warn { background: color-mix(in srgb, var(--danger) 12%, var(--panel)) !important; border-color: color-mix(in srgb, var(--danger) 38%, var(--panel)) !important; }
+.jh-stat.is-warn .jh-stat-v { color: var(--danger) !important; }
+.jh-contact { border-top-color: var(--border) !important; }
+.jh-contact-name { color: var(--text) !important; }
+
+/* ---- layout: real grid; wide cards span full width so nothing clips ---- */
+.js-cards { column-count: unset !important; display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.js-cards > .js-card { width: auto !important; margin: 0 !important; display: block !important; }
+.js-card-alloc, .js-card-staff, .js-card-notes, .js-card-elec { grid-column: 1 / -1 !important; }
+@media (max-width: 720px) { .js-cards { grid-template-columns: 1fr; } }
+
+/* ---- cards, fields, tables → tokens ---- */
+.js-card { background: var(--panel) !important; border: 1px solid var(--border) !important; }
+.js-card-head { background: var(--panel-2) !important; color: var(--text) !important; border-bottom: 1px solid var(--border) !important; }
+.jobsheet .js-field { border-bottom: 1px dotted var(--border) !important; }
+.jobsheet .js-field .k { color: var(--muted) !important; }
+.jobsheet .js-field .v { color: var(--text) !important; }
+.jobsheet .js-field .v.missing { color: var(--danger) !important; }
+.js-card .js-table th, .js-card .js-staff-table th { color: var(--muted) !important; border-bottom-color: var(--border) !important; }
+.js-card .js-table td, .js-card .js-staff-table td { color: var(--text) !important; border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent) !important; }
+.js-box { border-color: var(--muted) !important; }
+
+/* the picking table must never clip its action buttons */
+#jsEquipmentHolder, .js-picking, .js-resourcing { overflow-x: auto; }
+.js-table.js-equip { min-width: 560px; }
+.js-actions-col { white-space: nowrap; }
+.js-table.js-equip td:last-child { white-space: nowrap; }
+
+/* inputs / outputs → tokens */
+.jobsheet input, .jobsheet textarea, .jobsheet select, .jobsheet output,
+.jobsheet .js-time, .jobsheet .js-note-input {
+  background: var(--panel) !important; color: var(--text) !important; border-color: var(--border) !important;
+}
+.jobsheet input::placeholder, .jobsheet textarea::placeholder { color: color-mix(in srgb, var(--muted) 80%, transparent) !important; }
+
+/* resourcing hours / fuel blocks */
+.rs-hours, .rs-fuel, .rs-hcell, .rs-fuel-cell { background: transparent !important; color: var(--text) !important; }
+.rs-hcell label, .rs-fuel-label { color: var(--muted) !important; }
+.rs-save-row { border-top-color: var(--border) !important; } .rs-save-hint { color: var(--muted) !important; }
+.rs-note, .js-line-note, .js-elec-none, .js-elec-sentence { color: var(--muted) !important; }
+
+/* alert boxes → tokens */
+.js-alertbox-warn, .jobsheet .js-warning { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 50%, transparent) !important; color: var(--text) !important; }
+.js-alertbox-crit, .rs-alert.crit { background: var(--danger-bg) !important; border-color: color-mix(in srgb, var(--danger) 50%, transparent) !important; color: var(--text) !important; }
+.rs-alert.warn { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 50%, transparent) !important; color: var(--text) !important; }
+.js-sitewarn { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 45%, transparent) !important; }
+.js-sitewarn-title, .js-sitewarn-item { color: var(--text) !important; }
+
+/* doc header (only shown in export/print now) keeps its own colours there */
+
+/* ---- EXPORT (Download PDF): force a clean light document regardless of theme ---- */
+.js-exporting .jobsheet, .js-exporting .js-card, .js-exporting .js-card-body { background: #fff !important; color: #1f2733 !important; }
+.js-exporting .js-card-head { background: #f4f6f8 !important; color: #33415c !important; }
+.js-exporting .jobsheet .js-field .k { color: #8a93a3 !important; }
+.js-exporting .jobsheet .js-field .v { color: #1f2733 !important; }
+.js-exporting .js-card .js-table td { color: #1f2733 !important; }
+.js-exporting .js-cards { display: block !important; }
+.js-exporting .js-card-alloc, .js-exporting .js-card-staff, .js-exporting .js-card-notes, .js-exporting .js-card-elec { grid-column: auto !important; }
