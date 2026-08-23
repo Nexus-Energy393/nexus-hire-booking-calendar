@@ -565,17 +565,212 @@ function renderMonth(root, bookings) {
   });
 }
 
+// ---------- CONTINUOUS TIMELINE (3-Week + Week) ----------
+/*
+ * A generator hire runs for days or weeks. The old week-row grid (renderSpanWeeks)
+ * chopped every hire at each week boundary, repeated its customer label in each
+ * week, and stacked the long-runners into a tall near-empty "span band" that
+ * shoved the day cells off the bottom of the screen. That is a MONTH calendar's
+ * model, wrong for an operations board.
+ *
+ * This is the operator's board instead: ONE continuous day axis across the whole
+ * window and ONE unbroken bar per hire on its own row. A sticky identity column
+ * on the left always shows who/where; a sticky day header on top always shows
+ * when; today and weekends are banded straight down the grid. No week-wrapping,
+ * no repeated labels, no unbounded band. Rows are grouped On hire now / Upcoming /
+ * Back this period so the yard sees "what's out and what's coming" at a glance.
+ */
+function renderTimeline(root, bookings, gridStart, numDays, opts) {
+  opts = opts || {};
+  gridStart = startOfDay(gridStart);
+  var winStart = gridStart;
+  var winEnd = startOfDay(addDays(gridStart, numDays - 1));
+  var today = startOfDay(new Date());
+  var todayCol = Math.round((today.getTime() - winStart.getTime()) / 86400000);
+
+  var rows = bookings.filter(function (b) {
+    if (b.status === "cancelled") return false;
+    var s = bStart(b); if (!s) return false;
+    var e = startOfDay(bEnd(b) || s);
+    return !(e.getTime() < winStart.getTime() || startOfDay(s).getTime() > winEnd.getTime());
+  });
+
+  var tl = el("div", "tl tl-" + (opts.view || "fortnight"));
+  tl.style.setProperty("--tl-days", String(numDays));
+  tl.style.minWidth = "calc(var(--tl-head) + " + numDays + " * var(--tl-col-min))";
+
+  // ---- sticky day header: one row of day columns, banded ----
+  var headRow = el("div", "tl-headrow");
+  var corner = el("div", "tl-corner");
+  corner.innerHTML = '<span class="tl-corner-lbl">' + (opts.view === "week" ? "This week" : "Jobs") +
+    '</span><span class="tl-corner-n">' + rows.length + '</span>';
+  headRow.appendChild(corner);
+  var dayHead = el("div", "tl-daycols");
+  for (var d = 0; d < numDays; d++) {
+    var date = addDays(gridStart, d);
+    var dow = date.getDay();
+    var cls = "tl-day";
+    if (dow === 0 || dow === 6) cls += " is-weekend";
+    if (sameDay(date, today)) cls += " is-today";
+    if (dow === 1 && d !== 0) cls += " is-weekstart";
+    var cell = el("div", cls);
+    var showMonth = date.getDate() === 1 || d === 0;
+    cell.innerHTML =
+      '<span class="tl-dow">' + date.toLocaleDateString("en-AU", { weekday: "short" }) + '</span>' +
+      '<span class="tl-dnum">' + date.getDate() + '</span>' +
+      (showMonth ? '<span class="tl-mon">' + date.toLocaleDateString("en-AU", { month: "short" }) + '</span>' : '');
+    dayHead.appendChild(cell);
+  }
+  headRow.appendChild(dayHead);
+  tl.appendChild(headRow);
+
+  if (!rows.length) {
+    var empty = el("div", "tl-empty");
+    empty.innerHTML =
+      '<p class="tl-empty-title">Nothing on the board</p>' +
+      '<p class="tl-empty-sub">No hires between ' + fmtShort(winStart) + ' and ' + fmtShort(winEnd) +
+      ' with the current filters.</p>';
+    tl.appendChild(empty);
+    root.appendChild(tl);
+    return;
+  }
+
+  // ---- group + sort: on hire now, upcoming, back this period ----
+  rows.sort(function (a, z) {
+    var sa = startOfDay(bStart(a)).getTime(), sz = startOfDay(bStart(z)).getTime();
+    return sa - sz || (durationDays(z) || 0) - (durationDays(a) || 0);
+  });
+  function groupOf(b) {
+    var s = startOfDay(bStart(b)).getTime(), e = startOfDay(bEnd(b) || bStart(b)).getTime();
+    if (e < today.getTime()) return "done";
+    if (s > today.getTime()) return "next";
+    return "now";
+  }
+  var groups = [
+    { key: "now",  label: "On hire now",       items: [] },
+    { key: "next", label: "Upcoming",          items: [] },
+    { key: "done", label: "Back this period",  items: [] }
+  ];
+  var byKey = { now: groups[0], next: groups[1], done: groups[2] };
+  rows.forEach(function (b) { byKey[groupOf(b)].items.push(b); });
+
+  var body = el("div", "tl-body");
+  tl.appendChild(body);
+  groups.forEach(function (g) {
+    if (!g.items.length) return;
+    var gh = el("div", "tl-group tl-group-" + g.key);
+    gh.innerHTML = '<span class="tl-group-inner"><span class="tl-group-dot"></span>' +
+      '<span class="tl-group-lbl">' + g.label + '</span>' +
+      '<span class="tl-group-n">' + g.items.length + '</span></span>';
+    body.appendChild(gh);
+    g.items.forEach(function (b) { body.appendChild(timelineRow(b, gridStart, numDays, todayCol)); });
+  });
+
+  root.appendChild(tl);
+}
+
+function timelineRow(b, gridStart, numDays, todayCol) {
+  var winStart = startOfDay(gridStart);
+  var winEnd = startOfDay(addDays(gridStart, numDays - 1));
+  var s = startOfDay(bStart(b));
+  var e = startOfDay(bEnd(b) || bStart(b));
+  var segStart = s.getTime() < winStart.getTime() ? winStart : s;
+  var segEnd   = e.getTime() > winEnd.getTime()   ? winEnd   : e;
+  var startCol = Math.round((segStart.getTime() - winStart.getTime()) / 86400000);
+  var endCol   = Math.round((segEnd.getTime()   - winStart.getTime()) / 86400000);
+  var contLeft  = s.getTime() < winStart.getTime();
+  var contRight = e.getTime() > winEnd.getTime();
+
+  var sm = statusMeta(b), tm = typeMeta(b);
+  var row = el("div", "tl-row " + tm.cls + " " + sm.cls + (b.prospective ? " is-prospective" : ""));
+  row.setAttribute("data-deal-id", b.pipedriveDealId);
+
+  var head = el("div", "tl-rowhead");
+  var job = b.jobNumber ? '<span class="tl-job">' + escapeHtml(b.jobNumber) + '</span>' : '';
+  head.innerHTML =
+    '<span class="tl-dot" title="' + escapeHtml(sm.label) + '"></span>' +
+    '<span class="tl-rh-main">' +
+      '<span class="tl-cust">' + escapeHtml(b.customer || "Unknown customer") + '</span>' +
+      '<span class="tl-sub">' + escapeHtml(b.suburb || b.site || "Site TBC") +
+        (b.generatorSize ? '<span class="tl-gen"> · ' + escapeHtml(b.generatorSize) + '</span>' : '') +
+      '</span>' +
+    '</span>' + job;
+  head.addEventListener("click", function () {
+    if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; }
+    openModal(b);
+  });
+  row.appendChild(head);
+
+  var track = el("div", "tl-track");
+  for (var d = 0; d < numDays; d++) {
+    var date = addDays(gridStart, d);
+    var dow = date.getDay();
+    var ccls = "tl-cell";
+    if (dow === 0 || dow === 6) ccls += " is-weekend";
+    if (d === todayCol) ccls += " is-today";
+    if (dow === 1 && d !== 0) ccls += " is-weekstart";
+    var cell = el("div", ccls);
+    cell.style.gridColumn = (d + 1) + " / " + (d + 2);
+    cell.setAttribute("data-date", ymdStr(date));
+    track.appendChild(cell);
+  }
+  var bar = buildTimelineBar(b, sm, tm, { startCol: startCol, endCol: endCol, contLeft: contLeft, contRight: contRight });
+  bar.style.gridColumn = (startCol + 1) + " / " + (endCol + 2);
+  track.appendChild(bar);
+  row.appendChild(track);
+  return row;
+}
+
+function buildTimelineBar(b, sm, tm, seg) {
+  var bar = el("div", "tl-bar " + tm.cls + " " + sm.cls + (b.prospective ? " is-prospective" : ""));
+  if (!seg.contLeft)  bar.classList.add("bar-start");
+  if (!seg.contRight) bar.classList.add("bar-end");
+  if (seg.contLeft)   bar.classList.add("cont-left");
+  if (seg.contRight)  bar.classList.add("cont-right");
+  var hasStaffConflict = STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)];
+  var days = durationDays(b);
+
+  var left = seg.contLeft ? '<span class="tl-chev" aria-hidden="true">‹</span>' : '<span class="tl-bar-dot"></span>';
+  var miles = "";
+  if (!seg.contLeft) {
+    miles += milestoneDot("delivery", "Delivery to site");
+    if (b.electricalConnectionRequired) miles += milestoneDot("connect", "Electrical connection");
+    if (b.refuellingRequired) miles += milestoneDot("refuel", "Ongoing refuelling");
+  }
+  if (hasStaffConflict) miles += '<span class="tl-staff-conflict" title="Labour conflict — staff double-booked">' + STAFF_CONFLICT_SVG + '</span>';
+  var right = seg.contRight ? '<span class="tl-chev" aria-hidden="true">›</span>' : milestoneDot("offhire", "Off-hire / pickup");
+  var dur = fmtShort(bStart(b)) + " → " + fmtShort(bEnd(b)) + (days ? " · " + days + "d" : "");
+
+  bar.innerHTML =
+    '<span class="tl-bar-cap tl-bar-l">' + left + (miles ? '<span class="tl-bar-miles">' + miles + '</span>' : '') + '</span>' +
+    '<span class="tl-bar-lbl">' + escapeHtml(b.customer || "") + '</span>' +
+    '<span class="tl-bar-dur">' + dur + '</span>' +
+    '<span class="tl-bar-cap tl-bar-r">' + right + '</span>';
+
+  bar.title = (b.customer || "Unknown customer") +
+    ((b.suburb || b.site) ? " — " + (b.suburb || b.site) : "") +
+    " · " + fmtShort(bStart(b)) + " – " + fmtShort(bEnd(b)) + " · " + sm.label +
+    (hasStaffConflict ? " ⚠ Staff conflict" : "");
+  bar.setAttribute("role", "button");
+  bar.setAttribute("tabindex", "0");
+  bar.setAttribute("data-deal-id", b.pipedriveDealId);
+  bar.setAttribute("aria-label",
+    (b.customer || "Unknown customer") + ", " + (b.suburb || b.site || "") + ", " +
+    fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) + ", " + sm.label);
+
+  var open = function () { if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
+  bar.addEventListener("click", open);
+  bar.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  bar.addEventListener("mouseenter", function () { highlightDeal(b.pipedriveDealId, true); });
+  bar.addEventListener("mouseleave", function () { highlightDeal(b.pipedriveDealId, false); });
+  makeEventDraggable(bar, b);
+  return bar;
+}
+
 // ---------- MULTI-WEEK SPAN VIEW: this week + the next SPAN_WEEKS-1 ----------
 function renderFortnight(root, bookings) {
   root.innerHTML = "";
-  var grid = el("div", "month-grid month-grid-spans fortnight-spans");
-  root.appendChild(grid);
-  appendDowHeader(grid);
-  renderSpanWeeks(grid, bookings, startOfWeek(STATE.cursor), SPAN_WEEKS, {
-    maxLanes: STATE.tv ? 10 : 8,
-    cellCls: "fortnight-cell",
-    monthInLabel: true
-  });
+  renderTimeline(root, bookings, startOfWeek(STATE.cursor), SPAN_WEEKS * 7, { view: "fortnight" });
 }
 
 function appendDowHeader(grid) {
@@ -884,26 +1079,15 @@ function bookingSpan(seg) {
 }
 
 function highlightDeal(dealId, on) {
-  var nodes = document.querySelectorAll('.booking-span[data-deal-id="' + dealId + '"]');
-  nodes.forEach(function (elm) { elm.classList.toggle("span-hover", on); });
+  var nodes = document.querySelectorAll('[data-deal-id="' + dealId + '"]');
+  nodes.forEach(function (elm) { if (elm.classList.contains("booking-span") || elm.classList.contains("tl-bar") || elm.classList.contains("tl-row")) elm.classList.toggle("span-hover", on); });
 }
 
 // ---------- 2-WEEK (FORTNIGHT) VIEW: this week + next week ----------
 
 function renderWeek(root, bookings) {
-  var wk = startOfWeek(STATE.cursor);
-  var grid = el("div", "week-grid");
-  for (var i = 0; i < 7; i++) {
-    var day = addDays(wk, i);
-    var col = el("div", "week-col");
-    col.setAttribute("data-date", ymdStr(day));   // drop target for event drag-to-reschedule
-    if (sameDay(day, new Date())) col.classList.add("today");
-    col.appendChild(el("div", "wc-head", day.toLocaleDateString("en-AU", {weekday:"short", day:"numeric", month:"short"})));
-    bookings.filter(function (b) { return spansDay(b, day); })
-      .forEach(function (b) { col.appendChild(bookingCard(b, false)); });
-    grid.appendChild(col);
-  }
-  root.appendChild(grid);
+  root.innerHTML = "";
+  renderTimeline(root, bookings, startOfWeek(STATE.cursor), 7, { view: "week" });
 }
 
 function renderDay(root, bookings) {
