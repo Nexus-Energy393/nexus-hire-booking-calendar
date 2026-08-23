@@ -3062,3 +3062,106 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
 .mg-do:disabled { opacity: .6; }
 #mgUnmerge { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
 #mgUnmerge:hover { border-color: var(--danger); color: var(--danger); }
+
+/* ============================================================
+   FRAMED IN THE CRM: ONE VERTICAL NAV, NOT TWO
+   ------------------------------------------------------------
+   The block above tried to make the board's vertical rail wear
+   the CRM's navy so the two rails read as one. They never did:
+   two vertical columns a few pixels apart, in a host that
+   already owns the left edge, is two menus no matter the paint.
+
+   Best practice for an embedded sub-view is a clear hierarchy:
+   the HOST owns the vertical primary nav; the sub-view's own
+   view-switch (Calendar / List / 3 Week / …) becomes a
+   HORIZONTAL tab strip that belongs to the page, sitting above
+   its working area like tabs on any well-made app screen.
+
+   So, framed and not on the office wall, we reflow the same rail
+   (same buttons, same #viewTabs click handler, no JS touched)
+   from a left rail into a top tab bar. Standalone and the office
+   screen (data-mode="tv") keep the vertical rail unchanged.
+   ============================================================ */
+html.nx-embedded body:not([data-mode="tv"]) .app-shell {
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* rail -> horizontal, sticky tab strip on top of the board */
+html.nx-embedded body:not([data-mode="tv"]) .side-rail {
+  order: -1;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  height: 46px;
+  min-height: 0;
+  position: sticky;
+  top: 0;
+  bottom: auto;
+  z-index: 42;
+  padding: 0 6px;
+  gap: 2px;
+  background: var(--panel-bg);
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail::-webkit-scrollbar { display: none; }
+html.nx-embedded body:not([data-mode="tv"]) .rail-brand { display: none; }
+html.nx-embedded body:not([data-mode="tv"]) .rail-nav {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+/* each view -> a horizontal tab: icon + label inline, green underline when active */
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab {
+  order: 0;
+  flex: 0 0 auto;
+  width: auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .005em;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab:hover {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--text);
+  box-shadow: none;
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab.active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 -2px 0 0 var(--accent);
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab .rail-ico {
+  width: 17px; height: 17px;
+  -webkit-mask-size: 17px; mask-size: 17px;
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab .rail-lbl {
+  font-size: 13px; line-height: 1;
+}
+
+/* the tab strip owns the top; the board header sticks just beneath it */
+html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
+  top: 46px;
+  min-height: 0;
+}
