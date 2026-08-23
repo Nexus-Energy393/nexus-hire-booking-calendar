@@ -2801,3 +2801,123 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
 .day-title { font-size: 17px; font-weight: 700; color: var(--text); margin: 6px 2px 14px; }
 .day-wrap .booking-card { margin-bottom: 10px; }
 .day-wrap .empty { color: var(--muted); background: var(--panel-2); border: 1px dashed var(--line); border-radius: 10px; padding: 26px; text-align: center; }
+
+/* ==========================================================================
+ * DISPATCH JOBSHEET — screen redesign (v2)
+ * A screen-only intelligence "hero" sits above the printable A4 sheet, and the
+ * detail cards flow into two columns so the popup is short and scannable. The
+ * PDF export captures #jsSheetBody only (never the hero), and print restores the
+ * full paper letterhead — so the document stays exactly as it was on paper.
+ * ======================================================================== */
+
+/* --- screen shows the hero; the paper letterhead is hidden on screen and
+       restored only for PDF export (.js-exporting) and print --- */
+.jobsheet .js-doc-head,
+.jobsheet .js-chips,
+.jobsheet .js-warning,
+.jobsheet .js-sitewarn { display: none; }
+.js-exporting .jobsheet .js-doc-head { display: flex !important; }
+.js-exporting .jobsheet .js-chips { display: flex !important; }
+.js-exporting .jobsheet .js-warning:not([hidden]) { display: block !important; }
+.js-exporting .jobsheet .js-sitewarn { display: flex !important; }
+.js-exporting .js-hero { display: none !important; }
+
+/* --- two-column card flow (screen) --- */
+.js-cards { column-count: 2; column-gap: 18px; }
+.js-cards > .js-card { display: inline-block; width: 100%; margin: 0 0 12px; vertical-align: top;
+  break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid; }
+.js-exporting .js-cards { column-count: 1; }
+
+.modal.jobsheet-modal { width: min(1000px, 96vw); }
+.jobsheet .js-body { padding: 14px 20px 22px; }
+
+/* ---------------- the hero ---------------- */
+.js-hero { padding: 16px 20px 15px; background: linear-gradient(180deg, #f7f9fc, #ffffff);
+  border-bottom: 1px solid #e4e6eb; color: #1f2733; }
+.js-hero .jh-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.jh-id { min-width: 0; }
+.jh-job { font-size: 24px; font-weight: 800; letter-spacing: .3px; color: #0f1830; line-height: 1; }
+.jh-cust { font-size: 14px; font-weight: 600; color: #33415c; margin-top: 4px; }
+.jh-cust .jh-sub { color: #8a93a3; font-weight: 500; }
+.jh-type { display: inline-block; margin-top: 8px; font-size: 11px; font-weight: 700; padding: 3px 10px;
+  border-radius: 999px; border: 1px solid #cfd6e4; color: #33415c; background: #fff; }
+.jh-type.jt-outage { background: #fff3e0; color: #b26a00; border-color: #f0c890; }
+.jh-type.jt-emergency { background: #fdecea; color: #b71c1c; border-color: #f1b0a8; }
+
+.jh-ready { flex: 0 0 auto; text-align: right; min-width: 172px; padding: 10px 14px; border-radius: 12px;
+  border: 1px solid #e4e6eb; background: #fff; }
+.jh-ready.is-ready { background: #e8f6ee; border-color: #a7dcbd; }
+.jh-ready.is-ok { background: #eef7ff; border-color: #bcd9f5; }
+.jh-ready.is-warn { background: #fff3e0; border-color: #f0c890; }
+.jh-ready-lbl { font-size: 14px; font-weight: 800; color: #0f1830; line-height: 1.15; }
+.jh-ready.is-ready .jh-ready-lbl { color: #178a44; }
+.jh-ready.is-warn .jh-ready-lbl { color: #a85a00; }
+.jh-ready-sub { font-size: 10px; color: #8a93a3; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; margin-top: 2px; }
+.jh-prog { height: 6px; border-radius: 999px; background: #e4e6eb; overflow: hidden; margin-top: 8px; }
+.jh-prog > span { display: block; height: 100%; background: #20a052; border-radius: 999px; transition: width .3s ease; }
+.jh-ready.is-warn .jh-prog > span { background: #e8920c; }
+.jh-prog-n { font-size: 10px; color: #8a93a3; font-weight: 700; margin-top: 3px; }
+
+.jh-life { display: flex; align-items: center; gap: 9px; margin-top: 14px; padding: 9px 13px;
+  border-radius: 10px; background: #f1f4f9; border: 1px solid #e4e6eb; }
+.jh-life-ic { width: 18px; height: 18px; color: #33415c; flex: 0 0 auto; }
+.jh-life-ic svg { width: 18px; height: 18px; display: block; }
+.jh-life-lbl { font-weight: 800; font-size: 13.5px; color: #0f1830; }
+.jh-life-sub { margin-left: auto; font-size: 12px; font-weight: 700; color: #8a93a3; }
+.jh-life.is-soon { background: #fff3e0; border-color: #f0c890; }
+.jh-life.is-soon .jh-life-lbl { color: #a85a00; } .jh-life.is-soon .jh-life-ic { color: #b26a00; }
+.jh-life.is-active { background: #eef7ff; border-color: #bcd9f5; } .jh-life.is-active .jh-life-ic { color: #1c4f8a; }
+.jh-life.is-done { background: #f2f4f7; } .jh-life.is-done .jh-life-lbl { color: #6b7280; }
+.jh-life.is-warn { background: #fdecea; border-color: #f1b0a8; } .jh-life.is-warn .jh-life-lbl { color: #b71c1c; }
+
+.jh-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }
+.jh-stat { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #e4e6eb;
+  border-radius: 10px; background: #fff; min-width: 0; }
+.jh-stat-ic { width: 17px; height: 17px; color: #6b7280; flex: 0 0 auto; }
+.jh-stat-ic svg { width: 17px; height: 17px; display: block; }
+.jh-stat-tx { display: flex; flex-direction: column; min-width: 0; }
+.jh-stat-k { font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: #8a93a3; font-weight: 700; }
+.jh-stat-v { font-size: 13px; font-weight: 700; color: #1f2733; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jh-stat.is-hot { border-color: #f0c890; background: #fff8ef; } .jh-stat.is-hot .jh-stat-ic { color: #b26a00; }
+.jh-stat.is-warn { border-color: #f1b0a8; background: #fdf1f0; } .jh-stat.is-warn .jh-stat-v { color: #b71c1c; }
+
+.jh-alerts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.jh-alert { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid #e4c9a0; background: #fff6e9; color: #8a5a00; }
+.jh-alert.al-conflict, .jh-alert.js-chip-medical { background: #fdecea; border-color: #f1b0a8; color: #b71c1c; }
+.jh-alert.js-chip-standby { background: #e7f0fb; border-color: #aac6e8; color: #1c4f8a; }
+
+.jh-missing { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.jh-missing-k { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #b71c1c; }
+.jh-missing-i { font-size: 11.5px; font-weight: 600; color: #7a2a2a; background: #fdecea; border: 1px solid #f1b0a8; border-radius: 6px; padding: 2px 8px; }
+
+.jh-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 12px;
+  padding-top: 11px; border-top: 1px dashed #e4e6eb; }
+.jh-contact-name { font-size: 12.5px; font-weight: 700; color: #33415c; }
+.jh-act { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; color: #2f6fed; text-decoration: none; }
+.jh-act svg { width: 14px; height: 14px; }
+.jh-act:hover { text-decoration: underline; }
+
+@media (max-width: 720px) {
+  .js-cards { column-count: 1; }
+  .jh-top { flex-direction: column; }
+  .jh-ready { text-align: left; min-width: 0; align-self: stretch; }
+  .jh-stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media print {
+  .js-hero { display: none !important; }
+  .jobsheet .js-doc-head { display: flex !important; }
+  .jobsheet .js-chips { display: flex !important; }
+  .jobsheet .js-warning:not([hidden]) { display: block !important; }
+  .jobsheet .js-sitewarn { display: flex !important; }
+  .js-cards { column-count: 1; }
+}
+
+/* jobsheet v2: inside the two-column card flow, keep each field on ONE column so
+   values have the full card width and don't break mid-word (e.g. "Commodities"). */
+.js-cards .js-grid, .js-cards .js-grid-3 { grid-template-columns: 1fr; gap: 1px 0; }
+.js-cards .js-field { justify-content: flex-start; gap: 10px; }
+.js-cards .js-field .k { min-width: 118px; }
+.js-cards .js-field .v { text-align: left; overflow-wrap: break-word; word-break: normal; }
+.js-exporting .js-cards .js-grid, .js-exporting .js-cards .js-grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+@media print { .js-cards .js-grid, .js-cards .js-grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); } }

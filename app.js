@@ -554,15 +554,12 @@ function render() {
 window.__hireRerender = render;
 
 function renderMonth(root, bookings) {
+  // Month is now the same continuous timeline as every other view, sized to the
+  // weeks that touch this calendar month (Mon of the 1st's week, six weeks on).
+  // The old month/span-week grid design has been retired.
   root.innerHTML = "";
   var first = new Date(STATE.cursor.getFullYear(), STATE.cursor.getMonth(), 1);
-  var grid = el("div", "month-grid month-grid-spans");
-  root.appendChild(grid);
-  appendDowHeader(grid);
-  renderSpanWeeks(grid, bookings, startOfWeek(first), 6, {
-    month: STATE.cursor.getMonth(),
-    maxLanes: STATE.tv ? 4 : 3
-  });
+  renderTimeline(root, bookings, startOfWeek(first), 42, { view: "month" });
 }
 
 // ---------- CONTINUOUS TIMELINE (3-Week + Week) ----------
@@ -1400,11 +1397,6 @@ function init() {
   document.getElementById("nextBtn").addEventListener("click", function () { nav(1); });
   document.getElementById("todayBtn").addEventListener("click", function () { STATE.cursor = startOfDay(new Date()); render(); });
   document.getElementById("refreshBtn").addEventListener("click", function () { refresh(); });
-  document.getElementById("tvBtn").addEventListener("click", function () {
-    STATE.tv = !STATE.tv;
-    if (STATE.tv) { STATE.view = "month"; }
-    render();
-  });
   document.getElementById("searchInput").addEventListener("input", function (e) { STATE.filters.search = e.target.value; render(); });
   document.getElementById("filterType").addEventListener("change", function (e) { STATE.filters.type = e.target.value; render(); });
   document.getElementById("filterStatus").addEventListener("change", function (e) { STATE.filters.status = e.target.value; render(); });
@@ -1744,6 +1736,116 @@ function jsSignBlock(b) {
   }).join("") + '</div>';
 }
 
+/* ---------- dispatch intelligence: hire lifecycle ---------- */
+/* Where this hire sits in its life today: counting down to delivery, live on
+   hire (which day of how many), or already back. Drives the hero's timing strip
+   so the yard reads urgency at a glance instead of doing date arithmetic. */
+function jsLifecycle(b) {
+  var s = bStart(b);
+  if (!s) return { label: "No hire dates set", sub: "Add a start date in the CRM", tone: "warn", ico: "clock" };
+  var e = bEnd(b) || s;
+  var today = startOfDay(new Date());
+  var s0 = startOfDay(s), e0 = startOfDay(e);
+  var total = b.durationDays || (Math.round((e0 - s0) / 86400000) + 1);
+  var toStart = Math.round((s0 - today) / 86400000);
+  var toEnd = Math.round((e0 - today) / 86400000);
+  if (toStart > 0) return {
+    label: toStart === 1 ? "Starts tomorrow" : "Starts in " + toStart + " days",
+    sub: jsFmtDateAU(s), tone: toStart <= 2 ? "soon" : "future", ico: "truck"
+  };
+  if (toEnd < 0) return {
+    label: (-toEnd === 1) ? "Returned yesterday" : "Returned " + (-toEnd) + " days ago",
+    sub: jsFmtDateAU(e), tone: "done", ico: "check"
+  };
+  var dayNum = Math.round((today - s0) / 86400000) + 1;
+  var offSub = toEnd === 0 ? "Off-hire today" : (toEnd === 1 ? "Off-hire tomorrow" : "Off-hire in " + toEnd + " days");
+  return { label: "On hire · day " + dayNum + " of " + total, sub: offSub, tone: toEnd <= 2 ? "soon" : "active", ico: "power" };
+}
+
+var JS_HERO_SVG = {
+  power: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h11v9H3z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="7" cy="18" r="1.6"/><circle cx="17.5" cy="18" r="1.6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  gen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M7 7V5h10v2"/><path d="M11 11l-2 3h4l-2 3"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2 4 13h6l-1 9 9-12h-6l1-8z"/></svg>',
+  fuel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15"/><path d="M3 20h12"/><path d="M13 9h3l2 2v6a2 2 0 0 0 4 0V9l-3-3"/></svg>',
+  phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.1-1.1a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7A2 2 0 0 1 22 16.9z"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+};
+
+/* ---------- the dispatch hero (screen only; sits above the printable sheet) --- */
+function jsHero(b, st) {
+  var tm = typeMeta(b);
+  var lc = jsLifecycle(b);
+  var local = jsLoadLocal(b.pipedriveDealId);
+  var CHK = ["chk_equip", "chk_cable", "chk_ramps", "chk_fuel", "chk_elec", "chk_contact", "chk_staff", "chk_dispatch"];
+  var done = CHK.filter(function (k) { return local[k]; }).length;
+  var pct = Math.round((done / CHK.length) * 100);
+
+  var readyTone, readyLabel, readySub;
+  if (st.key === "ready") { readyTone = "ready"; readyLabel = "Ready for dispatch"; readySub = "Cleared to go"; }
+  else if (st.dispatchReady) { readyTone = "ok"; readyLabel = "Cleared — mark ready"; readySub = "Nothing outstanding"; }
+  else { readyTone = "warn"; readyLabel = (st.missing.length || "Checks") + (st.missing.length ? (st.missing.length === 1 ? " item to sort" : " items to sort") : " pending"); readySub = "Before dispatch"; }
+
+  function tile(ico, k, v, tone) {
+    return '<div class="jh-stat' + (tone ? " is-" + tone : "") + '"><span class="jh-stat-ic">' + (JS_HERO_SVG[ico] || "") + '</span>' +
+      '<span class="jh-stat-tx"><span class="jh-stat-k">' + escapeHtml(k) + '</span>' +
+      '<span class="jh-stat-v">' + escapeHtml(v) + '</span></span></div>';
+  }
+  var need = function (v) { return v === true ? "Required" : (v === false ? "Not needed" : "—"); };
+  var tiles =
+    tile("gen", "Generator", jsFmtKva(b.generatorSize) || "Size TBC", b.generatorSize ? "" : "warn") +
+    tile("clock", "Duration", jsFmtDuration(b.durationDays) || "TBC") +
+    tile("truck", "Delivery", need(b.deliveryRequired), b.deliveryRequired ? "hot" : "") +
+    tile("bolt", "Electrical", need(b.electricalConnectionRequired), b.electricalConnectionRequired ? "hot" : "") +
+    tile("fuel", "Refuel", need(b.refuellingRequired), b.refuellingRequired ? "hot" : "");
+
+  var alerts = jsActiveAlerts(b).map(function (al) {
+    return '<span class="jh-alert ' + al.cls + '">' + al.icon + " " + escapeHtml(al.text) + "</span>";
+  }).join("");
+
+  var missing = (!st.dispatchReady && st.key !== "ready" && st.missing.length)
+    ? '<div class="jh-missing"><span class="jh-missing-k">Before dispatch</span>' +
+      st.missing.map(function (mm) { return '<span class="jh-missing-i">' + escapeHtml(mm) + '</span>'; }).join("") + '</div>'
+    : "";
+
+  // quick contact actions
+  var phone = jsFmtPhone(b.contactPhone || b.sitePhone);
+  var mapU = jsMapsUrl(b);
+  var contact = '<div class="jh-contact">' +
+    (b.contact ? '<span class="jh-contact-name">' + escapeHtml(b.contact) + '</span>' : '') +
+    (phone ? '<a class="jh-act" href="tel:' + escapeHtml(String(phone).replace(/\s+/g, "")) + '">' + JS_HERO_SVG.phone + '<span>' + escapeHtml(phone) + '</span></a>' : '') +
+    (mapU ? '<a class="jh-act" href="' + escapeHtml(mapU) + '" target="_blank" rel="noopener">' + JS_HERO_SVG.pin + '<span>' + escapeHtml(b.suburb || b.site || "Map") + '</span></a>' : '') +
+    '</div>';
+
+  return '<div class="js-hero jh-tone-' + lc.tone + '">' +
+    '<div class="jh-top">' +
+      '<div class="jh-id">' +
+        '<div class="jh-job">' + jobRef(b) + '</div>' +
+        '<div class="jh-cust">' + escapeHtml(b.customer || "Unknown customer") +
+          (jsVal(b.suburb) ? ' <span class="jh-sub">· ' + escapeHtml(b.suburb) + '</span>' : '') + '</div>' +
+        '<span class="jh-type ' + tm.cls + '">' + tm.label + '</span>' +
+      '</div>' +
+      '<div class="jh-ready is-' + readyTone + '">' +
+        '<div class="jh-ready-lbl">' + escapeHtml(readyLabel) + '</div>' +
+        '<div class="jh-ready-sub">' + escapeHtml(readySub) + '</div>' +
+        '<div class="jh-prog" title="' + done + ' of ' + CHK.length + ' dispatch checks done"><span style="width:' + pct + '%"></span></div>' +
+        '<div class="jh-prog-n">' + done + '/' + CHK.length + ' checks</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="jh-life is-' + lc.tone + '">' +
+      '<span class="jh-life-ic">' + (JS_HERO_SVG[lc.ico] || "") + '</span>' +
+      '<span class="jh-life-lbl">' + escapeHtml(lc.label) + '</span>' +
+      (lc.sub ? '<span class="jh-life-sub">' + escapeHtml(lc.sub) + '</span>' : '') +
+    '</div>' +
+    '<div class="jh-stats">' + tiles + '</div>' +
+    (alerts ? '<div class="jh-alerts">' + alerts + '</div>' : '') +
+    missing +
+    contact +
+  '</div>';
+}
+
 /* ---------- main jobsheet renderer (interactive dispatch sheet) ---------- */
 function renderJobSheet(b) {
   var tm = typeMeta(b);
@@ -1769,6 +1871,10 @@ function renderJobSheet(b) {
   html += '<button class="modal-close" id="modalClose" type="button">&times;</button>';
   html += '</div>';
 
+  /* screen-only intelligence hero (sits above the printable A4 sheet; the PDF
+     export captures #jsSheetBody only, so the hero never lands in the PDF) */
+  html += jsHero(b, st);
+
   html += '<div class="js-body" id="jsSheetBody">';
 
   /* document header */
@@ -1793,6 +1899,8 @@ function renderJobSheet(b) {
           (st.missing.length ? jsWarningInner(st) : "") + '</div>';
 
   html += jsSiteWarnings(b);
+
+  html += '<div class="js-cards">';
 
   /* 1. SITE DETAILS */
   html += jsCard("Site details", "", '<div class="js-grid js-grid-2">' +
@@ -1879,6 +1987,8 @@ function renderJobSheet(b) {
   ];
   html += jsCard("Dispatch checklist & sign-off", "js-card-signoff",
     jsChecklist(dealId, checkItems) + jsSignBlock(b));
+
+  html += '</div>'; /* js-cards */
 
   html += '</div></div>'; /* js-body, jobsheet */
 
