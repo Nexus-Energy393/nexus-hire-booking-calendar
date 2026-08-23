@@ -61,26 +61,23 @@ html.dark .booking-card.is-prospective {
   background: repeating-linear-gradient(45deg, #1b2536 0, #1b2536 6px, #141c2a 6px, #141c2a 12px);
 }
 
-/* ── Dispatch jobsheet: always render LIGHT ─────────────────────────────
-   The jobsheet is a white, printable document. Its PDF is produced by
-   html2pdf / html2canvas, which rasterises the element as it appears on
-   screen (screen media) — so the existing @media print resets never reach
-   the export. In dark mode, fields styled `background: var(--bg)` (engine
-   hours, asset hours, fuel levels, inspector time) therefore captured as
-   solid black boxes. Fix: re-declare the design tokens to their LIGHT values
-   on the sheet itself (descendants inherit these, overriding the html.dark
-   tokens set higher up) and hard-set every control surface to light. This
-   keeps the on-screen preview and the exported PDF identical and legible. */
-.jobsheet {
+/* ── Dispatch jobsheet: LIGHT only while EXPORTING to PDF ───────────────
+   Nexus doesn't print these, so on screen the jobsheet follows the board's
+   own light/dark theme (see the v3 block near the end of this file). But the
+   PDF is rasterised by html2canvas from the on-screen element, so for a clean
+   white document we re-declare the tokens to their LIGHT values *only* while
+   the .js-exporting flag is on (added by the Download-PDF handler). This keeps
+   the screen themed and the exported PDF legible. */
+.js-exporting .jobsheet {
   --bg: #ffffff; --panel: #ffffff; --panel-2: #f4f6f8; --line: #e2e6ea;
   --text: #1f2733; --muted: #5b6472; --border: #e4e6eb; --border-strong: #d4d7dd;
   --app-bg: #ffffff; --panel-bg: #ffffff; --column-bg: #f4f6f8;
   color: #1f2733;
 }
-.jobsheet input, .jobsheet select, .jobsheet textarea, .jobsheet output {
+.js-exporting .jobsheet input, .js-exporting .jobsheet select, .js-exporting .jobsheet textarea, .js-exporting .jobsheet output {
   background: #ffffff !important; color: #1f2733 !important; border-color: #d4d7dd !important;
 }
-.jobsheet .rs-fuel { background: #f4f6f8 !important; border-color: #e4e6eb !important; }
+.js-exporting .jobsheet .rs-fuel { background: #f4f6f8 !important; border-color: #e4e6eb !important; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
