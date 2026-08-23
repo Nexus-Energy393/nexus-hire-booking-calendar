@@ -3090,6 +3090,7 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell {
 /* rail -> horizontal, sticky tab strip on top of the board */
 html.nx-embedded body:not([data-mode="tv"]) .side-rail {
   order: -1;
+  flex: 0 0 auto;
   flex-direction: row;
   align-items: stretch;
   width: 100%;
