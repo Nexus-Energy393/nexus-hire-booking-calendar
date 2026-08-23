@@ -2184,7 +2184,7 @@ function jsStaticEquipmentTable(b, st) {
   .forEach(function (r) {
     var a = r.alloc;
     var allocated = a ? (r.kind === "generator"
-        ? (a.asset && a.asset.fleet_number ? "#" + a.asset.fleet_number : (a.allocation_status === "cross_hire_required" ? "Cross-hire" : "—"))
+        ? (a.asset && a.asset.fleet_number ? "#" + String(a.asset.fleet_number).replace(/^#+/, "") : (a.allocation_status === "cross_hire_required" ? "Cross-hire" : "—"))
         : String(a.quantity_allocated || 0))
       : "—";
     rows += "<tr><td>" + escapeHtml(r.label) + '</td><td class="num">' + r.qtyRequired +
