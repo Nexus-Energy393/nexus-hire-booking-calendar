@@ -2912,3 +2912,12 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
   .jobsheet .js-sitewarn { display: flex !important; }
   .js-cards { column-count: 1; }
 }
+
+/* jobsheet v2: inside the two-column card flow, keep each field on ONE column so
+   values have the full card width and don't break mid-word (e.g. "Commodities"). */
+.js-cards .js-grid, .js-cards .js-grid-3 { grid-template-columns: 1fr; gap: 1px 0; }
+.js-cards .js-field { justify-content: flex-start; gap: 10px; }
+.js-cards .js-field .k { min-width: 118px; }
+.js-cards .js-field .v { text-align: left; overflow-wrap: break-word; word-break: normal; }
+.js-exporting .js-cards .js-grid, .js-exporting .js-cards .js-grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+@media print { .js-cards .js-grid, .js-cards .js-grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
