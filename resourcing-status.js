@@ -33,12 +33,20 @@
   function buildRequirements(booking, allocations) {
     var reqs = [];
     var genAllocs = allocations.filter(function (a) { return a.asset_id; });
-    reqs.push({
-      kind: "generator",
-      label: "Generator " + (booking.generatorSize || "(size TBC)"),
-      qtyRequired: 1,
-      alloc: genAllocs[0] || null
-    });
+    // How many generator slots this job needs. The count is sourced from the
+    // original Nexy booking (generatorQty, parsed from the deal's hire lines);
+    // staff allocate the actual fleet number to each slot. Never fewer than the
+    // number already allocated, so an over-allocation is never hidden.
+    var genQty = Math.max(1, Number(booking.generatorQty) || 1);
+    var genSlots = Math.max(genQty, genAllocs.length);
+    for (var gi = 0; gi < genSlots; gi++) {
+      reqs.push({
+        kind: "generator",
+        label: "Generator " + (booking.generatorSize || "(size TBC)") + (genSlots > 1 ? " #" + (gi + 1) : ""),
+        qtyRequired: 1,
+        alloc: genAllocs[gi] || null
+      });
+    }
     var stockAllocs = allocations.filter(function (a) { return a.stock_item_id; });
     if (booking.cableSet) {
       var cableAlloc = stockAllocs[0] || null; // first stock allocation satisfies the Pipedrive cable requirement
@@ -148,8 +156,8 @@
       if (reqSatisfied(r)) return;
       if (r.kind === "generator") {
         missing.push(r.alloc && r.alloc.allocation_status === "conflict"
-          ? "Allocated generator conflicts with another booking"
-          : "Generator fleet number not allocated");
+          ? (r.label + " conflicts with another booking")
+          : (r.label + " \u2014 fleet number not allocated"));
       } else {
         missing.push('"' + r.label + '" quantity not allocated');
       }

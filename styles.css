@@ -3166,3 +3166,7 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
   top: 46px;
   min-height: 0;
 }
+
+/* Jobsheet: the deal's generator lines, shown above the allocation table as the
+   source of how many generator slots the job needs. */
+.rs-gen-source { margin: 2px 0 10px; font-size: 12px; line-height: 1.4; }

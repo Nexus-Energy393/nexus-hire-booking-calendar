@@ -873,6 +873,11 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var can = STATE.writesEnabled;
       var html = "";
 
+      /* What the original Nexy booking calls for — staff allocate a fleet # per slot. */
+      if (booking.generatorLines && booking.generatorLines.length) {
+        html += '<p class="rs-gen-source subtle">From the deal: ' + booking.generatorLines.map(esc).join(" &middot; ") + "</p>";
+      }
+
       /* requirement rows */
       html += '<table class="js-table js-equip stackable"><thead><tr>' +
               '<th>Item</th><th class="num">Req</th><th>Allocated</th><th>Status</th><th class="chk">Picked</th>' +
@@ -888,7 +893,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
             allocatedCell = "Cross-hire" + (a.override_note ? " — " + esc(a.override_note) : "");
           } else allocatedCell = "&mdash;";
           actions = can
-            ? '<button class="fleet-btn sm" data-act="alloc-gen">' + (a ? "Change" : "Allocate generator") + "</button>" +
+            ? '<button class="fleet-btn sm" data-act="alloc-gen"' + (a ? ' data-alloc="' + esc(a.allocation_id) + '"' : "") + ">" + (a ? "Change" : "Allocate generator") + "</button>" +
               (a ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "") +
               (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen">Cross-hire</button>')
             : '<span class="fleet-write-off sm">read-only</span>';
@@ -922,6 +927,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
                 '<td class="js-actions-col" data-label="">' + actions + "</td></tr>";
       });
       html += "</tbody></table>";
+      if (can) html += '<button class="fleet-btn sm ghost js-add-gen" data-act="alloc-gen">+ Add generator</button>';
       if (can) html += '<button class="fleet-btn sm ghost js-add-item" data-act="alloc-stock" data-req="-1">+ Add stock item</button>';
 
       /* alerts */
@@ -982,7 +988,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var t = e.target.closest && e.target.closest("[data-act]");
       if (!t) return;
       var act = t.getAttribute("data-act");
-      if (act === "alloc-gen") openAllocateModal(booking);
+      if (act === "alloc-gen") openAllocateModal(booking, t.getAttribute("data-alloc") || null);
       else if (act === "xhire-gen") {
         if (!ensureToken()) return;
         var note = window.prompt("Cross-hire supplier name + notes (required):", "");
@@ -1075,14 +1081,14 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     return "on hire to deal #" + esc(c.pipedrive_deal_id) + " (" + d(c.hire_start) + " &rarr; " + d(c.hire_end) + ")";
   }
 
-  function openAllocateModal(booking) {
+  function openAllocateModal(booking, replaceId) {
     if (!ensureToken()) return;
     var size = parseGenSize(booking.generatorSize);
     // Fetch ALL available assets for the window (no size filter) — the
     // requested size is a recommendation, not a hard gate: dispatch can
     // allocate a different unit rather than being forced into a cross-hire.
     var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") + "&end=" + encodeURIComponent(booking.endDate || "");
-    var m = openModal("Allocate generator - deal #" + booking.pipedriveDealId,
+    var m = openModal((replaceId ? "Change generator - deal #" : "Allocate generator - deal #") + booking.pipedriveDealId,
       '<p class="subtle">Required size: <strong>' + esc(booking.generatorSize || "TBC") + "</strong> &middot; " + esc(booking.startDate || "?") + " &rarr; " + esc(booking.endDate || "?") + "</p>" +
       '<div id="allocList">Loading available generators&hellip;</div>');
     apiGet(qs).then(function (r) {
@@ -1162,10 +1168,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           var subKva = b.getAttribute("data-sub-kva");
           if (subKva) {
             if (!window.confirm("Allocate a " + subKva + " kVA unit against a " + (booking.generatorSize || "?") + " request?")) return;
-            doAllocate(booking, b.getAttribute("data-alloc"), "Size substitution: " + subKva + " kVA allocated (requested " + (booking.generatorSize || "unspecified") + ")", m);
+            doAllocate(booking, b.getAttribute("data-alloc"), "Size substitution: " + subKva + " kVA allocated (requested " + (booking.generatorSize || "unspecified") + ")", m, false, replaceId);
             return;
           }
-          doAllocate(booking, b.getAttribute("data-alloc"), null, m);
+          doAllocate(booking, b.getAttribute("data-alloc"), null, m, false, replaceId);
         }
         else if (x) {
           var note = window.prompt("Cross-hire supplier name + notes (required):", "");
@@ -1176,15 +1182,22 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     });
   }
 
-  function doAllocate(booking, assetId, overrideNote, modal, crossHire) {
+  function doAllocate(booking, assetId, overrideNote, modal, crossHire, replaceId) {
     var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "", asset_id: assetId || null,
       hire_start: booking.startDate || null, hire_end: booking.endDate || null, override_note: overrideNote || null };
     if (crossHire) payload.allocation_status = "cross_hire_required";
-    apiSend("POST", "/allocations", payload).then(function (r) {
+    // Change = replace THIS slot's unit (PATCH the row); Allocate / Add = a new
+    // row (POST). The DB has no one-per-deal cap, so a deal holds many gensets.
+    function send() {
+      return replaceId
+        ? apiSend("PATCH", "/allocations?id=" + encodeURIComponent(replaceId), payload)
+        : apiSend("POST", "/allocations", payload);
+    }
+    send().then(function (r) {
       if (!r.body.ok) {
         if (/overdue/i.test(r.body.error || "")) {
           var note = window.prompt(r.body.error + "\nEnter an override note to proceed:", "");
-          if (note && note.trim()) { payload.override_note = note.trim(); return apiSend("POST", "/allocations", payload).then(function (r2) { if (r2.body.ok) { modal.close(); reopenJobsheet(booking); } else alert(r2.body.error); }); }
+          if (note && note.trim()) { payload.override_note = note.trim(); return send().then(function (r2) { if (r2.body.ok) { modal.close(); reopenJobsheet(booking); } else alert(r2.body.error); }); }
           return;
         }
         alert(r.body.error || "Allocation failed");
