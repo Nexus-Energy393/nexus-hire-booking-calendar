@@ -173,6 +173,7 @@ function applyFilters(bookings) {
   var q = f.search.trim().toLowerCase();
   return bookings.filter(function (b) {
     if (b.prospective && !STATE.showProspective) return false;
+    if (b.prospective && STATE.dismissed && STATE.dismissed.has(String(b.pipedriveDealId))) return false;
     if (f.type && b.jobType !== f.type) return false;
     if (f.status && b.status !== f.status) return false;
     if (f.size && b.generatorSize !== f.size) return false;
@@ -516,6 +517,36 @@ function loadGroups() {
     .then(function (r) { return r.json(); })
     .then(function (d) { STATE.groups = (d && d.groups) || {}; })
     .catch(function () { STATE.groups = STATE.groups || {}; });
+}
+
+/* Dismissed pending bookings: a set of deal ids to hide while they are still
+   prospective (not won). Kept server-side so a dismissal sticks across devices
+   and the office screen, and reappears the moment the deal is marked won. */
+function loadDismissals() {
+  return fetch(groupsApiBase() + "/dismissals", { headers: { Accept: "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { STATE.dismissed = new Set((d && d.dismissed) || []); })
+    .catch(function () { STATE.dismissed = STATE.dismissed || new Set(); });
+}
+
+/* Remove a pending (not-won) booking from the board. Prospective only — a won
+   booking has no dismiss control and is never filtered by this. */
+function dismissBooking(b) {
+  if (!b || !b.prospective) return;
+  if (!groupsAuthHeaders()["x-fleet-admin-token"]) {
+    alert("Enter the Fleet admin token (Sync view) to dismiss bookings.");
+    return;
+  }
+  if (!window.confirm("Remove this pending booking" + (b.customer ? " (" + b.customer + ")" : "") +
+    " from the board?\n\nIt won't come back unless the deal is marked won in Nexy.")) return;
+  fetch(groupsApiBase() + "/dismissals", {
+    method: "POST", headers: groupsAuthHeaders(),
+    body: JSON.stringify({ dealId: String(b.pipedriveDealId) })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (res) { if (!res.ok) throw new Error(res.error || "Dismiss failed"); return loadDismissals(); })
+    .then(function () { render(); })
+    .catch(function (e) { alert(e.message); });
 }
 function groupOfBooking(b) {
   var g = STATE.groups || {};
@@ -912,6 +943,7 @@ function buildTimelineBar(b, sm, tm, seg) {
     '<span class="tl-bar-lbl">' + escapeHtml(b.customer || "") + '</span>' +
     (b.isGroup ? '<span class="tl-bar-grp">' + b.memberCount + ' jobs</span>' : '') +
     '<span class="tl-bar-dur">' + dur + '</span>' +
+    (b.prospective ? '<button type="button" class="tl-bar-dismiss" title="Dismiss this pending booking — it won\u2019t return unless the deal is won" aria-label="Dismiss pending booking">\u2715</button>' : '') +
     '<span class="tl-bar-cap tl-bar-r">' + right + '</span>';
 
   bar.title = (b.customer || "Unknown customer") +
@@ -926,7 +958,12 @@ function buildTimelineBar(b, sm, tm, seg) {
     fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) + ", " + sm.label);
 
   var open = function () { if (b.isGroup) { openGroupModal(b); return; } if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
-  bar.addEventListener("click", open);
+  bar.addEventListener("click", function (e) {
+    if (e.target && e.target.closest && e.target.closest(".tl-bar-dismiss")) { e.stopPropagation(); dismissBooking(b); return; }
+    open();
+  });
+  var _dbtn = bar.querySelector(".tl-bar-dismiss");
+  if (_dbtn) _dbtn.addEventListener("mousedown", function (e) { e.stopPropagation(); });
   bar.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
   bar.addEventListener("mouseenter", function () { highlightDeal(b.pipedriveDealId, true); });
   bar.addEventListener("mouseleave", function () { highlightDeal(b.pipedriveDealId, false); });
@@ -1579,7 +1616,7 @@ function init() {
 
   setupEventDrag();   // drag typed events between days (delegated, survives re-renders)
   refresh();
-  loadGroups().then(function () { if ((STATE.bookings || []).length) render(); });
+  Promise.all([loadGroups(), loadDismissals()]).then(function () { if ((STATE.bookings || []).length) render(); });
   setInterval(refresh, REFRESH_MS); // auto-refresh for the office screen
 }
 

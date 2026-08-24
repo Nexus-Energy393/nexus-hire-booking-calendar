@@ -3170,3 +3170,15 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
 /* Jobsheet: the deal's generator lines, shown above the allocation table as the
    source of how many generator slots the job needs. */
 .rs-gen-source { margin: 2px 0 10px; font-size: 12px; line-height: 1.4; }
+
+/* Dismiss a pending (not-won) booking from the board. Hidden until the bar is
+   hovered/focused; red on hover. Only rendered on prospective bars. */
+.tl-bar-dismiss {
+  flex: 0 0 auto; margin: 0 2px 0 4px; width: 16px; height: 16px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 4px; cursor: pointer; font-size: 11px; line-height: 1;
+  background: transparent; color: color-mix(in srgb, var(--text) 55%, transparent);
+  opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.tl-bar:hover .tl-bar-dismiss, .tl-bar:focus-within .tl-bar-dismiss { opacity: .85; }
+.tl-bar-dismiss:hover { opacity: 1; background: color-mix(in srgb, #d23f3f 22%, transparent); color: #d23f3f; }
