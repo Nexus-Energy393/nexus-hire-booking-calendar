@@ -774,6 +774,7 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
     if (b.status === "cancelled") return false;
     var s = bStart(b); if (!s) return false;
     var e = startOfDay(bEnd(b) || s);
+    if (e.getTime() < today.getTime()) return false; // forward view: a hire already returned is history
     return !(e.getTime() < winStart.getTime() || startOfDay(s).getTime() > winEnd.getTime());
   });
 
@@ -784,7 +785,7 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
   // ---- sticky day header: one row of day columns, banded ----
   var headRow = el("div", "tl-headrow");
   var corner = el("div", "tl-corner");
-  corner.innerHTML = '<span class="tl-corner-lbl">' + (opts.view === "week" ? "This week" : "Jobs") +
+  corner.innerHTML = '<span class="tl-corner-lbl">' + (opts.view === "week" ? "This week" : "Equipment bookings") +
     '</span><span class="tl-corner-n">' + rows.length + '</span>';
   headRow.appendChild(corner);
   var dayHead = el("div", "tl-daycols");
@@ -817,36 +818,18 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
     return;
   }
 
-  // ---- group + sort: on hire now, upcoming, back this period ----
+  // ---- one combined list: on hire now + upcoming, no section headings ----
+  // "Equipment bookings" is a single forward list — what is out now and what is
+  // coming next, earliest start first (so live hires lead, then upcoming). Any
+  // hire that already came back was dropped above, so there is no past section.
   rows.sort(function (a, z) {
     var sa = startOfDay(bStart(a)).getTime(), sz = startOfDay(bStart(z)).getTime();
     return sa - sz || (durationDays(z) || 0) - (durationDays(a) || 0);
   });
-  function groupOf(b) {
-    var s = startOfDay(bStart(b)).getTime(), e = startOfDay(bEnd(b) || bStart(b)).getTime();
-    if (e < today.getTime()) return "done";
-    if (s > today.getTime()) return "next";
-    return "now";
-  }
-  var groups = [
-    { key: "now",  label: "On hire now",       items: [] },
-    { key: "next", label: "Upcoming",          items: [] },
-    { key: "done", label: "Back this period",  items: [] }
-  ];
-  var byKey = { now: groups[0], next: groups[1], done: groups[2] };
-  rows.forEach(function (b) { byKey[groupOf(b)].items.push(b); });
 
   var body = el("div", "tl-body");
   tl.appendChild(body);
-  groups.forEach(function (g) {
-    if (!g.items.length) return;
-    var gh = el("div", "tl-group tl-group-" + g.key);
-    gh.innerHTML = '<span class="tl-group-inner"><span class="tl-group-dot"></span>' +
-      '<span class="tl-group-lbl">' + g.label + '</span>' +
-      '<span class="tl-group-n">' + g.items.length + '</span></span>';
-    body.appendChild(gh);
-    g.items.forEach(function (b) { body.appendChild(timelineRow(b, gridStart, numDays, todayCol)); });
-  });
+  rows.forEach(function (b) { body.appendChild(timelineRow(b, gridStart, numDays, todayCol)); });
 
   root.appendChild(tl);
 }
