@@ -3174,7 +3174,7 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
 /* Dismiss a pending (not-won) booking from the board. Hidden until the bar is
    hovered/focused; red on hover. Only rendered on prospective bars. */
 .tl-bar-dismiss {
-  flex: 0 0 auto; margin: 0 2px 0 4px; width: 16px; height: 16px; padding: 0;
+  flex: 0 0 auto; margin: 0 4px 0 2px; width: 16px; height: 16px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
   border: 0; border-radius: 4px; cursor: pointer; font-size: 11px; line-height: 1;
   background: transparent; color: color-mix(in srgb, var(--text) 55%, transparent);

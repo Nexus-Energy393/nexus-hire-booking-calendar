@@ -940,10 +940,10 @@ function buildTimelineBar(b, sm, tm, seg) {
 
   bar.innerHTML =
     '<span class="tl-bar-cap tl-bar-l">' + left + (miles ? '<span class="tl-bar-miles">' + miles + '</span>' : '') + '</span>' +
+    (b.prospective ? '<button type="button" class="tl-bar-dismiss" title="Dismiss this pending booking — it won\u2019t return unless the deal is won" aria-label="Dismiss pending booking">\u2715</button>' : '') +
     '<span class="tl-bar-lbl">' + escapeHtml(b.customer || "") + '</span>' +
     (b.isGroup ? '<span class="tl-bar-grp">' + b.memberCount + ' jobs</span>' : '') +
     '<span class="tl-bar-dur">' + dur + '</span>' +
-    (b.prospective ? '<button type="button" class="tl-bar-dismiss" title="Dismiss this pending booking — it won\u2019t return unless the deal is won" aria-label="Dismiss pending booking">\u2715</button>' : '') +
     '<span class="tl-bar-cap tl-bar-r">' + right + '</span>';
 
   bar.title = (b.customer || "Unknown customer") +
