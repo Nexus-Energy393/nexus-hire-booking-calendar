@@ -1526,6 +1526,9 @@ function closeModal() {
    JOB- prefix: the last 6 chars of the deal id, upper-cased. Turns the raw
    cuid (e.g. cmr4jnd9500038mrb2elus20m) into a readable "JOB-LUS20M". */
 function jobRef(b) {
+  // The real job number (NEX-1449) is the one people use everywhere; prefer it.
+  // Fall back to a deal-id stub only for a booking that has no job number yet.
+  if (b && b.jobNumber) return String(b.jobNumber);
   var id = String((b && (b.pipedriveDealId || b.crmDealId)) || "").replace(/[^A-Za-z0-9]/g, "");
   var short = id.slice(-6).toUpperCase();
   return "JOB-" + (short || "NEW");
