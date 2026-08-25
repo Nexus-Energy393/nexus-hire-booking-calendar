@@ -20,6 +20,29 @@ const auth = require("../lib/auth");
 const http = require("../lib/http");
 const R = require("../lib/resourcing");
 
+/* Mirror an allocation to the Nexy CRM — the authoritative EquipmentBooking
+   store — the instant it is made on the board, so the deal and fleet reflect it
+   without waiting for the daily import. Best-effort: a CRM hiccup never fails
+   the board's own allocation. */
+const CRM_ALLOC_URL = (
+  process.env.CRM_ALLOC_URL ||
+  (process.env.HIRE_FEED_URL || "").replace(/\/calendar\/?$/, "/allocate")
+).replace(/\/+$/, "");
+const CRM_TOKEN = process.env.HIRE_FEED_TOKEN || "";
+async function crmMirror(action, dealId, fleetNumber) {
+  if (!CRM_ALLOC_URL || !dealId || !fleetNumber) return;
+  try {
+    const url = CRM_ALLOC_URL + (CRM_TOKEN ? "?token=" + encodeURIComponent(CRM_TOKEN) : "");
+    await fetch(url, {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, CRM_TOKEN ? { Authorization: "Bearer " + CRM_TOKEN } : {}),
+      body: JSON.stringify({ action: action, dealId: String(dealId), fleetNumber: String(fleetNumber), force: true }),
+    });
+  } catch (e) {
+    console.error("[api/allocations] CRM mirror failed:", e.message);
+  }
+}
+
 /* Decide the allocation_status + any blocking error for a serialised asset. */
 async function resolveSerialisedStatus(body) {
   const asset = await store.getAsset(body.asset_id);
@@ -102,6 +125,23 @@ module.exports = async function handler(req, res) {
       let row;
       if (req.method === "POST") row = await store.createAllocation(body);
       else row = await store.updateAllocation(id, body);
+
+      // Mirror to the CRM (authoritative allocation): create -> allocate,
+      // release -> remove. Best-effort; the board's own write already succeeded.
+      try {
+        if (row && row.asset_id && row.pipedrive_deal_id) {
+          const st = String(row.allocation_status || "");
+          if (req.method === "POST" && (st === "allocated" || st === "conflict")) {
+            const asset = await store.getAsset(row.asset_id);
+            if (asset && asset.fleet_number) await crmMirror("allocate", row.pipedrive_deal_id, asset.fleet_number);
+          } else if (req.method === "PATCH" && st === "released") {
+            const asset = await store.getAsset(row.asset_id);
+            if (asset && asset.fleet_number) await crmMirror("remove", row.pipedrive_deal_id, asset.fleet_number);
+          }
+        }
+      } catch (e) {
+        console.error("[api/allocations] CRM mirror error:", e.message);
+      }
 
       res.status(req.method === "POST" ? 201 : 200).json({ ok: true, allocation: row });
       return;
