@@ -1025,6 +1025,9 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     if (refuelEl) refuelEl.addEventListener("change", function () {
       var lbl = box.querySelector("#rsRefuelText");
       if (lbl) lbl.textContent = refuelEl.checked ? "Yes — schedule refuels" : "No";
+      // Persist the toggle the moment it changes, so "Ongoing refuelling required"
+      // sticks without also having to press "Save hours & fuel".
+      if (genAlloc) saveHoursFuel(true);
     });
     function recalc() {
       if (!outEl || !inEl) return true;
@@ -1047,7 +1050,8 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     if (fuelEl) fuelEl.addEventListener("input", recalc);
     if (fuelReturnEl) fuelReturnEl.addEventListener("input", recalc);
     var saveBtn = box.querySelector("#rsHoursSave");
-    if (saveBtn && genAlloc) saveBtn.addEventListener("click", function () {
+    function saveHoursFuel(silent) {
+      if (!genAlloc) return;
       if (!recalc()) return;
       if (!ensureToken()) return;
       var noteParts = [];
@@ -1057,13 +1061,14 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var payload = { asset_id: genAlloc.asset_id, pipedrive_deal_id: booking.pipedriveDealId,
                       hours_out: num(outEl.value), hours_in: num(inEl.value),
                       notes: noteParts.join(" | ") };
-      saveBtn.disabled = true; saveBtn.textContent = "Saving…";
-      apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
-        saveBtn.disabled = false; saveBtn.textContent = "Save hours & fuel";
+      if (saveBtn && !silent) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
+      return apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Save hours & fuel"; }
         if (!r.body.ok) { alert(r.body.error || "Failed to record hours"); return; }
-        reopenJobsheet(booking);
-      }).catch(function (e) { saveBtn.disabled = false; saveBtn.textContent = "Save hours & fuel"; alert(e.message); });
-    });
+        if (!silent) reopenJobsheet(booking);
+      }).catch(function (e) { if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Save hours & fuel"; } alert(e.message); });
+    }
+    if (saveBtn && genAlloc) saveBtn.addEventListener("click", function () { saveHoursFuel(false); });
   }
 
   function allocBadge(status) {
