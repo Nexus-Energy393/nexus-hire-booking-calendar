@@ -3182,3 +3182,16 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
 }
 .tl-bar:hover .tl-bar-dismiss, .tl-bar:focus-within .tl-bar-dismiss { opacity: .85; }
 .tl-bar-dismiss:hover { opacity: 1; background: color-mix(in srgb, #d23f3f 22%, transparent); color: #d23f3f; }
+
+/* ---- CRM-authoritative allocation block on the dispatch jobsheet ---- */
+.js-crm-alloc { margin: 10px 0 4px; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #fff; }
+.js-crm-alloc-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #334155; background: #f1f5f9; }
+.js-crm-alloc-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #0e7c66; color: #fff; font-size: 11px; font-weight: 700; }
+.js-crm-alloc-tag { margin-left: auto; font-size: 10px; font-weight: 600; color: #0e7c66; background: #e6f4f0; border: 1px solid #b7e0d6; border-radius: 999px; padding: 1px 8px; text-transform: none; letter-spacing: 0; }
+.js-crm-alloc-list { list-style: none; margin: 0; padding: 0; }
+.js-crm-alloc-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid #eef2f7; }
+.js-crm-alloc-fn { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: #0e7c66; min-width: 60px; }
+.js-crm-alloc-lbl { flex: 1; min-width: 0; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.js-crm-alloc-st { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; border: 1px solid; white-space: nowrap; }
+.js-crm-alloc-st.is-booked { color: #0369a1; background: #e0f2fe; border-color: #bae6fd; }
+.js-crm-alloc-st.is-out { color: #047857; background: #d1fae5; border-color: #a7f3d0; }

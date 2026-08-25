@@ -2136,6 +2136,7 @@ function renderJobSheet(b) {
       jsField("Additional equipment required", b.additionalEquipment, {full:true}) +
       jsField("Safety items required", b.safetyItems, {full:true}) +
     '</div>' +
+    jsCrmAllocatedBlock(b) +
     '<div id="jsEquipmentHolder" class="js-picking">' + jsStaticEquipmentTable(b, st) + '</div>');
 
   /* 4. ELECTRICAL CONNECT / DISCONNECT */
@@ -2196,6 +2197,32 @@ function renderJobSheet(b) {
     var staffHolder = document.getElementById("jsStaffHolder");
     if (staffHolder) jsRenderStaffAllocations(staffHolder, b);
   }
+}
+
+/* The units allocated to this job IN THE NEXY CRM — the authoritative allocation.
+   The CRM is now the source of truth for which physical machine goes out; the
+   board reads it here from the feed (b.allocatedUnits) rather than deciding for
+   itself. Empty until units are allocated on the deal in the CRM. */
+function jsCrmAllocatedBlock(b) {
+  var units = (b && b.allocatedUnits) || [];
+  if (!units.length) return "";
+  var rows = units.map(function (u) {
+    var fn = u.fleetNumber ? "#" + String(u.fleetNumber).replace(/^#+/, "") : "\u2014";
+    var stt = (u.status === "OUT") ? "On hire" : "Booked";
+    var stc = (u.status === "OUT") ? "is-out" : "is-booked";
+    return '<li class="js-crm-alloc-row">' +
+             '<span class="js-crm-alloc-fn">' + escapeHtml(fn) + '</span>' +
+             '<span class="js-crm-alloc-lbl">' + escapeHtml(u.label || "Unit") + '</span>' +
+             '<span class="js-crm-alloc-st ' + stc + '">' + escapeHtml(stt) + '</span>' +
+           '</li>';
+  }).join("");
+  return '<div class="js-crm-alloc">' +
+           '<div class="js-crm-alloc-head">Allocated in Nexy CRM' +
+             '<span class="js-crm-alloc-count">' + units.length + '</span>' +
+             '<span class="js-crm-alloc-tag">source of truth</span>' +
+           '</div>' +
+           '<ul class="js-crm-alloc-list">' + rows + '</ul>' +
+         '</div>';
 }
 
 /* Static (print-safe) equipment table used before/without the live fleet data.
