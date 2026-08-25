@@ -148,19 +148,24 @@ function spansDay(b, day) {
 
 // ---------- fleet conflict detection ----------
 function detectConflicts(bookings) {
+  // A real fleet conflict is the SAME physical unit promised to two overlapping
+  // jobs — both bookings carry the same allocated fleet number. Two hires that
+  // merely share a SIZE are NOT a conflict: the fleet holds several units of most
+  // sizes and staff allocate the specific machines on the board. Keying on size
+  // used to raise a false "double-booked" alarm (e.g. two unrelated 40kVA hires,
+  // a size we don't even stock), which is what this replaces.
   var conflicts = [];
+  function unit(b) { return String(b.equipmentId || "").replace(/^#+/, "").trim().toUpperCase(); }
   var active = bookings.filter(function (b) {
-    return !b.prospective && b.status !== "cancelled" && b.status !== "completed" && (b.equipmentId || b.generatorSize) && bStart(b);
+    return !b.prospective && b.status !== "cancelled" && b.status !== "completed" && unit(b) && bStart(b);
   });
   for (var i = 0; i < active.length; i++) {
     for (var j = i + 1; j < active.length; j++) {
       var a = active[i], c = active[j];
-      var key = a.equipmentId && c.equipmentId ? (a.equipmentId === c.equipmentId)
-                : (a.generatorSize && a.generatorSize === c.generatorSize);
-      if (!key) continue;
+      if (unit(a) !== unit(c)) continue;   // different (or unallocated) units — normal pipeline
       var as = bStart(a), ae = bEnd(a) || as, cs = bStart(c), ce = bEnd(c) || cs;
       if (as.getTime() <= ce.getTime() && cs.getTime() <= ae.getTime()) {
-        conflicts.push({ a: a, b: c, resource: a.equipmentId || a.generatorSize });
+        conflicts.push({ a: a, b: c, resource: "#" + unit(a) });
       }
     }
   }
