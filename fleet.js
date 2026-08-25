@@ -941,7 +941,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         else if (genAlloc.service.state === "due_soon") html += '<div class="rs-alert warn">Generator service due soon (' + esc(genAlloc.service.hoursUntilDue) + ' hrs remaining).</div>';
       }
 
-      /* engine hours & fuel — PER GENERATOR (each allocated unit records its own) */
+      /* engine hours & fuel — PER GENERATOR (aligned table; each unit records its own) */
       var genAllocs = (allocations || []).filter(function (a) { return a.asset_id && a.asset; })
         .sort(function (x, y) { return String(x.asset.fleet_number == null ? "" : x.asset.fleet_number).localeCompare(String(y.asset.fleet_number == null ? "" : y.asset.fleet_number), undefined, { numeric: true }); });
       var latestByAsset = {};
@@ -957,24 +957,26 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           var kva = a.asset.generator_size_kva != null ? (a.asset.generator_size_kva + " kVA") : "";
           var cur = a.asset.current_engine_hours != null ? a.asset.current_engine_hours : "—";
           var d = can ? "" : " disabled";
-          return '<div class="rs-gen" data-asset="' + esc(a.asset_id) + '" data-fleet="' + esc(a.asset.fleet_number || "") + '">' +
-              '<div class="rs-gen-id"><span class="rs-gen-fleet">#' + esc(String(a.asset.fleet_number == null ? "" : a.asset.fleet_number).replace(/^#+/, "")) + '</span>' +
-                (kva ? '<span class="rs-gen-kva">' + esc(kva) + '</span>' : "") +
-                '<span class="rs-gen-cur">now ' + esc(cur) + ' h</span></div>' +
-              '<div class="rs-gen-fields">' +
-                '<label class="rs-gf">Hrs out<input type="number" min="0" inputmode="decimal" class="rsg-out"' + d + ' value="' + esc(L.hours_out != null ? L.hours_out : "") + '" /></label>' +
-                '<label class="rs-gf">Hrs in<input type="number" min="0" inputmode="decimal" class="rsg-in"' + d + ' value="' + esc(L.hours_in != null ? L.hours_in : "") + '" /></label>' +
-                '<span class="rs-gf rs-gf-run">Run <output class="rsg-run">' + esc(L.runtime_hours != null ? L.runtime_hours : "—") + '</output></span>' +
-                '<label class="rs-gf">Fuel out<input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fout"' + d + ' value="' + esc(fO ? fO[1] : "") + '" placeholder="%" /></label>' +
-                '<label class="rs-gf">Return<input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fret"' + d + ' value="' + esc(fR ? fR[1] : "") + '" placeholder="%" /></label>' +
-                '<label class="rs-toggle rs-gf-refuel"><input type="checkbox" class="rsg-refuel"' + (rq ? " checked" : "") + d + ' /><span class="rs-toggle-track"><span class="rs-toggle-thumb"></span></span><span class="rs-toggle-text rsg-refuel-txt">' + (rq ? "Refuel" : "No refuel") + '</span></label>' +
-              '</div>' +
-              '<div class="rsg-err" hidden></div>' +
+          return '<div class="rs-grow rs-gen" data-asset="' + esc(a.asset_id) + '" data-fleet="' + esc(a.asset.fleet_number || "") + '">' +
+              '<span class="rs-gc rs-gc-unit"><span class="rs-gen-fleet">#' + esc(String(a.asset.fleet_number == null ? "" : a.asset.fleet_number).replace(/^#+/, "")) + '</span>' + (kva ? '<span class="rs-gen-kva">' + esc(kva) + '</span>' : "") + '</span>' +
+              '<span class="rs-gc rs-gc-now" data-label="Now">' + esc(cur) + ' h</span>' +
+              '<span class="rs-gc" data-label="Hrs out"><input type="number" min="0" inputmode="decimal" class="rsg-out"' + d + ' value="' + esc(L.hours_out != null ? L.hours_out : "") + '" /></span>' +
+              '<span class="rs-gc" data-label="Hrs in"><input type="number" min="0" inputmode="decimal" class="rsg-in"' + d + ' value="' + esc(L.hours_in != null ? L.hours_in : "") + '" /></span>' +
+              '<span class="rs-gc rs-gc-run" data-label="Run"><output class="rsg-run">' + esc(L.runtime_hours != null ? L.runtime_hours : "—") + '</output></span>' +
+              '<span class="rs-gc" data-label="Fuel out %"><input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fout"' + d + ' value="' + esc(fO ? fO[1] : "") + '" placeholder="%" /></span>' +
+              '<span class="rs-gc" data-label="Return %"><input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fret"' + d + ' value="' + esc(fR ? fR[1] : "") + '" placeholder="%" /></span>' +
+              '<span class="rs-gc rs-gc-refuel" data-label="Refuel"><label class="rs-toggle"><input type="checkbox" class="rsg-refuel"' + (rq ? " checked" : "") + d + ' /><span class="rs-toggle-track"><span class="rs-toggle-thumb"></span></span><span class="rs-toggle-text rsg-refuel-txt">' + (rq ? "Yes" : "No") + '</span></label></span>' +
+              '<span class="rsg-err" hidden></span>' +
             '</div>';
         }).join("");
         html += '<div class="rs-gens-head"><span class="rs-gens-title">Engine hours &amp; fuel</span>' +
           (can && genAllocs.length > 1 ? '<button class="fleet-btn xs ghost" id="rsCopyFuel" type="button" title="Copy the first unit fuel-out % to every generator">Same fuel-out for all</button>' : "") + '</div>';
-        html += '<div class="rs-gens">' + genRows + '</div>';
+        html += '<div class="rs-gtable">' +
+          '<div class="rs-grow rs-ghead">' +
+            '<span class="rs-gc rs-gc-unit">Unit</span><span class="rs-gc rs-gc-now">Now</span>' +
+            '<span class="rs-gc">Hrs out</span><span class="rs-gc">Hrs in</span><span class="rs-gc rs-gc-run">Run</span>' +
+            '<span class="rs-gc">Fuel out</span><span class="rs-gc">Return</span><span class="rs-gc rs-gc-refuel">Refuel</span>' +
+          '</div>' + genRows + '</div>';
         html += (can ? '<div class="rs-save-row"><span class="rs-save-hint">Each generator saves its own hours &amp; fuel</span>' +
           '<button class="fleet-btn sm" id="rsHoursSave">Save all hours &amp; fuel</button></div>' : "");
         if (anyRefuel) html += '<div class="rs-alert warn">⛽ Ongoing onsite refuelling required — schedule refuelling visits for this hire.</div>';
