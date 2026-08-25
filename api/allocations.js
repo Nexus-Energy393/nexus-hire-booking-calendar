@@ -95,7 +95,7 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ ok: false, error: "pipedrive_deal_id is required." });
         return;
       }
-      if (req.method === "POST" && !body.asset_id && !body.stock_item_id) {
+      if (req.method === "POST" && !body.asset_id && !body.stock_item_id && body.allocation_status !== "cross_hire_required") {
         res.status(400).json({ ok: false, error: "Either asset_id (generator) or stock_item_id (stock) is required." });
         return;
       }
