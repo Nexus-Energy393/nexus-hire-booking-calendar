@@ -1534,6 +1534,18 @@ function jobRef(b) {
   return "JOB-" + (short || "NEW");
 }
 
+/* Resolve a raw deal id to its clean job ref (the real NEX-#### from the loaded
+   booking, else a JOB-XXXXXX stub). Exposed so other panels (off-hire) that only
+   hold a deal id never show the raw cuid. */
+window.NexusJobRef = function (dealId) {
+  if (!dealId) return "";
+  var list = (typeof STATE !== "undefined" && STATE && STATE.bookings) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i].pipedriveDealId) === String(dealId)) return jobRef(list[i]);
+  }
+  return jobRef({ pipedriveDealId: dealId });
+};
+
 /* Job-specific document title so a printed/saved PDF gets a meaningful
    filename, e.g. "JOB-LUS20M - ACE Contractors - 15 Jun 2026 - Nexus Jobsheet". */
 function jsDocumentTitle(b) {

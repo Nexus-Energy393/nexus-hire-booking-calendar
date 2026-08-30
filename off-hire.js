@@ -74,6 +74,14 @@
   /* ---------- shared state ---------- */
   var STATE = { offHires: [], dbConfigured: null, writesEnabled: false, loading: false };
 
+  /* Clean job reference for a raw deal id - the real NEX-#### if the booking is
+     loaded, else a JOB-XXXXXX stub. Never shows the raw cuid. */
+  function ohJob(dealId) {
+    if (window.NexusJobRef) return window.NexusJobRef(dealId);
+    var id = String(dealId || "").replace(/[^A-Za-z0-9]/g, "");
+    return "JOB-" + (id.slice(-6).toUpperCase() || "NEW");
+  }
+
   /* ---------- data loading ---------- */
   function loadDue() {
     STATE.loading = true;
@@ -122,7 +130,7 @@
     return '<div class="offhire-row" data-deal="' + esc(o.pipedrive_deal_id) + '" data-asset="' + esc(o.asset_id) + '">' +
       '<div class="ohr-main">' +
         '<div class="ohr-title"><span class="ohr-fleet">#' + esc(o.fleet_number) + '</span> ' + esc(size) + '</div>' +
-        '<div class="ohr-sub">Job #' + esc(o.pipedrive_deal_id) + (o.booking_title ? ' · ' + esc(o.booking_title) : '') +
+        '<div class="ohr-sub">' + esc(ohJob(o.pipedrive_deal_id)) + (o.booking_title ? ' · ' + esc(o.booking_title) : '') +
           ' · ended ' + fmtDate(o.hire_end) + '</div>' +
       '</div>' +
       '<div class="ohr-meta">' + svc + overduePill(o.days_overdue) + '</div>' +
@@ -200,7 +208,7 @@
       m.body.innerHTML =
         '<div class="oh-equip">' +
           '<div><span class="ohr-fleet">#' + esc(fleet) + '</span> ' + esc(size) + ' diesel generator' +
-            '<div class="oh-equip-sub">Job #' + esc(dealId) + (alloc.booking_title ? ' · ' + esc(alloc.booking_title) : '') + '</div>' +
+            '<div class="oh-equip-sub">' + esc(ohJob(dealId)) + (alloc.booking_title ? ' · ' + esc(alloc.booking_title) : '') + '</div>' +
           '</div>' +
           '<label class="oh-toggle"><input type="checkbox" id="ohBack"> Returned to yard</label>' +
         '</div>' +
