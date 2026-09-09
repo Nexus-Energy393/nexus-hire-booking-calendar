@@ -115,6 +115,18 @@
       "</div>";
   }
 
+  /* "They want it longer" is the other answer to an overdue row. The end date
+     lives on the CRM deal, so the link opens Nexy with its Extend dialog up
+     (?extend=1); the board picks the new end up from the feed. Legacy rows
+     keyed by a Pipedrive number have no deal page to open, so get no link. */
+  function extendLink(dealId) {
+    var base = (CFG.crmBase || "").replace(/\/+$/, "");
+    var id = String(dealId == null ? "" : dealId).trim();
+    if (!base || !id || /^\d+$/.test(id)) return "";
+    return '<a class="fleet-btn ghost sm" target="_blank" rel="noopener" data-stop="1" title="Move the end date later in Nexy" href="' +
+      esc(base + "/deals/" + encodeURIComponent(id) + "?extend=1") + '">Extend</a>';
+  }
+
   function queueRowHtml(o) {
     var size = o.generator_size_kva ? (Number(o.generator_size_kva) + " kVA") : (o.asset_name || "Generator");
     var svc = o.service === "overdue" ? '<span class="fleet-pill fp-overdue">Service overdue</span>'
@@ -126,6 +138,7 @@
           ' · ended ' + fmtDate(o.hire_end) + '</div>' +
       '</div>' +
       '<div class="ohr-meta">' + svc + overduePill(o.days_overdue) + '</div>' +
+      extendLink(o.pipedrive_deal_id) +
       '<button class="fleet-btn primary sm" data-act="offhire">Off hire</button>' +
       "</div>";
   }
