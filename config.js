@@ -11,7 +11,7 @@
 window.NEXUS_CONFIG = {
   apiBase: '/api',
   // Deep-link base for a booking's deal in the Nexy CRM (Hire Operations source).
-  crmBase: 'https://nexus-crm-gilt.vercel.app',
+  crmBase: 'https://crm.nexusenergy.au',
   autoRefreshSeconds: 60,
   // Read-only SERVICE feed from the Nexus hub, overlaid on the calendar views.
   serviceApiBase: 'https://nexus-hub-ashy.vercel.app/api/service/calendar',
