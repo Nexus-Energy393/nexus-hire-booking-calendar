@@ -61,26 +61,23 @@ html.dark .booking-card.is-prospective {
   background: repeating-linear-gradient(45deg, #1b2536 0, #1b2536 6px, #141c2a 6px, #141c2a 12px);
 }
 
-/* ── Dispatch jobsheet: always render LIGHT ─────────────────────────────
-   The jobsheet is a white, printable document. Its PDF is produced by
-   html2pdf / html2canvas, which rasterises the element as it appears on
-   screen (screen media) — so the existing @media print resets never reach
-   the export. In dark mode, fields styled `background: var(--bg)` (engine
-   hours, asset hours, fuel levels, inspector time) therefore captured as
-   solid black boxes. Fix: re-declare the design tokens to their LIGHT values
-   on the sheet itself (descendants inherit these, overriding the html.dark
-   tokens set higher up) and hard-set every control surface to light. This
-   keeps the on-screen preview and the exported PDF identical and legible. */
-.jobsheet {
+/* ── Dispatch jobsheet: LIGHT only while EXPORTING to PDF ───────────────
+   Nexus doesn't print these, so on screen the jobsheet follows the board's
+   own light/dark theme (see the v3 block near the end of this file). But the
+   PDF is rasterised by html2canvas from the on-screen element, so for a clean
+   white document we re-declare the tokens to their LIGHT values *only* while
+   the .js-exporting flag is on (added by the Download-PDF handler). This keeps
+   the screen themed and the exported PDF legible. */
+.js-exporting .jobsheet {
   --bg: #ffffff; --panel: #ffffff; --panel-2: #f4f6f8; --line: #e2e6ea;
   --text: #1f2733; --muted: #5b6472; --border: #e4e6eb; --border-strong: #d4d7dd;
   --app-bg: #ffffff; --panel-bg: #ffffff; --column-bg: #f4f6f8;
   color: #1f2733;
 }
-.jobsheet input, .jobsheet select, .jobsheet textarea, .jobsheet output {
+.js-exporting .jobsheet input, .js-exporting .jobsheet select, .js-exporting .jobsheet textarea, .js-exporting .jobsheet output {
   background: #ffffff !important; color: #1f2733 !important; border-color: #d4d7dd !important;
 }
-.jobsheet .rs-fuel { background: #f4f6f8 !important; border-color: #e4e6eb !important; }
+.js-exporting .jobsheet .rs-fuel { background: #f4f6f8 !important; border-color: #e4e6eb !important; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
@@ -2596,3 +2593,635 @@ html.nx-embedded .side-rail .tab.active {
 .ev-toast.err { background:#b3261e; }
 
 @media (max-width: 560px) { .ev-row { grid-template-columns:1fr; } }
+
+/* ==========================================================================
+ * CONTINUOUS TIMELINE  (3-Week + Week views)  — added to replace the old
+ * week-row "span band" grid. One day axis, one bar per hire, sticky identity
+ * column + sticky day header, weekends/today banded straight down the grid.
+ * Colour = job type (matches the Hire / Planned-outage legend); the status
+ * dot + texture carry readiness. Themed via existing tokens (light/dark/TV).
+ * ======================================================================== */
+.tl {
+  --tl-head: 244px;         /* sticky identity column width */
+  --tl-col-min: 46px;       /* min day-column width before horizontal scroll */
+  --tl-row-h: 40px;
+  --tl-bar-h: 30px;
+  width: 100%;
+  font-size: 13px;
+  color: var(--text);
+}
+.tl * { box-sizing: border-box; }
+
+/* ---- sticky day header ---- */
+.tl-headrow {
+  display: flex;
+  position: sticky; top: 0; z-index: 6;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border-strong, var(--line));
+}
+.tl-corner {
+  position: sticky; left: 0; z-index: 7;
+  flex: 0 0 var(--tl-head); width: var(--tl-head);
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-right: 1px solid var(--border-strong, var(--line));
+}
+.tl-corner-lbl { font-weight: 700; font-size: 12px; letter-spacing: .02em; color: var(--text); }
+.tl-corner-n {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  background: var(--panel-2); border-radius: 999px; padding: 1px 8px;
+}
+.tl-daycols {
+  flex: 1 1 auto; min-width: 0;
+  display: grid; grid-template-columns: repeat(var(--tl-days), minmax(var(--tl-col-min), 1fr));
+}
+.tl-day {
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  padding: 5px 2px 6px; position: relative;
+  border-left: 1px solid var(--line);
+  line-height: 1.05; text-align: center;
+}
+.tl-day:first-child { border-left: 0; }
+.tl-day.is-weekstart { border-left: 1px solid var(--border-strong, var(--line)); }
+.tl-dow { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.tl-dnum { font-size: 14px; font-weight: 700; color: var(--text); margin-top: 1px; line-height: 1.4; min-width: 22px; border-radius: 999px; }
+.tl-mon { font-size: 9px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; margin-top: 1px; }
+.tl-day.is-weekend { background: color-mix(in srgb, var(--muted) 9%, transparent); }
+.tl-day.is-today { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.tl-day.is-today .tl-dnum { background: var(--accent); color: #fff; padding: 0 2px; }
+.tl-day.is-today .tl-dow { color: var(--accent); }
+
+/* ---- group headers ---- */
+.tl-group { position: relative; padding: 0; }
+.tl-group-inner {
+  position: sticky; left: 0; z-index: 4;
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 10px 0 3px; padding: 3px 11px 3px 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--muted);
+  text-transform: uppercase;
+}
+.tl-group-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.tl-group-now  .tl-group-dot { background: var(--confirmed); }
+.tl-group-next .tl-group-dot { background: var(--accent); }
+.tl-group-done .tl-group-dot { background: var(--completed); }
+.tl-group-lbl { color: var(--text); }
+.tl-group-n { color: var(--muted); font-weight: 700; }
+
+/* ---- body rows ---- */
+.tl-row {
+  display: flex; align-items: stretch;
+  min-height: var(--tl-row-h);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.tl-row.span-hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.tl-rowhead {
+  position: sticky; left: 0; z-index: 3;
+  flex: 0 0 var(--tl-head); width: var(--tl-head);
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 12px 5px 11px;
+  background: var(--panel);
+  border-right: 1px solid var(--border-strong, var(--line));
+  border-left: 3px solid var(--tl-accent, var(--general));
+  cursor: pointer;
+}
+.tl-row:hover .tl-rowhead { background: var(--booking-bg-hover, color-mix(in srgb, var(--accent) 5%, var(--panel))); }
+.tl-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--tl-dot, var(--muted)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--tl-dot, var(--muted)) 22%, transparent); }
+.tl-rh-main { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.tl-cust { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.tl-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.tl-gen { color: var(--muted); }
+.tl-job { flex: 0 0 auto; font-size: 10px; font-weight: 700; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 1px 5px; letter-spacing: .01em; }
+
+/* ---- day track + banding ---- */
+.tl-track {
+  flex: 1 1 auto; min-width: 0; position: relative;
+  display: grid; grid-template-columns: repeat(var(--tl-days), minmax(var(--tl-col-min), 1fr));
+  grid-auto-rows: minmax(var(--tl-row-h), 1fr);
+  align-items: center;
+}
+.tl-cell {
+  grid-row: 1; height: 100%;
+  border-left: 1px solid var(--line);
+}
+.tl-cell:first-child { border-left: 0; }
+.tl-cell.is-weekstart { border-left: 1px solid var(--border-strong, var(--line)); }
+.tl-cell.is-weekend { background: color-mix(in srgb, var(--muted) 7%, transparent); }
+.tl-cell.is-today { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+
+/* ---- the hire bar ---- */
+.tl-bar {
+  grid-row: 1; z-index: 1; position: relative;
+  min-height: var(--tl-bar-h); margin: 4px 0;
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 9px; overflow: hidden;
+  border-radius: 8px;
+  background: var(--panel);
+  background: color-mix(in srgb, var(--tl-accent, var(--general)) 16%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--tl-accent, var(--general)) 45%, var(--panel));
+  border-left: 4px solid var(--tl-accent, var(--general));
+  color: var(--text); cursor: pointer;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(16,24,40,.06));
+  transition: box-shadow .12s ease, transform .12s ease, filter .12s ease;
+}
+.tl-bar.cont-left  { border-top-left-radius: 3px; border-bottom-left-radius: 3px; border-left-style: dashed; margin-left: -1px; }
+.tl-bar.cont-right { border-top-right-radius: 3px; border-bottom-right-radius: 3px; border-right-style: dashed; margin-right: -1px; }
+.tl-row:hover .tl-bar, .tl-bar:focus-visible { box-shadow: var(--shadow-md, 0 4px 12px rgba(16,24,40,.14)); filter: brightness(1.02); outline: none; }
+.tl-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.tl-bar-cap { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; }
+.tl-bar-r { margin-left: auto; }
+.tl-bar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tl-dot, var(--tl-accent, var(--general))); }
+.tl-bar-miles { display: inline-flex; align-items: center; gap: 3px; }
+.tl-bar-miles .bs-ms { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; color: color-mix(in srgb, var(--tl-accent, var(--general)) 78%, var(--text)); }
+.tl-bar-miles .bs-ms svg { width: 13px; height: 13px; }
+.tl-bar-lbl { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.tl-bar-dur { font-size: 11px; color: color-mix(in srgb, var(--text) 62%, transparent); white-space: nowrap; flex: 0 0 auto; }
+.tl-chev { font-weight: 800; color: var(--tl-accent, var(--general)); font-size: 15px; line-height: 1; }
+.tl-staff-conflict { display: inline-flex; color: var(--danger, #d23f3f); }
+.tl-staff-conflict svg { width: 13px; height: 13px; }
+
+/* type = colour (matches toolbar legend) */
+.tl-bar.jt-general,  .tl-row.jt-general  .tl-rowhead { --tl-accent: var(--general); }
+.tl-bar.jt-outage,   .tl-row.jt-outage   .tl-rowhead { --tl-accent: var(--outage); }
+.tl-bar.jt-emergency,.tl-row.jt-emergency .tl-rowhead { --tl-accent: var(--emergency); }
+
+/* status = the dot colour + texture */
+.tl-bar.st-confirmed, .tl-row.st-confirmed .tl-rowhead { --tl-dot: var(--confirmed); }
+.tl-bar.st-onhire,    .tl-row.st-onhire    .tl-rowhead { --tl-dot: #2563eb; }
+.tl-bar.st-duration,  .tl-row.st-duration  .tl-rowhead { --tl-dot: var(--duration); }
+.tl-bar.st-equipment, .tl-row.st-equipment .tl-rowhead { --tl-dot: var(--equipment); }
+.tl-bar.st-review,    .tl-row.st-review    .tl-rowhead { --tl-dot: var(--review); }
+.tl-bar.st-completed, .tl-row.st-completed .tl-rowhead { --tl-dot: var(--completed); }
+.tl-bar.st-prospective,.tl-row.st-prospective .tl-rowhead { --tl-dot: var(--muted); }
+
+/* readiness texture: needs-* get a dashed attention ring; completed fades;
+   prospective is hatched + dashed (tentative). */
+.tl-bar.st-duration, .tl-bar.st-equipment, .tl-bar.st-review {
+  border-style: dashed;
+  border-left-style: solid;
+}
+.tl-bar.st-completed { opacity: .6; }
+.tl-bar.is-prospective {
+  opacity: .82;
+  border-style: dashed; border-left-style: solid;
+  background-image: repeating-linear-gradient(135deg,
+    color-mix(in srgb, var(--muted) 14%, transparent) 0 6px, transparent 6px 12px);
+}
+.tl-bar.st-cancelled .tl-bar-lbl { text-decoration: line-through; }
+
+/* empty state */
+.tl-empty { padding: 40px 16px; text-align: center; }
+.tl-empty-title { font-weight: 700; font-size: 15px; color: var(--text); margin: 0 0 4px; }
+.tl-empty-sub { color: var(--muted); font-size: 13px; margin: 0; }
+
+/* ---- Office screen (TV) ---- */
+body[data-mode="tv"] .tl { --tl-head: 300px; --tl-col-min: 70px; --tl-row-h: 52px; --tl-bar-h: 40px; font-size: 16px; }
+body[data-mode="tv"] .tl-cust { font-size: 16px; }
+body[data-mode="tv"] .tl-sub { font-size: 13px; }
+body[data-mode="tv"] .tl-bar-lbl { font-size: 15px; }
+body[data-mode="tv"] .tl-dnum { font-size: 17px; }
+
+/* ---- narrow screens: shrink the identity column, let the grid scroll ---- */
+@media (max-width: 720px) {
+  .tl { --tl-head: 150px; --tl-col-min: 40px; }
+  .tl-job { display: none; }
+  .tl-bar-dur { display: none; }
+}
+
+/* ==========================================================================
+ * DAY VIEW polish — a clean agenda column that matches the timeline look.
+ * ======================================================================== */
+.day-wrap { max-width: 780px; margin: 0 auto; padding: 4px 0 24px; }
+.day-title { font-size: 17px; font-weight: 700; color: var(--text); margin: 6px 2px 14px; }
+.day-wrap .booking-card { margin-bottom: 10px; }
+.day-wrap .empty { color: var(--muted); background: var(--panel-2); border: 1px dashed var(--line); border-radius: 10px; padding: 26px; text-align: center; }
+
+/* ==========================================================================
+ * DISPATCH JOBSHEET — screen redesign (v2)
+ * A screen-only intelligence "hero" sits above the printable A4 sheet, and the
+ * detail cards flow into two columns so the popup is short and scannable. The
+ * PDF export captures #jsSheetBody only (never the hero), and print restores the
+ * full paper letterhead — so the document stays exactly as it was on paper.
+ * ======================================================================== */
+
+/* --- screen shows the hero; the paper letterhead is hidden on screen and
+       restored only for PDF export (.js-exporting) and print --- */
+.jobsheet .js-doc-head,
+.jobsheet .js-chips,
+.jobsheet .js-warning,
+.jobsheet .js-sitewarn { display: none; }
+.js-exporting .jobsheet .js-doc-head { display: flex !important; }
+.js-exporting .jobsheet .js-chips { display: flex !important; }
+.js-exporting .jobsheet .js-warning:not([hidden]) { display: block !important; }
+.js-exporting .jobsheet .js-sitewarn { display: flex !important; }
+.js-exporting .js-hero { display: none !important; }
+
+/* --- two-column card flow (screen) --- */
+.js-cards { column-count: 2; column-gap: 18px; }
+.js-cards > .js-card { display: inline-block; width: 100%; margin: 0 0 12px; vertical-align: top;
+  break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid; }
+.js-exporting .js-cards { column-count: 1; }
+
+.modal.jobsheet-modal { width: min(1000px, 96vw); }
+.jobsheet .js-body { padding: 14px 20px 22px; }
+
+/* ---------------- the hero ---------------- */
+.js-hero { padding: 16px 20px 15px; background: linear-gradient(180deg, #f7f9fc, #ffffff);
+  border-bottom: 1px solid #e4e6eb; color: #1f2733; }
+.js-hero .jh-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.jh-id { min-width: 0; }
+.jh-job { font-size: 24px; font-weight: 800; letter-spacing: .3px; color: #0f1830; line-height: 1; }
+.jh-cust { font-size: 14px; font-weight: 600; color: #33415c; margin-top: 4px; }
+.jh-cust .jh-sub { color: #8a93a3; font-weight: 500; }
+.jh-type { display: inline-block; margin-top: 8px; font-size: 11px; font-weight: 700; padding: 3px 10px;
+  border-radius: 999px; border: 1px solid #cfd6e4; color: #33415c; background: #fff; }
+.jh-type.jt-outage { background: #fff3e0; color: #b26a00; border-color: #f0c890; }
+.jh-type.jt-emergency { background: #fdecea; color: #b71c1c; border-color: #f1b0a8; }
+
+.jh-ready { flex: 0 0 auto; text-align: right; min-width: 172px; padding: 10px 14px; border-radius: 12px;
+  border: 1px solid #e4e6eb; background: #fff; }
+.jh-ready.is-ready { background: #e8f6ee; border-color: #a7dcbd; }
+.jh-ready.is-ok { background: #eef7ff; border-color: #bcd9f5; }
+.jh-ready.is-warn { background: #fff3e0; border-color: #f0c890; }
+.jh-ready-lbl { font-size: 14px; font-weight: 800; color: #0f1830; line-height: 1.15; }
+.jh-ready.is-ready .jh-ready-lbl { color: #178a44; }
+.jh-ready.is-warn .jh-ready-lbl { color: #a85a00; }
+.jh-ready-sub { font-size: 10px; color: #8a93a3; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; margin-top: 2px; }
+.jh-prog { height: 6px; border-radius: 999px; background: #e4e6eb; overflow: hidden; margin-top: 8px; }
+.jh-prog > span { display: block; height: 100%; background: #20a052; border-radius: 999px; transition: width .3s ease; }
+.jh-ready.is-warn .jh-prog > span { background: #e8920c; }
+.jh-prog-n { font-size: 10px; color: #8a93a3; font-weight: 700; margin-top: 3px; }
+
+.jh-life { display: flex; align-items: center; gap: 9px; margin-top: 14px; padding: 9px 13px;
+  border-radius: 10px; background: #f1f4f9; border: 1px solid #e4e6eb; }
+.jh-life-ic { width: 18px; height: 18px; color: #33415c; flex: 0 0 auto; }
+.jh-life-ic svg { width: 18px; height: 18px; display: block; }
+.jh-life-lbl { font-weight: 800; font-size: 13.5px; color: #0f1830; }
+.jh-life-sub { margin-left: auto; font-size: 12px; font-weight: 700; color: #8a93a3; }
+.jh-life.is-soon { background: #fff3e0; border-color: #f0c890; }
+.jh-life.is-soon .jh-life-lbl { color: #a85a00; } .jh-life.is-soon .jh-life-ic { color: #b26a00; }
+.jh-life.is-active { background: #eef7ff; border-color: #bcd9f5; } .jh-life.is-active .jh-life-ic { color: #1c4f8a; }
+.jh-life.is-done { background: #f2f4f7; } .jh-life.is-done .jh-life-lbl { color: #6b7280; }
+.jh-life.is-warn { background: #fdecea; border-color: #f1b0a8; } .jh-life.is-warn .jh-life-lbl { color: #b71c1c; }
+
+.jh-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }
+.jh-stat { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #e4e6eb;
+  border-radius: 10px; background: #fff; min-width: 0; }
+.jh-stat-ic { width: 17px; height: 17px; color: #6b7280; flex: 0 0 auto; }
+.jh-stat-ic svg { width: 17px; height: 17px; display: block; }
+.jh-stat-tx { display: flex; flex-direction: column; min-width: 0; }
+.jh-stat-k { font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: #8a93a3; font-weight: 700; }
+.jh-stat-v { font-size: 13px; font-weight: 700; color: #1f2733; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jh-stat.is-hot { border-color: #f0c890; background: #fff8ef; } .jh-stat.is-hot .jh-stat-ic { color: #b26a00; }
+.jh-stat.is-warn { border-color: #f1b0a8; background: #fdf1f0; } .jh-stat.is-warn .jh-stat-v { color: #b71c1c; }
+
+.jh-alerts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.jh-alert { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid #e4c9a0; background: #fff6e9; color: #8a5a00; }
+.jh-alert.al-conflict, .jh-alert.js-chip-medical { background: #fdecea; border-color: #f1b0a8; color: #b71c1c; }
+.jh-alert.js-chip-standby { background: #e7f0fb; border-color: #aac6e8; color: #1c4f8a; }
+
+.jh-missing { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.jh-missing-k { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #b71c1c; }
+.jh-missing-i { font-size: 11.5px; font-weight: 600; color: #7a2a2a; background: #fdecea; border: 1px solid #f1b0a8; border-radius: 6px; padding: 2px 8px; }
+
+.jh-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 12px;
+  padding-top: 11px; border-top: 1px dashed #e4e6eb; }
+.jh-contact-name { font-size: 12.5px; font-weight: 700; color: #33415c; }
+.jh-act { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; color: #2f6fed; text-decoration: none; }
+.jh-act svg { width: 14px; height: 14px; }
+.jh-act:hover { text-decoration: underline; }
+
+@media (max-width: 720px) {
+  .js-cards { column-count: 1; }
+  .jh-top { flex-direction: column; }
+  .jh-ready { text-align: left; min-width: 0; align-self: stretch; }
+  .jh-stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media print {
+  .js-hero { display: none !important; }
+  .jobsheet .js-doc-head { display: flex !important; }
+  .jobsheet .js-chips { display: flex !important; }
+  .jobsheet .js-warning:not([hidden]) { display: block !important; }
+  .jobsheet .js-sitewarn { display: flex !important; }
+  .js-cards { column-count: 1; }
+}
+
+/* jobsheet v2: inside the two-column card flow, keep each field on ONE column so
+   values have the full card width and don't break mid-word (e.g. "Commodities"). */
+.js-cards .js-grid, .js-cards .js-grid-3 { grid-template-columns: 1fr; gap: 1px 0; }
+.js-cards .js-field { justify-content: flex-start; gap: 10px; }
+.js-cards .js-field .k { min-width: 118px; }
+.js-cards .js-field .v { text-align: left; overflow-wrap: break-word; word-break: normal; }
+.js-exporting .js-cards .js-grid, .js-exporting .js-cards .js-grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+@media print { .js-cards .js-grid, .js-cards .js-grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+
+/* ==========================================================================
+ * DISPATCH JOBSHEET — v3: a themed app panel, not a white A4 sheet.
+ * Nexus doesn't print these, so the paper metaphor is gone: the modal now
+ * follows the board's own light/dark theme via CSS tokens, the detail flows in
+ * a real grid where wide cards (equipment, staff) span full width so nothing
+ * clips, and the picking table can never cut off its action buttons.
+ * (Export still forces a clean light document — see the .js-exporting block.)
+ * ======================================================================== */
+
+.modal.jobsheet-modal { background: var(--panel-bg) !important; border: 1px solid var(--border) !important; }
+.jobsheet { background: var(--panel-bg) !important; color: var(--text) !important; }
+
+/* toolbar */
+.js-toolbar { background: var(--panel-2) !important; border-bottom: 1px solid var(--border) !important; }
+.js-toolbar .js-title-min { color: var(--muted) !important; }
+
+/* ---- hero, themed ---- */
+.js-hero { background: linear-gradient(180deg, var(--panel-2), var(--panel-bg)) !important; border-bottom: 1px solid var(--border) !important; color: var(--text); }
+.jh-job { color: var(--text) !important; }
+.jh-cust { color: var(--text) !important; }
+.jh-cust .jh-sub, .jh-ready-sub, .jh-prog-n, .jh-stat-k, .jh-life-sub { color: var(--muted) !important; }
+.jh-type { background: var(--panel) !important; border: 1px solid var(--border) !important; color: var(--text) !important; }
+.jh-ready, .jh-life, .jh-stat { background: var(--panel) !important; border: 1px solid var(--border) !important; }
+.jh-ready-lbl, .jh-life-lbl, .jh-stat-v { color: var(--text) !important; }
+.jh-prog { background: color-mix(in srgb, var(--muted) 24%, transparent) !important; }
+.jh-life-ic, .jh-stat-ic { color: var(--muted); }
+
+.jh-ready.is-ready { background: color-mix(in srgb, var(--success) 16%, var(--panel)) !important; border-color: color-mix(in srgb, var(--success) 45%, var(--panel)) !important; }
+.jh-ready.is-ready .jh-ready-lbl { color: var(--success) !important; }
+.jh-ready.is-ok { background: color-mix(in srgb, var(--accent) 14%, var(--panel)) !important; border-color: color-mix(in srgb, var(--accent) 40%, var(--panel)) !important; }
+.jh-ready.is-warn { background: color-mix(in srgb, var(--warning) 16%, var(--panel)) !important; border-color: color-mix(in srgb, var(--warning) 45%, var(--panel)) !important; }
+.jh-ready.is-warn .jh-ready-lbl { color: var(--warning) !important; }
+.jh-ready.is-warn .jh-prog > span { background: var(--warning) !important; }
+
+.jh-life.is-soon { background: color-mix(in srgb, var(--warning) 14%, var(--panel)) !important; border-color: color-mix(in srgb, var(--warning) 40%, var(--panel)) !important; }
+.jh-life.is-soon .jh-life-lbl, .jh-life.is-soon .jh-life-ic { color: var(--warning) !important; }
+.jh-life.is-active { background: color-mix(in srgb, var(--accent) 12%, var(--panel)) !important; border-color: color-mix(in srgb, var(--accent) 38%, var(--panel)) !important; }
+.jh-life.is-active .jh-life-ic { color: var(--accent) !important; }
+.jh-life.is-done { background: var(--panel-2) !important; }
+.jh-life.is-done .jh-life-lbl { color: var(--muted) !important; }
+.jh-life.is-warn { background: color-mix(in srgb, var(--danger) 14%, var(--panel)) !important; border-color: color-mix(in srgb, var(--danger) 40%, var(--panel)) !important; }
+.jh-life.is-warn .jh-life-lbl { color: var(--danger) !important; }
+
+.jh-stat.is-hot { background: color-mix(in srgb, var(--warning) 12%, var(--panel)) !important; border-color: color-mix(in srgb, var(--warning) 38%, var(--panel)) !important; }
+.jh-stat.is-hot .jh-stat-ic { color: var(--warning) !important; }
+.jh-stat.is-warn { background: color-mix(in srgb, var(--danger) 12%, var(--panel)) !important; border-color: color-mix(in srgb, var(--danger) 38%, var(--panel)) !important; }
+.jh-stat.is-warn .jh-stat-v { color: var(--danger) !important; }
+.jh-contact { border-top-color: var(--border) !important; }
+.jh-contact-name { color: var(--text) !important; }
+
+/* ---- layout: real grid; wide cards span full width so nothing clips ---- */
+.js-cards { column-count: unset !important; display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.js-cards > .js-card { width: auto !important; margin: 0 !important; display: block !important; }
+.js-card-alloc, .js-card-staff, .js-card-notes, .js-card-elec { grid-column: 1 / -1 !important; }
+@media (max-width: 720px) { .js-cards { grid-template-columns: 1fr; } }
+
+/* ---- cards, fields, tables → tokens ---- */
+.js-card { background: var(--panel) !important; border: 1px solid var(--border) !important; }
+.js-card-head { background: var(--panel-2) !important; color: var(--text) !important; border-bottom: 1px solid var(--border) !important; }
+.jobsheet .js-field { border-bottom: 1px dotted var(--border) !important; }
+.jobsheet .js-field .k { color: var(--muted) !important; }
+.jobsheet .js-field .v { color: var(--text) !important; }
+.jobsheet .js-field .v.missing { color: var(--danger) !important; }
+.js-card .js-table th, .js-card .js-staff-table th { color: var(--muted) !important; border-bottom-color: var(--border) !important; }
+.js-card .js-table td, .js-card .js-staff-table td { color: var(--text) !important; border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent) !important; }
+.js-box { border-color: var(--muted) !important; }
+
+/* the picking table must never clip its action buttons */
+#jsEquipmentHolder, .js-picking, .js-resourcing { overflow-x: auto; }
+.js-table.js-equip { min-width: 560px; }
+.js-actions-col { white-space: nowrap; }
+.js-table.js-equip td:last-child { white-space: nowrap; }
+
+/* inputs / outputs → tokens */
+.jobsheet input, .jobsheet textarea, .jobsheet select, .jobsheet output,
+.jobsheet .js-time, .jobsheet .js-note-input {
+  background: var(--panel) !important; color: var(--text) !important; border-color: var(--border) !important;
+}
+.jobsheet input::placeholder, .jobsheet textarea::placeholder { color: color-mix(in srgb, var(--muted) 80%, transparent) !important; }
+
+/* resourcing hours / fuel blocks */
+.rs-hours, .rs-fuel, .rs-hcell, .rs-fuel-cell { background: transparent !important; color: var(--text) !important; }
+.rs-hcell label, .rs-fuel-label { color: var(--muted) !important; }
+.rs-save-row { border-top-color: var(--border) !important; } .rs-save-hint { color: var(--muted) !important; }
+.rs-note, .js-line-note, .js-elec-none, .js-elec-sentence { color: var(--muted) !important; }
+
+/* alert boxes → tokens */
+.js-alertbox-warn, .jobsheet .js-warning { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 50%, transparent) !important; color: var(--text) !important; }
+.js-alertbox-crit, .rs-alert.crit { background: var(--danger-bg) !important; border-color: color-mix(in srgb, var(--danger) 50%, transparent) !important; color: var(--text) !important; }
+.rs-alert.warn { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 50%, transparent) !important; color: var(--text) !important; }
+.js-sitewarn { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 45%, transparent) !important; }
+.js-sitewarn-title, .js-sitewarn-item { color: var(--text) !important; }
+
+/* doc header (only shown in export/print now) keeps its own colours there */
+
+/* ---- EXPORT (Download PDF): force a clean light document regardless of theme ---- */
+.js-exporting .jobsheet, .js-exporting .js-card, .js-exporting .js-card-body { background: #fff !important; color: #1f2733 !important; }
+.js-exporting .js-card-head { background: #f4f6f8 !important; color: #33415c !important; }
+.js-exporting .jobsheet .js-field .k { color: #8a93a3 !important; }
+.js-exporting .jobsheet .js-field .v { color: #1f2733 !important; }
+.js-exporting .js-card .js-table td { color: #1f2733 !important; }
+.js-exporting .js-cards { display: block !important; }
+.js-exporting .js-card-alloc, .js-exporting .js-card-staff, .js-exporting .js-card-notes, .js-exporting .js-card-elec { grid-column: auto !important; }
+
+/* ==========================================================================
+ * MERGE GROUPS — suggestions bar, grouped-row chips, merge/group modals.
+ * ======================================================================== */
+.merge-bar { display: flex; align-items: center; gap: 12px; margin: 0 20px 10px; padding: 8px 14px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--panel)); }
+.merge-bar-txt { font-size: 13px; color: var(--text); flex: 1 1 auto; }
+.merge-bar-txt strong { color: var(--accent); }
+.merge-bar-btn { font-size: 12px; font-weight: 700; color: #fff; background: var(--accent); border: 0; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.merge-bar-btn:hover { filter: brightness(1.05); }
+.merge-bar-x { border: 0; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px; }
+
+/* group chips on the timeline */
+.tl-bar-grp { flex: 0 0 auto; font-size: 9.5px; font-weight: 800; letter-spacing: .02em; color: #fff;
+  background: color-mix(in srgb, var(--accent) 80%, #000); border-radius: 5px; padding: 1px 6px; }
+.tl-job-grp { background: color-mix(in srgb, var(--accent) 18%, var(--panel)) !important; color: var(--accent) !important; }
+
+/* merge review + grouped-job modals (rendered into the standard .modal) */
+.mg-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.mg-modal-head h3 { margin: 0; font-size: 17px; color: var(--text); }
+.mg-count { font-size: 12px; font-weight: 700; color: var(--muted); }
+.mg-modal-intro { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+.mg-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow: auto; }
+.mg-sug { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
+.mg-sug-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mg-sug-cust { font-weight: 700; color: var(--text); }
+.mg-sug-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.mg-sug-items { margin: 8px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted); }
+.mg-members { display: flex; flex-direction: column; gap: 8px; }
+.mg-member { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); cursor: pointer; }
+.mg-member:hover { border-color: var(--accent); }
+.mg-member-main { font-weight: 600; color: var(--text); font-size: 13px; }
+.mg-member-sub { font-size: 12px; color: var(--muted); }
+.mg-modal-foot { margin-top: 14px; display: flex; justify-content: flex-end; }
+.mg-do, .merge-bar .btn.primary { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.mg-do:hover { filter: brightness(1.05); }
+.mg-do:disabled { opacity: .6; }
+#mgUnmerge { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+#mgUnmerge:hover { border-color: var(--danger); color: var(--danger); }
+
+/* ============================================================
+   FRAMED IN THE CRM: ONE VERTICAL NAV, NOT TWO
+   ------------------------------------------------------------
+   The block above tried to make the board's vertical rail wear
+   the CRM's navy so the two rails read as one. They never did:
+   two vertical columns a few pixels apart, in a host that
+   already owns the left edge, is two menus no matter the paint.
+
+   Best practice for an embedded sub-view is a clear hierarchy:
+   the HOST owns the vertical primary nav; the sub-view's own
+   view-switch (Calendar / List / 3 Week / …) becomes a
+   HORIZONTAL tab strip that belongs to the page, sitting above
+   its working area like tabs on any well-made app screen.
+
+   So, framed and not on the office wall, we reflow the same rail
+   (same buttons, same #viewTabs click handler, no JS touched)
+   from a left rail into a top tab bar. Standalone and the office
+   screen (data-mode="tv") keep the vertical rail unchanged.
+   ============================================================ */
+html.nx-embedded body:not([data-mode="tv"]) .app-shell {
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* rail -> horizontal, sticky tab strip on top of the board */
+html.nx-embedded body:not([data-mode="tv"]) .side-rail {
+  order: -1;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  height: 46px;
+  min-height: 0;
+  position: sticky;
+  top: 0;
+  bottom: auto;
+  z-index: 42;
+  padding: 0 6px;
+  gap: 2px;
+  background: var(--panel-bg);
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail::-webkit-scrollbar { display: none; }
+html.nx-embedded body:not([data-mode="tv"]) .rail-brand { display: none; }
+html.nx-embedded body:not([data-mode="tv"]) .rail-nav {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+/* each view -> a horizontal tab: icon + label inline, green underline when active */
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab {
+  order: 0;
+  flex: 0 0 auto;
+  width: auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .005em;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab:hover {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--text);
+  box-shadow: none;
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab.active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 -2px 0 0 var(--accent);
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab .rail-ico {
+  width: 17px; height: 17px;
+  -webkit-mask-size: 17px; mask-size: 17px;
+}
+html.nx-embedded body:not([data-mode="tv"]) .side-rail .tab .rail-lbl {
+  font-size: 13px; line-height: 1;
+}
+
+/* the tab strip owns the top; the board header sticks just beneath it */
+html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
+  top: 46px;
+  min-height: 0;
+}
+
+/* Jobsheet: the deal's generator lines, shown above the allocation table as the
+   source of how many generator slots the job needs. */
+.rs-gen-source { margin: 2px 0 10px; font-size: 12px; line-height: 1.4; }
+
+/* Dismiss a pending (not-won) booking from the board. Hidden until the bar is
+   hovered/focused; red on hover. Only rendered on prospective bars. */
+.tl-bar-dismiss {
+  flex: 0 0 auto; margin: 0 4px 0 2px; width: 16px; height: 16px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 4px; cursor: pointer; font-size: 11px; line-height: 1;
+  background: transparent; color: color-mix(in srgb, var(--text) 55%, transparent);
+  opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.tl-bar:hover .tl-bar-dismiss, .tl-bar:focus-within .tl-bar-dismiss { opacity: .85; }
+.tl-bar-dismiss:hover { opacity: 1; background: color-mix(in srgb, #d23f3f 22%, transparent); color: #d23f3f; }
+
+/* ---- CRM-authoritative allocation block on the dispatch jobsheet ---- */
+.js-crm-alloc { margin: 10px 0 4px; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #fff; }
+.js-crm-alloc-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #334155; background: #f1f5f9; }
+.js-crm-alloc-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #0e7c66; color: #fff; font-size: 11px; font-weight: 700; }
+.js-crm-alloc-tag { margin-left: auto; font-size: 10px; font-weight: 600; color: #0e7c66; background: #e6f4f0; border: 1px solid #b7e0d6; border-radius: 999px; padding: 1px 8px; text-transform: none; letter-spacing: 0; }
+.js-crm-alloc-list { list-style: none; margin: 0; padding: 0; }
+.js-crm-alloc-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid #eef2f7; }
+.js-crm-alloc-fn { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: #0e7c66; min-width: 60px; }
+.js-crm-alloc-lbl { flex: 1; min-width: 0; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.js-crm-alloc-st { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; border: 1px solid; white-space: nowrap; }
+.js-crm-alloc-st.is-booked { color: #0369a1; background: #e0f2fe; border-color: #bae6fd; }
+.js-crm-alloc-st.is-out { color: #047857; background: #d1fae5; border-color: #a7f3d0; }
+
+/* ---- Per-generator engine hours & fuel capture (dispatch jobsheet) ---- */
+.rs-gens-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:16px 0 8px; }
+.rs-gens-title { font-weight:700; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+.fleet-btn.xs { font-size:11px; padding:3px 9px; }
+.rs-gtable { border:1px solid var(--border, #e2e8f0); border-radius:12px; overflow:hidden; background:var(--panel, #fff); }
+.rs-grow { display:grid; grid-template-columns: minmax(128px,1.5fr) 58px 76px 76px 50px 72px 72px 84px; align-items:center; gap:10px; padding:9px 14px; }
+.rs-grow + .rs-grow { border-top:1px solid var(--border, #eef2f7); }
+.rs-ghead { background:var(--panel-2, #f4f6f8); }
+.rs-ghead .rs-gc { font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:700; }
+.rs-gc { min-width:0; }
+.rs-gc-unit { display:flex; align-items:center; gap:8px; }
+.rs-gen-fleet { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-weight:700; color:var(--brand-green, #0e7c66); font-size:14px; }
+.rs-gen-kva { font-size:12px; color:var(--text); opacity:.8; white-space:nowrap; }
+.rs-gc-now { font-size:12px; color:var(--muted); white-space:nowrap; }
+.rs-gc input { width:100%; box-sizing:border-box; border:1px solid var(--border, #cbd5e1); border-radius:8px; padding:6px 8px; font-size:13px; color:var(--text); background:var(--panel-2, #fff); text-align:right; }
+.rs-gc input:focus { outline:none; border-color:var(--brand-green, #0e7c66); box-shadow:0 0 0 2px rgba(32,160,82,.2); }
+.rs-gc-run { text-align:center; }
+.rsg-run { font-size:13px; font-weight:700; color:var(--text); }
+.rs-gc-refuel .rs-toggle { margin:0; }
+.rsg-err { grid-column:1 / -1; color:var(--emergency, #dc2626); font-size:12px; padding-top:2px; }
+.rsg-err[hidden] { display:none; }
+.rs-note { color:var(--muted); font-size:13px; padding:10px 0; }
+@media (max-width: 720px) {
+  .rs-ghead { display:none; }
+  .rs-grow { grid-template-columns: 1fr 1fr; gap:8px 14px; padding:12px 14px; }
+  .rs-gc-unit { grid-column:1 / -1; }
+  .rs-gc[data-label]::before { content:attr(data-label); display:block; font-size:9px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); font-weight:700; margin-bottom:3px; }
+  .rs-gc input { text-align:left; }
+}

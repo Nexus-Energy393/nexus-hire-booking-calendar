@@ -12,6 +12,7 @@ const db = require("../lib/db");
 const store = require("../lib/store-fleet");
 const auth = require("../lib/auth");
 const http = require("../lib/http");
+const fleetSync = require("../lib/fleet-sync");
 
 module.exports = async function handler(req, res) {
   http.cors(res, "GET, OPTIONS");
@@ -29,6 +30,7 @@ module.exports = async function handler(req, res) {
       res.status(200).json({ ok: true, dbConfigured: true, kind: "stock", availability: result });
       return;
     }
+    try { await fleetSync.maybeReconcile(); } catch (e) { /* best-effort CRM fleet mirror */ }
     const result = await store.generatorAvailability(candidate);
 res.status(200).json({ ok: true, dbConfigured: true, kind: "generator",
       available: result.available, conflicted: result.conflicted, crossHireRequired: result.crossHireRequired });

@@ -21,6 +21,29 @@ const auth = require("../lib/auth");
 const http = require("../lib/http");
 const R = require("../lib/resourcing");
 
+/* Mirror an engine-hours/fuel reading to the Nexy CRM — the authoritative hire
+   engine-hours store — on write, so the CRM records it and keeps the unit's
+   current reading fresh for service scheduling. Best-effort; the board's own
+   record already saved. */
+const CRM_HOURS_URL = (
+  process.env.CRM_HOURS_URL ||
+  (process.env.HIRE_FEED_URL || "").replace(/\/calendar\/?$/, "/hours")
+).replace(/\/+$/, "");
+const CRM_TOKEN = process.env.HIRE_FEED_TOKEN || "";
+async function crmHoursMirror(payload) {
+  if (!CRM_HOURS_URL || !payload || !payload.fleetNumber) return;
+  try {
+    const url = CRM_HOURS_URL + (CRM_TOKEN ? "?token=" + encodeURIComponent(CRM_TOKEN) : "");
+    await fetch(url, {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, CRM_TOKEN ? { Authorization: "Bearer " + CRM_TOKEN } : {}),
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    console.error("[api/jobsheet] CRM hours mirror failed:", e.message);
+  }
+}
+
 module.exports = async function handler(req, res) {
   http.cors(res, "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
@@ -53,6 +76,21 @@ module.exports = async function handler(req, res) {
         if (!body.asset_id) { res.status(400).json({ ok: false, error: "asset_id is required." }); return; }
         const rec = await store.recordEngineHours(body);
         const asset = await store.getAsset(body.asset_id);
+        // Mirror the reading to the CRM (authoritative hire hours) — best effort.
+        try {
+          if (asset && asset.fleet_number) {
+            await crmHoursMirror({
+              dealId: body.pipedrive_deal_id != null ? String(body.pipedrive_deal_id) : null,
+              fleetNumber: asset.fleet_number,
+              hoursOut: body.hours_out != null ? Number(body.hours_out) : null,
+              hoursIn: body.hours_in != null ? Number(body.hours_in) : null,
+              recordedBy: body.recorded_by || null,
+              notes: body.notes || null,
+            });
+          }
+        } catch (e) {
+          console.error("[api/jobsheet] CRM hours mirror error:", e.message);
+        }
         res.status(201).json({ ok: true, record: rec, asset: asset, service: asset ? R.serviceStatus(asset) : null });
         return;
       }

@@ -16,6 +16,7 @@ const db = require("../lib/db");
 const store = require("../lib/store-fleet");
 const auth = require("../lib/auth");
 const R = require("../lib/resourcing");
+const fleetSync = require("../lib/fleet-sync");
 
 async function readBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
@@ -64,6 +65,7 @@ module.exports = async function handler(req, res) {
         status: req.query && req.query.status,
         category: req.query && req.query.category
       };
+      try { await fleetSync.maybeReconcile(); } catch (e) { /* best-effort CRM fleet mirror */ }
       const assets = await store.listAssets(filter);
       const withService = assets.map(function (a) { return Object.assign({}, a, { service: R.serviceStatus(a) }); });
       res.status(200).json({ ok: true, dbConfigured: true, writesEnabled: auth.configured(), count: withService.length, assets: withService });

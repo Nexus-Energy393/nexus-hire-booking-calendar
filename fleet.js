@@ -108,7 +108,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var a = res[0].body, s = res[1].body, al = res[2].body;
       STATE.dbConfigured = a.dbConfigured !== false;
       STATE.writesEnabled = !!a.writesEnabled;
-      STATE.assets = a.assets || [];
+      STATE.assets = (a.assets || []).map(function (x) {
+        if (x && x.fleet_number != null) x.fleet_number = String(x.fleet_number).replace(/^#+\s*/, "").trim();
+        return x;
+      });
       STATE.stock = s.stock || [];
       STATE.alerts = al.alerts || [];
       STATE.loading = false;
@@ -870,6 +873,11 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var can = STATE.writesEnabled;
       var html = "";
 
+      /* What the original Nexy booking calls for — staff allocate a fleet # per slot. */
+      if (booking.generatorLines && booking.generatorLines.length) {
+        html += '<p class="rs-gen-source subtle">From the deal: ' + booking.generatorLines.map(esc).join(" &middot; ") + "</p>";
+      }
+
       /* requirement rows */
       html += '<table class="js-table js-equip stackable"><thead><tr>' +
               '<th>Item</th><th class="num">Req</th><th>Allocated</th><th>Status</th><th class="chk">Picked</th>' +
@@ -885,7 +893,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
             allocatedCell = "Cross-hire" + (a.override_note ? " — " + esc(a.override_note) : "");
           } else allocatedCell = "&mdash;";
           actions = can
-            ? '<button class="fleet-btn sm" data-act="alloc-gen">' + (a ? "Change" : "Allocate generator") + "</button>" +
+            ? '<button class="fleet-btn sm" data-act="alloc-gen"' + (a ? ' data-alloc="' + esc(a.allocation_id) + '"' : "") + ">" + (a ? "Change" : "Allocate generator") + "</button>" +
               (a ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "") +
               (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen">Cross-hire</button>')
             : '<span class="fleet-write-off sm">read-only</span>';
@@ -919,6 +927,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
                 '<td class="js-actions-col" data-label="">' + actions + "</td></tr>";
       });
       html += "</tbody></table>";
+      if (can) html += '<button class="fleet-btn sm ghost js-add-gen" data-act="alloc-gen">+ Add generator</button>';
       if (can) html += '<button class="fleet-btn sm ghost js-add-item" data-act="alloc-stock" data-req="-1">+ Add stock item</button>';
 
       /* alerts */
@@ -932,39 +941,48 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         else if (genAlloc.service.state === "due_soon") html += '<div class="rs-alert warn">Generator service due soon (' + esc(genAlloc.service.hoursUntilDue) + ' hrs remaining).</div>';
       }
 
-      /* engine hours */
-      var latest = engineHours[0] || {};
-      var fuelM = /fuel out:\s*([0-9]{1,3})\s*%/i.exec(latest.notes || "");
-      var refuelReq = /ongoing refuelling required/i.test(latest.notes || "");
-      var fuelReturnM = /fuel return:\s*([0-9]{1,3})\s*%/i.exec(latest.notes || "");
-      html += '<div class="rs-hours"' + (genAlloc && genAlloc.asset ? "" : ' data-noasset="1"') + '>' +
-        '<div class="rs-hcell"><label>Engine hours OUT</label><input type="number" min="0" id="rsHoursOut" value="' + esc(latest.hours_out != null ? latest.hours_out : "") + '"' + (can && genAlloc ? "" : " disabled") + ' /></div>' +
-        '<div class="rs-hcell"><label>Engine hours IN</label><input type="number" min="0" id="rsHoursIn" value="' + esc(latest.hours_in != null ? latest.hours_in : "") + '"' + (can && genAlloc ? "" : " disabled") + ' /></div>' +
-        '<div class="rs-hcell"><label>Runtime</label><output id="rsRuntime">' + esc(latest.runtime_hours != null ? latest.runtime_hours : "—") + '</output></div>' +
-        '<div class="rs-hcell"><label>Asset hours (current)</label><output>' + (genAlloc && genAlloc.asset ? esc(genAlloc.asset.current_engine_hours) : "—") + '</output></div>' +
-        '<div class="rs-herr" id="rsHoursErr" hidden></div>' + "</div>";
-      /* ---- dedicated fuel row ---- */
-      html += '<div class="rs-fuel">' +
-        '<div class="rs-fuel-cell">' +
-          '<label class="rs-fuel-label">Fuel level OUT <span class="rs-fuel-unit">%</span></label>' +
-          '<input type="number" min="0" max="100" step="5" id="rsFuelOut" value="' + esc(fuelM ? fuelM[1] : "") + '"' + (can && genAlloc ? "" : " disabled") + ' placeholder="e.g. 80" />' +
-        '</div>' +
-        '<div class="rs-fuel-cell rs-fuel-toggle-cell">' +
-          '<label class="rs-fuel-label">Ongoing refuelling required</label>' +
-          '<label class="rs-toggle">' +
-            '<input type="checkbox" id="rsRefuel"' + (refuelReq ? " checked" : "") + (can && genAlloc ? "" : " disabled") + ' />' +
-            '<span class="rs-toggle-track"><span class="rs-toggle-thumb"></span></span>' +
-            '<span class="rs-toggle-text" id="rsRefuelText">' + (refuelReq ? "Yes — schedule refuels" : "No") + '</span>' +
-          '</label>' +
-        '</div>' +
-        '<div class="rs-fuel-cell">' +
-          '<label class="rs-fuel-label">Fuel level on RETURN <span class="rs-fuel-unit">%</span></label>' +
-          '<input type="number" min="0" max="100" step="5" id="rsFuelReturn" value="' + esc(fuelReturnM ? fuelReturnM[1] : "") + '"' + (can && genAlloc ? "" : " disabled") + ' placeholder="fill on return" />' +
-        '</div>' +
-      '</div>';
-      html += (can && genAlloc ? '<div class="rs-save-row"><span class="rs-save-hint">Saves engine hours &amp; fuel levels</span>' +
-        '<button class="fleet-btn sm" id="rsHoursSave">Save hours &amp; fuel</button></div>' : "");
-      if (refuelReq) html += '<div class="rs-alert warn">⛽ Ongoing onsite refuelling required — schedule refuelling visits for this hire.</div>';
+      /* engine hours & fuel — PER GENERATOR (aligned table; each unit records its own) */
+      var genAllocs = (allocations || []).filter(function (a) { return a.asset_id && a.asset; })
+        .sort(function (x, y) { return String(x.asset.fleet_number == null ? "" : x.asset.fleet_number).localeCompare(String(y.asset.fleet_number == null ? "" : y.asset.fleet_number), undefined, { numeric: true }); });
+      var latestByAsset = {};
+      (engineHours || []).forEach(function (r) { if (r.asset_id && !latestByAsset[r.asset_id]) latestByAsset[r.asset_id] = r; });
+      var anyRefuel = false;
+      if (genAllocs.length) {
+        var genRows = genAllocs.map(function (a) {
+          var L = latestByAsset[a.asset_id] || {};
+          var fO = /fuel out:\s*([0-9]{1,3})\s*%/i.exec(L.notes || "");
+          var fR = /fuel return:\s*([0-9]{1,3})\s*%/i.exec(L.notes || "");
+          var rq = /ongoing refuelling required/i.test(L.notes || "");
+          if (rq) anyRefuel = true;
+          var kva = a.asset.generator_size_kva != null ? (a.asset.generator_size_kva + " kVA") : "";
+          var cur = a.asset.current_engine_hours != null ? a.asset.current_engine_hours : "—";
+          var d = can ? "" : " disabled";
+          return '<div class="rs-grow rs-gen" data-asset="' + esc(a.asset_id) + '" data-fleet="' + esc(a.asset.fleet_number || "") + '">' +
+              '<span class="rs-gc rs-gc-unit"><span class="rs-gen-fleet">#' + esc(String(a.asset.fleet_number == null ? "" : a.asset.fleet_number).replace(/^#+/, "")) + '</span>' + (kva ? '<span class="rs-gen-kva">' + esc(kva) + '</span>' : "") + '</span>' +
+              '<span class="rs-gc rs-gc-now" data-label="Now">' + esc(cur) + ' h</span>' +
+              '<span class="rs-gc" data-label="Hrs out"><input type="number" min="0" inputmode="decimal" class="rsg-out"' + d + ' value="' + esc(L.hours_out != null ? L.hours_out : "") + '" /></span>' +
+              '<span class="rs-gc" data-label="Hrs in"><input type="number" min="0" inputmode="decimal" class="rsg-in"' + d + ' value="' + esc(L.hours_in != null ? L.hours_in : "") + '" /></span>' +
+              '<span class="rs-gc rs-gc-run" data-label="Run"><output class="rsg-run">' + esc(L.runtime_hours != null ? L.runtime_hours : "—") + '</output></span>' +
+              '<span class="rs-gc" data-label="Fuel out %"><input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fout"' + d + ' value="' + esc(fO ? fO[1] : "") + '" placeholder="%" /></span>' +
+              '<span class="rs-gc" data-label="Return %"><input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fret"' + d + ' value="' + esc(fR ? fR[1] : "") + '" placeholder="%" /></span>' +
+              '<span class="rs-gc rs-gc-refuel" data-label="Refuel"><label class="rs-toggle"><input type="checkbox" class="rsg-refuel"' + (rq ? " checked" : "") + d + ' /><span class="rs-toggle-track"><span class="rs-toggle-thumb"></span></span><span class="rs-toggle-text rsg-refuel-txt">' + (rq ? "Yes" : "No") + '</span></label></span>' +
+              '<span class="rsg-err" hidden></span>' +
+            '</div>';
+        }).join("");
+        html += '<div class="rs-gens-head"><span class="rs-gens-title">Engine hours &amp; fuel</span>' +
+          (can && genAllocs.length > 1 ? '<button class="fleet-btn xs ghost" id="rsCopyFuel" type="button" title="Copy the first unit fuel-out % to every generator">Same fuel-out for all</button>' : "") + '</div>';
+        html += '<div class="rs-gtable">' +
+          '<div class="rs-grow rs-ghead">' +
+            '<span class="rs-gc rs-gc-unit">Unit</span><span class="rs-gc rs-gc-now">Now</span>' +
+            '<span class="rs-gc">Hrs out</span><span class="rs-gc">Hrs in</span><span class="rs-gc rs-gc-run">Run</span>' +
+            '<span class="rs-gc">Fuel out</span><span class="rs-gc">Return</span><span class="rs-gc rs-gc-refuel">Refuel</span>' +
+          '</div>' + genRows + '</div>';
+        html += (can ? '<div class="rs-save-row"><span class="rs-save-hint">Each generator saves its own hours &amp; fuel</span>' +
+          '<button class="fleet-btn sm" id="rsHoursSave">Save all hours &amp; fuel</button></div>' : "");
+        if (anyRefuel) html += '<div class="rs-alert warn">⛽ Ongoing onsite refuelling required — schedule refuelling visits for this hire.</div>';
+      } else {
+        html += '<div class="rs-note">Allocate a generator to record engine hours &amp; fuel.</div>';
+      }
 
       box.innerHTML = html;
       wireResourcing(box, bk || booking, genAlloc, st);
@@ -979,7 +997,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var t = e.target.closest && e.target.closest("[data-act]");
       if (!t) return;
       var act = t.getAttribute("data-act");
-      if (act === "alloc-gen") openAllocateModal(booking);
+      if (act === "alloc-gen") openAllocateModal(booking, t.getAttribute("data-alloc") || null);
       else if (act === "xhire-gen") {
         if (!ensureToken()) return;
         var note = window.prompt("Cross-hire supplier name + notes (required):", "");
@@ -1007,53 +1025,83 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       }
     });
 
-    /* engine hours validation + save */
-    var outEl = box.querySelector("#rsHoursOut"), inEl = box.querySelector("#rsHoursIn"),
-        rt = box.querySelector("#rsRuntime"), errEl = box.querySelector("#rsHoursErr");
-    var fuelEl = box.querySelector("#rsFuelOut"), refuelEl = box.querySelector("#rsRefuel");
-    var fuelReturnEl = box.querySelector("#rsFuelReturn");
-    /* live toggle label */
-    if (refuelEl) refuelEl.addEventListener("change", function () {
-      var lbl = box.querySelector("#rsRefuelText");
-      if (lbl) lbl.textContent = refuelEl.checked ? "Yes — schedule refuels" : "No";
-    });
-    function recalc() {
-      if (!outEl || !inEl) return true;
-      var o = outEl.value === "" ? null : parseFloat(outEl.value);
-      var i = inEl.value === "" ? null : parseFloat(inEl.value);
-      var fu = fuelEl && fuelEl.value !== "" ? parseFloat(fuelEl.value) : null;
-      var fr = fuelReturnEl && fuelReturnEl.value !== "" ? parseFloat(fuelReturnEl.value) : null;
+    /* engine hours & fuel — validate + save, PER GENERATOR */
+    var genRowEls = [].slice.call(box.querySelectorAll(".rs-gen"));
+    var saveBtn = box.querySelector("#rsHoursSave");
+    function rowVals(row) {
+      var out = row.querySelector(".rsg-out"), inn = row.querySelector(".rsg-in");
+      var fout = row.querySelector(".rsg-fout"), fret = row.querySelector(".rsg-fret");
+      var refuel = row.querySelector(".rsg-refuel");
+      return {
+        assetId: row.getAttribute("data-asset"),
+        o: out && out.value !== "" ? parseFloat(out.value) : null,
+        i: inn && inn.value !== "" ? parseFloat(inn.value) : null,
+        fo: fout && fout.value !== "" ? parseFloat(fout.value) : null,
+        fr: fret && fret.value !== "" ? parseFloat(fret.value) : null,
+        refuel: !!(refuel && refuel.checked),
+        hasAny: !!((out && out.value !== "") || (inn && inn.value !== "") || (fout && fout.value !== "") || (fret && fret.value !== "") || (refuel && refuel.checked)),
+        row: row
+      };
+    }
+    function validateRow(v) {
       var msg = "";
-      if (o != null && o < 0) msg = "Engine hours out cannot be negative.";
-      else if (i != null && i < 0) msg = "Engine hours in cannot be negative.";
-      else if (o != null && i != null && i < o) msg = "Engine hours in cannot be less than engine hours out.";
-      else if (fu != null && (fu < 0 || fu > 100)) msg = "Fuel level out must be 0–100%.";
-      else if (fr != null && (fr < 0 || fr > 100)) msg = "Fuel level on return must be 0–100%.";
+      if (v.o != null && v.o < 0) msg = "Hours out cannot be negative.";
+      else if (v.i != null && v.i < 0) msg = "Hours in cannot be negative.";
+      else if (v.o != null && v.i != null && v.i < v.o) msg = "Hours in cannot be less than hours out.";
+      else if (v.fo != null && (v.fo < 0 || v.fo > 100)) msg = "Fuel out must be 0–100%.";
+      else if (v.fr != null && (v.fr < 0 || v.fr > 100)) msg = "Fuel return must be 0–100%.";
+      var errEl = v.row.querySelector(".rsg-err");
       if (errEl) { errEl.hidden = !msg; errEl.textContent = msg; }
-      if (rt) rt.textContent = (!msg && o != null && i != null) ? String(i - o) : "—";
+      var runEl = v.row.querySelector(".rsg-run");
+      if (runEl) runEl.textContent = (!msg && v.o != null && v.i != null) ? String(Math.round((v.i - v.o) * 10) / 10) : "—";
       return !msg;
     }
-    if (outEl) outEl.addEventListener("input", recalc);
-    if (inEl) inEl.addEventListener("input", recalc);
-    if (fuelEl) fuelEl.addEventListener("input", recalc);
-    if (fuelReturnEl) fuelReturnEl.addEventListener("input", recalc);
-    var saveBtn = box.querySelector("#rsHoursSave");
-    if (saveBtn && genAlloc) saveBtn.addEventListener("click", function () {
-      if (!recalc()) return;
-      if (!ensureToken()) return;
+    function payloadFor(v) {
       var noteParts = [];
-      if (fuelEl && fuelEl.value !== "") noteParts.push("Fuel out: " + Math.round(parseFloat(fuelEl.value)) + "%");
-      if (fuelReturnEl && fuelReturnEl.value !== "") noteParts.push("Fuel return: " + Math.round(parseFloat(fuelReturnEl.value)) + "%");
-      noteParts.push(refuelEl && refuelEl.checked ? "Ongoing refuelling REQUIRED" : "No ongoing refuelling");
-      var payload = { asset_id: genAlloc.asset_id, pipedrive_deal_id: booking.pipedriveDealId,
-                      hours_out: num(outEl.value), hours_in: num(inEl.value),
-                      notes: noteParts.join(" | ") };
+      if (v.fo != null) noteParts.push("Fuel out: " + Math.round(v.fo) + "%");
+      if (v.fr != null) noteParts.push("Fuel return: " + Math.round(v.fr) + "%");
+      noteParts.push(v.refuel ? "Ongoing refuelling REQUIRED" : "No ongoing refuelling");
+      return { asset_id: v.assetId, pipedrive_deal_id: booking.pipedriveDealId, hours_out: v.o, hours_in: v.i, notes: noteParts.join(" | ") };
+    }
+    function saveRow(row, silent) {
+      var v = rowVals(row);
+      if (!validateRow(v)) return Promise.resolve(false);
+      if (!ensureToken()) return Promise.resolve(false);
+      return apiSend("POST", "/jobsheet?action=engine-hours", payloadFor(v)).then(function (r) {
+        if (!r.body.ok) { if (!silent) alert(r.body.error || "Failed to record hours"); return false; }
+        return true;
+      }).catch(function (e) { if (!silent) alert(e.message); return false; });
+    }
+    genRowEls.forEach(function (row) {
+      var out = row.querySelector(".rsg-out"), inn = row.querySelector(".rsg-in");
+      if (out) out.addEventListener("input", function () { validateRow(rowVals(row)); });
+      if (inn) inn.addEventListener("input", function () { validateRow(rowVals(row)); });
+      var refuel = row.querySelector(".rsg-refuel");
+      if (refuel) refuel.addEventListener("change", function () {
+        var txt = row.querySelector(".rsg-refuel-txt"); if (txt) txt.textContent = refuel.checked ? "Refuel" : "No refuel";
+        saveRow(row, true);
+      });
+    });
+    var copyBtn = box.querySelector("#rsCopyFuel");
+    if (copyBtn) copyBtn.addEventListener("click", function () {
+      var first = genRowEls[0] && genRowEls[0].querySelector(".rsg-fout");
+      if (!first || first.value === "") return;
+      genRowEls.forEach(function (row) { var f = row.querySelector(".rsg-fout"); if (f) f.value = first.value; });
+    });
+    if (saveBtn) saveBtn.addEventListener("click", function () {
+      var rows = genRowEls.map(rowVals).filter(function (v) { return v.hasAny; });
+      if (!rows.length) { alert("Enter hours or fuel for at least one generator."); return; }
+      for (var k = 0; k < rows.length; k++) { if (!validateRow(rows[k])) return; }
+      if (!ensureToken()) return;
       saveBtn.disabled = true; saveBtn.textContent = "Saving…";
-      apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
-        saveBtn.disabled = false; saveBtn.textContent = "Save hours & fuel";
-        if (!r.body.ok) { alert(r.body.error || "Failed to record hours"); return; }
+      Promise.all(rows.map(function (v) {
+        return apiSend("POST", "/jobsheet?action=engine-hours", payloadFor(v)).then(function (r) { return !!(r.body && r.body.ok); });
+      })).then(function (results) {
+        saveBtn.disabled = false; saveBtn.textContent = "Save all hours & fuel";
+        var failed = results.filter(function (ok) { return !ok; }).length;
+        if (failed) alert(failed + " generator(s) failed to save. Please retry.");
         reopenJobsheet(booking);
-      }).catch(function (e) { saveBtn.disabled = false; saveBtn.textContent = "Save hours & fuel"; alert(e.message); });
+      }).catch(function (e) { saveBtn.disabled = false; saveBtn.textContent = "Save all hours & fuel"; alert(e.message); });
     });
   }
 
@@ -1072,14 +1120,14 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     return "on hire to deal #" + esc(c.pipedrive_deal_id) + " (" + d(c.hire_start) + " &rarr; " + d(c.hire_end) + ")";
   }
 
-  function openAllocateModal(booking) {
+  function openAllocateModal(booking, replaceId) {
     if (!ensureToken()) return;
     var size = parseGenSize(booking.generatorSize);
     // Fetch ALL available assets for the window (no size filter) — the
     // requested size is a recommendation, not a hard gate: dispatch can
     // allocate a different unit rather than being forced into a cross-hire.
     var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") + "&end=" + encodeURIComponent(booking.endDate || "");
-    var m = openModal("Allocate generator - deal #" + booking.pipedriveDealId,
+    var m = openModal((replaceId ? "Change generator - deal #" : "Allocate generator - deal #") + booking.pipedriveDealId,
       '<p class="subtle">Required size: <strong>' + esc(booking.generatorSize || "TBC") + "</strong> &middot; " + esc(booking.startDate || "?") + " &rarr; " + esc(booking.endDate || "?") + "</p>" +
       '<div id="allocList">Loading available generators&hellip;</div>');
     apiGet(qs).then(function (r) {
@@ -1159,10 +1207,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           var subKva = b.getAttribute("data-sub-kva");
           if (subKva) {
             if (!window.confirm("Allocate a " + subKva + " kVA unit against a " + (booking.generatorSize || "?") + " request?")) return;
-            doAllocate(booking, b.getAttribute("data-alloc"), "Size substitution: " + subKva + " kVA allocated (requested " + (booking.generatorSize || "unspecified") + ")", m);
+            doAllocate(booking, b.getAttribute("data-alloc"), "Size substitution: " + subKva + " kVA allocated (requested " + (booking.generatorSize || "unspecified") + ")", m, false, replaceId);
             return;
           }
-          doAllocate(booking, b.getAttribute("data-alloc"), null, m);
+          doAllocate(booking, b.getAttribute("data-alloc"), null, m, false, replaceId);
         }
         else if (x) {
           var note = window.prompt("Cross-hire supplier name + notes (required):", "");
@@ -1173,15 +1221,22 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     });
   }
 
-  function doAllocate(booking, assetId, overrideNote, modal, crossHire) {
+  function doAllocate(booking, assetId, overrideNote, modal, crossHire, replaceId) {
     var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "", asset_id: assetId || null,
       hire_start: booking.startDate || null, hire_end: booking.endDate || null, override_note: overrideNote || null };
     if (crossHire) payload.allocation_status = "cross_hire_required";
-    apiSend("POST", "/allocations", payload).then(function (r) {
+    // Change = replace THIS slot's unit (PATCH the row); Allocate / Add = a new
+    // row (POST). The DB has no one-per-deal cap, so a deal holds many gensets.
+    function send() {
+      return replaceId
+        ? apiSend("PATCH", "/allocations?id=" + encodeURIComponent(replaceId), payload)
+        : apiSend("POST", "/allocations", payload);
+    }
+    send().then(function (r) {
       if (!r.body.ok) {
         if (/overdue/i.test(r.body.error || "")) {
           var note = window.prompt(r.body.error + "\nEnter an override note to proceed:", "");
-          if (note && note.trim()) { payload.override_note = note.trim(); return apiSend("POST", "/allocations", payload).then(function (r2) { if (r2.body.ok) { modal.close(); reopenJobsheet(booking); } else alert(r2.body.error); }); }
+          if (note && note.trim()) { payload.override_note = note.trim(); return send().then(function (r2) { if (r2.body.ok) { modal.close(); reopenJobsheet(booking); } else alert(r2.body.error); }); }
           return;
         }
         alert(r.body.error || "Allocation failed");

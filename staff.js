@@ -377,8 +377,29 @@
           return;
         }
         STATE.staff = data.staff;
+        // Group the roster by type (Employees then Contractors); within a group,
+        // cluster by role so inspectors, electricians etc. sit together.
+        var byType = { employee: [], contractor: [] };
         data.staff.forEach(function (m) {
-          list.appendChild(buildStaffCard(m, root));
+          (m.staff_type === "contractor" ? byType.contractor : byType.employee).push(m);
+        });
+        [["employee", "Employees"], ["contractor", "Contractors"]].forEach(function (g) {
+          var members = byType[g[0]];
+          if (!members.length) return;
+          members.sort(function (a, b) {
+            return String(a.role || "").localeCompare(String(b.role || "")) ||
+                   String(a.name || "").localeCompare(String(b.name || ""));
+          });
+          var head = el("div", "sr-group-head", g[1] + " · " + members.length);
+          head.style.gridColumn = "1 / -1";
+          head.style.margin = "10px 2px 2px";
+          head.style.fontSize = "12px";
+          head.style.fontWeight = "700";
+          head.style.textTransform = "uppercase";
+          head.style.letterSpacing = "0.04em";
+          head.style.opacity = "0.55";
+          list.appendChild(head);
+          members.forEach(function (m) { list.appendChild(buildStaffCard(m, root)); });
         });
       }).catch(function (e) {
         list.innerHTML = '<div class="su-error">Network error: ' + esc(e.message) + '</div>';

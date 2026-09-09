@@ -68,6 +68,8 @@ var STATE = {
   filters: { search: "", type: "", status: "", size: "", owner: "" },
   showProspective: true,   // forward-look: in-negotiation planned outages (greyed tiles)
   tv: false,
+  groups: {},
+  mergeBarHidden: false,
   live: false,
   everLive: false,
   loaded: false,
@@ -146,19 +148,24 @@ function spansDay(b, day) {
 
 // ---------- fleet conflict detection ----------
 function detectConflicts(bookings) {
+  // A real fleet conflict is the SAME physical unit promised to two overlapping
+  // jobs — both bookings carry the same allocated fleet number. Two hires that
+  // merely share a SIZE are NOT a conflict: the fleet holds several units of most
+  // sizes and staff allocate the specific machines on the board. Keying on size
+  // used to raise a false "double-booked" alarm (e.g. two unrelated 40kVA hires,
+  // a size we don't even stock), which is what this replaces.
   var conflicts = [];
+  function unit(b) { return String(b.equipmentId || "").replace(/^#+/, "").trim().toUpperCase(); }
   var active = bookings.filter(function (b) {
-    return !b.prospective && b.status !== "cancelled" && b.status !== "completed" && (b.equipmentId || b.generatorSize) && bStart(b);
+    return !b.prospective && b.status !== "cancelled" && b.status !== "completed" && unit(b) && bStart(b);
   });
   for (var i = 0; i < active.length; i++) {
     for (var j = i + 1; j < active.length; j++) {
       var a = active[i], c = active[j];
-      var key = a.equipmentId && c.equipmentId ? (a.equipmentId === c.equipmentId)
-                : (a.generatorSize && a.generatorSize === c.generatorSize);
-      if (!key) continue;
+      if (unit(a) !== unit(c)) continue;   // different (or unallocated) units — normal pipeline
       var as = bStart(a), ae = bEnd(a) || as, cs = bStart(c), ce = bEnd(c) || cs;
       if (as.getTime() <= ce.getTime() && cs.getTime() <= ae.getTime()) {
-        conflicts.push({ a: a, b: c, resource: a.equipmentId || a.generatorSize });
+        conflicts.push({ a: a, b: c, resource: "#" + unit(a) });
       }
     }
   }
@@ -171,6 +178,7 @@ function applyFilters(bookings) {
   var q = f.search.trim().toLowerCase();
   return bookings.filter(function (b) {
     if (b.prospective && !STATE.showProspective) return false;
+    if (b.prospective && STATE.dismissed && STATE.dismissed.has(String(b.pipedriveDealId))) return false;
     if (f.type && b.jobType !== f.type) return false;
     if (f.status && b.status !== f.status) return false;
     if (f.size && b.generatorSize !== f.size) return false;
@@ -494,11 +502,224 @@ function bookingCard(b, compact) {
   return card;
 }
 
+/* ============================================================================
+ * MERGE GROUPS — bookings that are really ONE job (e.g. JB Sheetmetal split
+ * across two deals) are linked so the board draws them as a single row. This is
+ * non-destructive: the CRM deals + invoices are untouched, we only record the
+ * grouping (api/groups). Detection suggests likely merges; a manager confirms.
+ * ========================================================================== */
+function groupsApiBase() { return (CONFIG.apiBase || "/api").replace(/\/$/, ""); }
+function groupsAuthHeaders() {
+  var h = { "Content-Type": "application/json" };
+  var t = ""; try { t = localStorage.getItem("nexusFleetAdminToken") || ""; } catch (e) {}
+  if (t) h["x-fleet-admin-token"] = t;
+  return h;
+}
+function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+
+function loadGroups() {
+  return fetch(groupsApiBase() + "/groups", { headers: { Accept: "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { STATE.groups = (d && d.groups) || {}; })
+    .catch(function () { STATE.groups = STATE.groups || {}; });
+}
+
+/* Dismissed pending bookings: a set of deal ids to hide while they are still
+   prospective (not won). Kept server-side so a dismissal sticks across devices
+   and the office screen, and reappears the moment the deal is marked won. */
+function loadDismissals() {
+  return fetch(groupsApiBase() + "/dismissals", { headers: { Accept: "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { STATE.dismissed = new Set((d && d.dismissed) || []); })
+    .catch(function () { STATE.dismissed = STATE.dismissed || new Set(); });
+}
+
+/* Remove a pending (not-won) booking from the board. Prospective only — a won
+   booking has no dismiss control and is never filtered by this. */
+function dismissBooking(b) {
+  if (!b || !b.prospective) return;
+  if (!groupsAuthHeaders()["x-fleet-admin-token"]) {
+    alert("Enter the Fleet admin token (Sync view) to dismiss bookings.");
+    return;
+  }
+  if (!window.confirm("Remove this pending booking" + (b.customer ? " (" + b.customer + ")" : "") +
+    " from the board?\n\nIt won't come back unless the deal is marked won in Nexy.")) return;
+  fetch(groupsApiBase() + "/dismissals", {
+    method: "POST", headers: groupsAuthHeaders(),
+    body: JSON.stringify({ dealId: String(b.pipedriveDealId) })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (res) { if (!res.ok) throw new Error(res.error || "Dismiss failed"); return loadDismissals(); })
+    .then(function () { render(); })
+    .catch(function (e) { alert(e.message); });
+}
+function groupOfBooking(b) {
+  var g = STATE.groups || {};
+  return g[String(b.pipedriveDealId)] || g[String(b.crmDealId)] || null;
+}
+
+/* Collapse bookings sharing a group into one synthetic "grouped" booking. */
+function applyGroups(bookings) {
+  var g = STATE.groups || {};
+  if (!g || !Object.keys(g).length) return bookings;
+  var byGroup = {}, out = [];
+  bookings.forEach(function (b) {
+    var m = groupOfBooking(b);
+    if (!m) { out.push(b); return; }
+    (byGroup[m.group_id] = byGroup[m.group_id] || { members: [], label: m.label }).members.push(b);
+  });
+  Object.keys(byGroup).forEach(function (gid) {
+    var members = byGroup[gid].members;
+    if (members.length === 1) { out.push(members[0]); return; }
+    out.push(makeGroupBooking(gid, members, byGroup[gid].label));
+  });
+  return out;
+}
+function makeGroupBooking(gid, members, label) {
+  members = members.slice().sort(function (a, z) { return (bStart(a) || new Date(0)) - (bStart(z) || new Date(0)); });
+  var start = null, end = null;
+  members.forEach(function (b) {
+    var s = bStart(b), e = bEnd(b) || s;
+    if (s && (!start || s < start)) start = s;
+    if (e && (!end || e > end)) end = e;
+  });
+  var sizes = members.map(function (b) { return b.generatorSize; }).filter(Boolean);
+  var head = members[0];
+  return Object.assign({}, head, {
+    isGroup: true, groupId: gid, members: members, memberCount: members.length,
+    pipedriveDealId: "grp:" + gid,
+    customer: label || head.customer,
+    generatorSize: sizes.length ? (sizes.length > 2 ? sizes.slice(0, 2).join(", ") + " +" + (sizes.length - 2) : sizes.join(", ")) : head.generatorSize,
+    jobNumber: null,
+    startDate: start ? ymdStr(start) : head.startDate,
+    endDate: end ? ymdStr(end) : head.endDate,
+    durationDays: (start && end) ? Math.round((startOfDay(end) - startOfDay(start)) / 86400000) + 1 : head.durationDays,
+    status: members.some(function (b) { return b.status !== "confirmed" && b.status !== "completed" && !b.prospective; }) ? "needs-review" : head.status,
+  });
+}
+
+function datesNearby(a, b, gapDays) {
+  var as = startOfDay(bStart(a)).getTime(), ae = startOfDay(bEnd(a) || bStart(a)).getTime();
+  var bs = startOfDay(bStart(b)).getTime(), be = startOfDay(bEnd(b) || bStart(b)).getTime();
+  var gap = gapDays * 86400000;
+  return (as - gap) <= be && (bs - gap) <= ae;
+}
+/* Same customer + same suburb + overlapping/adjacent dates, among ungrouped. */
+function suggestGroups(bookings) {
+  var pool = bookings.filter(function (b) {
+    return !b.isGroup && !b.prospective && b.status !== "cancelled" && b.status !== "completed" && bStart(b) && !groupOfBooking(b);
+  });
+  var byCust = {};
+  pool.forEach(function (b) { var k = normName(b.customer); if (k) (byCust[k] = byCust[k] || []).push(b); });
+  var out = [];
+  Object.keys(byCust).forEach(function (k) {
+    var list = byCust[k]; if (list.length < 2) return;
+    var used = {};
+    list.forEach(function (b, i) {
+      if (used[i]) return;
+      var cluster = [b]; used[i] = 1;
+      for (var j = i + 1; j < list.length; j++) {
+        if (used[j]) continue;
+        var c = list[j];
+        var sameSub = normName(b.suburb || b.site) === normName(c.suburb || c.site) || !b.suburb || !c.suburb;
+        if (sameSub && datesNearby(b, c, 2)) { cluster.push(c); used[j] = 1; }
+      }
+      if (cluster.length >= 2) out.push(cluster);
+    });
+  });
+  return out;
+}
+
+function mergeBookings(dealIds, label) {
+  if (!groupsAuthHeaders()["x-fleet-admin-token"]) { alert("Enter the Fleet admin token (Sync view) to merge bookings."); return Promise.resolve(); }
+  return fetch(groupsApiBase() + "/groups", { method: "POST", headers: groupsAuthHeaders(), body: JSON.stringify({ dealIds: dealIds, label: label }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) { if (!res.ok) throw new Error(res.error || "Merge failed"); return loadGroups(); })
+    .then(function () { render(); })
+    .catch(function (e) { alert(e.message); });
+}
+function unmergeGroup(groupId) {
+  return fetch(groupsApiBase() + "/groups?groupId=" + encodeURIComponent(groupId), { method: "DELETE", headers: groupsAuthHeaders() })
+    .then(function (r) { return r.json(); })
+    .then(function (res) { if (!res.ok) throw new Error(res.error || "Unmerge failed"); return loadGroups(); })
+    .then(function () { closeModal(); render(); })
+    .catch(function (e) { alert(e.message); });
+}
+
+/* Suggestions banner above the board. */
+function renderMergeBar(suggestions) {
+  var host = document.getElementById("calendarRoot");
+  var bar = document.getElementById("mergeBar");
+  if (!suggestions.length) { if (bar) bar.parentNode.removeChild(bar); return; }
+  if (!bar) { bar = el("div"); bar.id = "mergeBar"; host.parentNode.insertBefore(bar, host); }
+  bar.className = "merge-bar";
+  var names = suggestions.slice(0, 3).map(function (c) { return escapeHtml(c[0].customer || "?") + " (" + c.length + ")"; }).join(", ");
+  bar.innerHTML =
+    '<span class="merge-bar-txt"><strong>' + suggestions.length + '</strong> possible ' + (suggestions.length === 1 ? "merge" : "merges") +
+    ' &mdash; ' + names + (suggestions.length > 3 ? "…" : "") + '</span>' +
+    '<button class="merge-bar-btn" id="mergeReviewBtn" type="button">Review merges</button>' +
+    '<button class="merge-bar-x" id="mergeDismiss" type="button" title="Hide for now">×</button>';
+  bar.querySelector("#mergeReviewBtn").addEventListener("click", function () { openMergeReview(suggestions); });
+  bar.querySelector("#mergeDismiss").addEventListener("click", function () { STATE.mergeBarHidden = true; bar.parentNode.removeChild(bar); });
+}
+
+function openMergeReview(suggestions) {
+  var m = document.getElementById("bookingModal");
+  m.classList.remove("jobsheet-modal");
+  var rows = suggestions.map(function (c, i) {
+    var when = fmtShort(bStart(c[0])) + " – " + fmtShort(c.reduce(function (mx, b) { var e = bEnd(b) || bStart(b); return (!mx || e > mx) ? e : mx; }, null));
+    var items = c.map(function (b) { return '<li>' + escapeHtml((b.jobNumber ? b.jobNumber + " · " : "") + (b.generatorSize || "")) + " · " + fmtShort(bStart(b)) + "–" + fmtShort(bEnd(b) || bStart(b)) + '</li>'; }).join("");
+    return '<div class="mg-sug"><div class="mg-sug-head"><div><div class="mg-sug-cust">' + escapeHtml(c[0].customer || "Unknown") + '</div>' +
+      '<div class="mg-sug-sub">' + escapeHtml(c[0].suburb || c[0].site || "") + ' · ' + when + ' · ' + c.length + ' bookings</div></div>' +
+      '<button class="btn primary sm mg-do" data-i="' + i + '">Merge as one job</button></div><ul class="mg-sug-items">' + items + '</ul></div>';
+  }).join("");
+  m.innerHTML = '<div class="mg-modal"><div class="mg-modal-head"><h3>Suggested merges</h3><button class="modal-close" id="mgClose">×</button></div>' +
+    '<p class="mg-modal-intro">These look like one job split across bookings — same customer, site and overlapping dates. Merging groups them into a single row on the board; the deals and invoices stay separate.</p>' +
+    '<div class="mg-list">' + rows + '</div></div>';
+  document.getElementById("modalBackdrop").hidden = false;
+  m.querySelector("#mgClose").addEventListener("click", closeModal);
+  m.querySelectorAll(".mg-do").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var c = suggestions[Number(btn.getAttribute("data-i"))];
+      btn.disabled = true; btn.textContent = "Merging…";
+      mergeBookings(c.map(function (b) { return b.pipedriveDealId; }), c[0].customer).then(function () { closeModal(); });
+    });
+  });
+}
+
+/* A grouped bar/row opens a small chooser of its member jobs. */
+function openGroupModal(group) {
+  var m = document.getElementById("bookingModal");
+  m.classList.remove("jobsheet-modal");
+  var items = (group.members || []).map(function (b) {
+    return '<button class="mg-member" data-deal="' + escapeHtml(String(b.pipedriveDealId)) + '">' +
+      '<span class="mg-member-main">' + escapeHtml((b.jobNumber ? b.jobNumber + " · " : "") + (b.generatorSize || "Booking")) + '</span>' +
+      '<span class="mg-member-sub">' + fmtShort(bStart(b)) + " – " + fmtShort(bEnd(b) || bStart(b)) + '</span></button>';
+  }).join("");
+  m.innerHTML = '<div class="mg-modal"><div class="mg-modal-head"><h3>' + escapeHtml(group.customer || "Merged job") +
+    ' <span class="mg-count">' + group.memberCount + ' bookings</span></h3><button class="modal-close" id="mgClose2">×</button></div>' +
+    '<p class="mg-modal-intro">One job, grouped from ' + group.memberCount + ' bookings. Open any to see its jobsheet.</p>' +
+    '<div class="mg-members">' + items + '</div>' +
+    '<div class="mg-modal-foot"><button class="btn ghost sm" id="mgUnmerge">Unmerge</button></div></div>';
+  document.getElementById("modalBackdrop").hidden = false;
+  m.querySelector("#mgClose2").addEventListener("click", closeModal);
+  m.querySelector("#mgUnmerge").addEventListener("click", function () { if (window.confirm("Unmerge this job back into separate bookings?")) unmergeGroup(group.groupId); });
+  m.querySelectorAll(".mg-member").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var id = btn.getAttribute("data-deal");
+      var bk = (group.members || []).filter(function (x) { return String(x.pipedriveDealId) === id; })[0];
+      if (bk) openModal(bk);
+    });
+  });
+}
+
 function render() {
   var root = document.getElementById("calendarRoot");
   root.innerHTML = "";
-  var visible = applyFilters(STATE.bookings);
+  var filtered = applyFilters(STATE.bookings);
+  var visible = applyGroups(filtered);
   renderConflicts(detectConflicts(visible));
+  renderMergeBar(STATE.mergeBarHidden ? [] : suggestGroups(filtered));
   document.body.setAttribute("data-mode", STATE.tv ? "tv" : "desktop");
 
   // Overlay scheduled SERVICE jobs from the Nexus hub onto the calendar views
@@ -554,28 +775,211 @@ function render() {
 window.__hireRerender = render;
 
 function renderMonth(root, bookings) {
+  // Month is now the same continuous timeline as every other view, sized to the
+  // weeks that touch this calendar month (Mon of the 1st's week, six weeks on).
+  // The old month/span-week grid design has been retired.
   root.innerHTML = "";
   var first = new Date(STATE.cursor.getFullYear(), STATE.cursor.getMonth(), 1);
-  var grid = el("div", "month-grid month-grid-spans");
-  root.appendChild(grid);
-  appendDowHeader(grid);
-  renderSpanWeeks(grid, bookings, startOfWeek(first), 6, {
-    month: STATE.cursor.getMonth(),
-    maxLanes: STATE.tv ? 4 : 3
+  renderTimeline(root, bookings, startOfWeek(first), 42, { view: "month" });
+}
+
+// ---------- CONTINUOUS TIMELINE (3-Week + Week) ----------
+/*
+ * A generator hire runs for days or weeks. The old week-row grid (renderSpanWeeks)
+ * chopped every hire at each week boundary, repeated its customer label in each
+ * week, and stacked the long-runners into a tall near-empty "span band" that
+ * shoved the day cells off the bottom of the screen. That is a MONTH calendar's
+ * model, wrong for an operations board.
+ *
+ * This is the operator's board instead: ONE continuous day axis across the whole
+ * window and ONE unbroken bar per hire on its own row. A sticky identity column
+ * on the left always shows who/where; a sticky day header on top always shows
+ * when; today and weekends are banded straight down the grid. No week-wrapping,
+ * no repeated labels, no unbounded band. Rows are grouped On hire now / Upcoming /
+ * Back this period so the yard sees "what's out and what's coming" at a glance.
+ */
+function renderTimeline(root, bookings, gridStart, numDays, opts) {
+  opts = opts || {};
+  gridStart = startOfDay(gridStart);
+  var winStart = gridStart;
+  var winEnd = startOfDay(addDays(gridStart, numDays - 1));
+  var today = startOfDay(new Date());
+  var todayCol = Math.round((today.getTime() - winStart.getTime()) / 86400000);
+
+  var rows = bookings.filter(function (b) {
+    if (b.status === "cancelled") return false;
+    var s = bStart(b); if (!s) return false;
+    var e = startOfDay(bEnd(b) || s);
+    if (e.getTime() < today.getTime()) return false; // forward view: a hire already returned is history
+    return !(e.getTime() < winStart.getTime() || startOfDay(s).getTime() > winEnd.getTime());
   });
+
+  var tl = el("div", "tl tl-" + (opts.view || "fortnight"));
+  tl.style.setProperty("--tl-days", String(numDays));
+  tl.style.minWidth = "calc(var(--tl-head) + " + numDays + " * var(--tl-col-min))";
+
+  // ---- sticky day header: one row of day columns, banded ----
+  var headRow = el("div", "tl-headrow");
+  var corner = el("div", "tl-corner");
+  corner.innerHTML = '<span class="tl-corner-lbl">' + (opts.view === "week" ? "This week" : "Equipment bookings") +
+    '</span><span class="tl-corner-n">' + rows.length + '</span>';
+  headRow.appendChild(corner);
+  var dayHead = el("div", "tl-daycols");
+  for (var d = 0; d < numDays; d++) {
+    var date = addDays(gridStart, d);
+    var dow = date.getDay();
+    var cls = "tl-day";
+    if (dow === 0 || dow === 6) cls += " is-weekend";
+    if (sameDay(date, today)) cls += " is-today";
+    if (dow === 1 && d !== 0) cls += " is-weekstart";
+    var cell = el("div", cls);
+    var showMonth = date.getDate() === 1 || d === 0;
+    cell.innerHTML =
+      '<span class="tl-dow">' + date.toLocaleDateString("en-AU", { weekday: "short" }) + '</span>' +
+      '<span class="tl-dnum">' + date.getDate() + '</span>' +
+      (showMonth ? '<span class="tl-mon">' + date.toLocaleDateString("en-AU", { month: "short" }) + '</span>' : '');
+    dayHead.appendChild(cell);
+  }
+  headRow.appendChild(dayHead);
+  tl.appendChild(headRow);
+
+  if (!rows.length) {
+    var empty = el("div", "tl-empty");
+    empty.innerHTML =
+      '<p class="tl-empty-title">Nothing on the board</p>' +
+      '<p class="tl-empty-sub">No hires between ' + fmtShort(winStart) + ' and ' + fmtShort(winEnd) +
+      ' with the current filters.</p>';
+    tl.appendChild(empty);
+    root.appendChild(tl);
+    return;
+  }
+
+  // ---- one combined list: on hire now + upcoming, no section headings ----
+  // "Equipment bookings" is a single forward list — what is out now and what is
+  // coming next, earliest start first (so live hires lead, then upcoming). Any
+  // hire that already came back was dropped above, so there is no past section.
+  rows.sort(function (a, z) {
+    var sa = startOfDay(bStart(a)).getTime(), sz = startOfDay(bStart(z)).getTime();
+    return sa - sz || (durationDays(z) || 0) - (durationDays(a) || 0);
+  });
+
+  var body = el("div", "tl-body");
+  tl.appendChild(body);
+  rows.forEach(function (b) { body.appendChild(timelineRow(b, gridStart, numDays, todayCol)); });
+
+  root.appendChild(tl);
+}
+
+function timelineRow(b, gridStart, numDays, todayCol) {
+  var winStart = startOfDay(gridStart);
+  var winEnd = startOfDay(addDays(gridStart, numDays - 1));
+  var s = startOfDay(bStart(b));
+  var e = startOfDay(bEnd(b) || bStart(b));
+  var segStart = s.getTime() < winStart.getTime() ? winStart : s;
+  var segEnd   = e.getTime() > winEnd.getTime()   ? winEnd   : e;
+  var startCol = Math.round((segStart.getTime() - winStart.getTime()) / 86400000);
+  var endCol   = Math.round((segEnd.getTime()   - winStart.getTime()) / 86400000);
+  var contLeft  = s.getTime() < winStart.getTime();
+  var contRight = e.getTime() > winEnd.getTime();
+
+  var sm = statusMeta(b), tm = typeMeta(b);
+  var row = el("div", "tl-row " + tm.cls + " " + sm.cls + (b.prospective ? " is-prospective" : ""));
+  row.setAttribute("data-deal-id", b.pipedriveDealId);
+
+  var head = el("div", "tl-rowhead");
+  var job = b.isGroup ? '<span class="tl-job tl-job-grp">' + b.memberCount + ' jobs</span>' : (b.jobNumber ? '<span class="tl-job">' + escapeHtml(b.jobNumber) + '</span>' : '');
+  head.innerHTML =
+    '<span class="tl-dot" title="' + escapeHtml(sm.label) + '"></span>' +
+    '<span class="tl-rh-main">' +
+      '<span class="tl-cust">' + escapeHtml(b.customer || "Unknown customer") + '</span>' +
+      '<span class="tl-sub">' + escapeHtml(b.suburb || b.site || "Site TBC") +
+        (b.generatorSize ? '<span class="tl-gen"> · ' + escapeHtml(b.generatorSize) + '</span>' : '') +
+      '</span>' +
+    '</span>' + job;
+  head.addEventListener("click", function () {
+    if (b.isGroup) { openGroupModal(b); return; }
+    if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; }
+    openModal(b);
+  });
+  row.appendChild(head);
+
+  var track = el("div", "tl-track");
+  for (var d = 0; d < numDays; d++) {
+    var date = addDays(gridStart, d);
+    var dow = date.getDay();
+    var ccls = "tl-cell";
+    if (dow === 0 || dow === 6) ccls += " is-weekend";
+    if (d === todayCol) ccls += " is-today";
+    if (dow === 1 && d !== 0) ccls += " is-weekstart";
+    var cell = el("div", ccls);
+    cell.style.gridColumn = (d + 1) + " / " + (d + 2);
+    cell.setAttribute("data-date", ymdStr(date));
+    track.appendChild(cell);
+  }
+  var bar = buildTimelineBar(b, sm, tm, { startCol: startCol, endCol: endCol, contLeft: contLeft, contRight: contRight });
+  bar.style.gridColumn = (startCol + 1) + " / " + (endCol + 2);
+  track.appendChild(bar);
+  row.appendChild(track);
+  return row;
+}
+
+function buildTimelineBar(b, sm, tm, seg) {
+  var bar = el("div", "tl-bar " + tm.cls + " " + sm.cls + (b.prospective ? " is-prospective" : ""));
+  if (!seg.contLeft)  bar.classList.add("bar-start");
+  if (!seg.contRight) bar.classList.add("bar-end");
+  if (seg.contLeft)   bar.classList.add("cont-left");
+  if (seg.contRight)  bar.classList.add("cont-right");
+  var hasStaffConflict = STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)];
+  var days = durationDays(b);
+
+  var left = seg.contLeft ? '<span class="tl-chev" aria-hidden="true">‹</span>' : '<span class="tl-bar-dot"></span>';
+  var miles = "";
+  if (!seg.contLeft) {
+    miles += milestoneDot("delivery", "Delivery to site");
+    if (b.electricalConnectionRequired) miles += milestoneDot("connect", "Electrical connection");
+    if (b.refuellingRequired) miles += milestoneDot("refuel", "Ongoing refuelling");
+  }
+  if (hasStaffConflict) miles += '<span class="tl-staff-conflict" title="Labour conflict — staff double-booked">' + STAFF_CONFLICT_SVG + '</span>';
+  var right = seg.contRight ? '<span class="tl-chev" aria-hidden="true">›</span>' : milestoneDot("offhire", "Off-hire / pickup");
+  var dur = fmtShort(bStart(b)) + " → " + fmtShort(bEnd(b)) + (days ? " · " + days + "d" : "");
+
+  bar.innerHTML =
+    '<span class="tl-bar-cap tl-bar-l">' + left + (miles ? '<span class="tl-bar-miles">' + miles + '</span>' : '') + '</span>' +
+    (b.prospective ? '<button type="button" class="tl-bar-dismiss" title="Dismiss this pending booking — it won\u2019t return unless the deal is won" aria-label="Dismiss pending booking">\u2715</button>' : '') +
+    '<span class="tl-bar-lbl">' + escapeHtml(b.customer || "") + '</span>' +
+    (b.isGroup ? '<span class="tl-bar-grp">' + b.memberCount + ' jobs</span>' : '') +
+    '<span class="tl-bar-dur">' + dur + '</span>' +
+    '<span class="tl-bar-cap tl-bar-r">' + right + '</span>';
+
+  bar.title = (b.customer || "Unknown customer") +
+    ((b.suburb || b.site) ? " — " + (b.suburb || b.site) : "") +
+    " · " + fmtShort(bStart(b)) + " – " + fmtShort(bEnd(b)) + " · " + sm.label +
+    (hasStaffConflict ? " ⚠ Staff conflict" : "");
+  bar.setAttribute("role", "button");
+  bar.setAttribute("tabindex", "0");
+  bar.setAttribute("data-deal-id", b.pipedriveDealId);
+  bar.setAttribute("aria-label",
+    (b.customer || "Unknown customer") + ", " + (b.suburb || b.site || "") + ", " +
+    fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) + ", " + sm.label);
+
+  var open = function () { if (b.isGroup) { openGroupModal(b); return; } if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
+  bar.addEventListener("click", function (e) {
+    if (e.target && e.target.closest && e.target.closest(".tl-bar-dismiss")) { e.stopPropagation(); dismissBooking(b); return; }
+    open();
+  });
+  var _dbtn = bar.querySelector(".tl-bar-dismiss");
+  if (_dbtn) _dbtn.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+  bar.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  bar.addEventListener("mouseenter", function () { highlightDeal(b.pipedriveDealId, true); });
+  bar.addEventListener("mouseleave", function () { highlightDeal(b.pipedriveDealId, false); });
+  makeEventDraggable(bar, b);
+  return bar;
 }
 
 // ---------- MULTI-WEEK SPAN VIEW: this week + the next SPAN_WEEKS-1 ----------
 function renderFortnight(root, bookings) {
   root.innerHTML = "";
-  var grid = el("div", "month-grid month-grid-spans fortnight-spans");
-  root.appendChild(grid);
-  appendDowHeader(grid);
-  renderSpanWeeks(grid, bookings, startOfWeek(STATE.cursor), SPAN_WEEKS, {
-    maxLanes: STATE.tv ? 10 : 8,
-    cellCls: "fortnight-cell",
-    monthInLabel: true
-  });
+  renderTimeline(root, bookings, startOfWeek(STATE.cursor), SPAN_WEEKS * 7, { view: "fortnight" });
 }
 
 function appendDowHeader(grid) {
@@ -884,26 +1288,15 @@ function bookingSpan(seg) {
 }
 
 function highlightDeal(dealId, on) {
-  var nodes = document.querySelectorAll('.booking-span[data-deal-id="' + dealId + '"]');
-  nodes.forEach(function (elm) { elm.classList.toggle("span-hover", on); });
+  var nodes = document.querySelectorAll('[data-deal-id="' + dealId + '"]');
+  nodes.forEach(function (elm) { if (elm.classList.contains("booking-span") || elm.classList.contains("tl-bar") || elm.classList.contains("tl-row")) elm.classList.toggle("span-hover", on); });
 }
 
 // ---------- 2-WEEK (FORTNIGHT) VIEW: this week + next week ----------
 
 function renderWeek(root, bookings) {
-  var wk = startOfWeek(STATE.cursor);
-  var grid = el("div", "week-grid");
-  for (var i = 0; i < 7; i++) {
-    var day = addDays(wk, i);
-    var col = el("div", "week-col");
-    col.setAttribute("data-date", ymdStr(day));   // drop target for event drag-to-reschedule
-    if (sameDay(day, new Date())) col.classList.add("today");
-    col.appendChild(el("div", "wc-head", day.toLocaleDateString("en-AU", {weekday:"short", day:"numeric", month:"short"})));
-    bookings.filter(function (b) { return spansDay(b, day); })
-      .forEach(function (b) { col.appendChild(bookingCard(b, false)); });
-    grid.appendChild(col);
-  }
-  root.appendChild(grid);
+  root.innerHTML = "";
+  renderTimeline(root, bookings, startOfWeek(STATE.cursor), 7, { view: "week" });
 }
 
 function renderDay(root, bookings) {
@@ -1133,10 +1526,25 @@ function closeModal() {
    JOB- prefix: the last 6 chars of the deal id, upper-cased. Turns the raw
    cuid (e.g. cmr4jnd9500038mrb2elus20m) into a readable "JOB-LUS20M". */
 function jobRef(b) {
+  // The real job number (NEX-1449) is the one people use everywhere; prefer it.
+  // Fall back to a deal-id stub only for a booking that has no job number yet.
+  if (b && b.jobNumber) return String(b.jobNumber);
   var id = String((b && (b.pipedriveDealId || b.crmDealId)) || "").replace(/[^A-Za-z0-9]/g, "");
   var short = id.slice(-6).toUpperCase();
   return "JOB-" + (short || "NEW");
 }
+
+/* Resolve a raw deal id to its clean job ref (the real NEX-#### from the loaded
+   booking, else a JOB-XXXXXX stub). Exposed so other panels (off-hire) that only
+   hold a deal id never show the raw cuid. */
+window.NexusJobRef = function (dealId) {
+  if (!dealId) return "";
+  var list = (typeof STATE !== "undefined" && STATE && STATE.bookings) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i].pipedriveDealId) === String(dealId)) return jobRef(list[i]);
+  }
+  return jobRef({ pipedriveDealId: dealId });
+};
 
 /* Job-specific document title so a printed/saved PDF gets a meaningful
    filename, e.g. "JOB-LUS20M - ACE Contractors - 15 Jun 2026 - Nexus Jobsheet". */
@@ -1216,11 +1624,6 @@ function init() {
   document.getElementById("nextBtn").addEventListener("click", function () { nav(1); });
   document.getElementById("todayBtn").addEventListener("click", function () { STATE.cursor = startOfDay(new Date()); render(); });
   document.getElementById("refreshBtn").addEventListener("click", function () { refresh(); });
-  document.getElementById("tvBtn").addEventListener("click", function () {
-    STATE.tv = !STATE.tv;
-    if (STATE.tv) { STATE.view = "month"; }
-    render();
-  });
   document.getElementById("searchInput").addEventListener("input", function (e) { STATE.filters.search = e.target.value; render(); });
   document.getElementById("filterType").addEventListener("change", function (e) { STATE.filters.type = e.target.value; render(); });
   document.getElementById("filterStatus").addEventListener("change", function (e) { STATE.filters.status = e.target.value; render(); });
@@ -1233,6 +1636,7 @@ function init() {
 
   setupEventDrag();   // drag typed events between days (delegated, survives re-renders)
   refresh();
+  Promise.all([loadGroups(), loadDismissals()]).then(function () { if ((STATE.bookings || []).length) render(); });
   setInterval(refresh, REFRESH_MS); // auto-refresh for the office screen
 }
 
@@ -1560,6 +1964,110 @@ function jsSignBlock(b) {
   }).join("") + '</div>';
 }
 
+/* ---------- dispatch intelligence: hire lifecycle ---------- */
+/* Where this hire sits in its life today: counting down to delivery, live on
+   hire (which day of how many), or already back. Drives the hero's timing strip
+   so the yard reads urgency at a glance instead of doing date arithmetic. */
+function jsLifecycle(b) {
+  var s = bStart(b);
+  if (!s) return { label: "No hire dates set", sub: "Add a start date in the CRM", tone: "warn", ico: "clock" };
+  var e = bEnd(b) || s;
+  var today = startOfDay(new Date());
+  var s0 = startOfDay(s), e0 = startOfDay(e);
+  var total = b.durationDays || (Math.round((e0 - s0) / 86400000) + 1);
+  var toStart = Math.round((s0 - today) / 86400000);
+  var toEnd = Math.round((e0 - today) / 86400000);
+  if (toStart > 0) return {
+    label: toStart === 1 ? "Starts tomorrow" : "Starts in " + toStart + " days",
+    sub: jsFmtDateAU(s), tone: toStart <= 2 ? "soon" : "future", ico: "truck"
+  };
+  if (toEnd < 0) return {
+    label: (-toEnd === 1) ? "Returned yesterday" : "Returned " + (-toEnd) + " days ago",
+    sub: jsFmtDateAU(e), tone: "done", ico: "check"
+  };
+  var dayNum = Math.round((today - s0) / 86400000) + 1;
+  var offSub = toEnd === 0 ? "Off-hire today" : (toEnd === 1 ? "Off-hire tomorrow" : "Off-hire in " + toEnd + " days");
+  return { label: "On hire · day " + dayNum + " of " + total, sub: offSub, tone: toEnd <= 2 ? "soon" : "active", ico: "power" };
+}
+
+var JS_HERO_SVG = {
+  power: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h11v9H3z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="7" cy="18" r="1.6"/><circle cx="17.5" cy="18" r="1.6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  gen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M7 7V5h10v2"/><path d="M11 11l-2 3h4l-2 3"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2 4 13h6l-1 9 9-12h-6l1-8z"/></svg>',
+  fuel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15"/><path d="M3 20h12"/><path d="M13 9h3l2 2v6a2 2 0 0 0 4 0V9l-3-3"/></svg>',
+  phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.1-1.1a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7A2 2 0 0 1 22 16.9z"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+};
+
+/* ---------- the dispatch hero (screen only; sits above the printable sheet) --- */
+function jsHero(b, st) {
+  var tm = typeMeta(b);
+  var lc = jsLifecycle(b);
+
+  var readyTone, readyLabel, readySub;
+  if (st.key === "ready") { readyTone = "ready"; readyLabel = "Ready for dispatch"; readySub = "Cleared to go"; }
+  else if (st.dispatchReady) { readyTone = "ok"; readyLabel = "Cleared — mark ready"; readySub = "Nothing outstanding"; }
+  else { readyTone = "warn"; readyLabel = (st.missing.length || "Checks") + (st.missing.length ? (st.missing.length === 1 ? " item to sort" : " items to sort") : " pending"); readySub = "Before dispatch"; }
+
+  function tile(ico, k, v, tone) {
+    return '<div class="jh-stat' + (tone ? " is-" + tone : "") + '"><span class="jh-stat-ic">' + (JS_HERO_SVG[ico] || "") + '</span>' +
+      '<span class="jh-stat-tx"><span class="jh-stat-k">' + escapeHtml(k) + '</span>' +
+      '<span class="jh-stat-v">' + escapeHtml(v) + '</span></span></div>';
+  }
+  var need = function (v) { return v === true ? "Required" : (v === false ? "Not needed" : "—"); };
+  var tiles =
+    tile("gen", "Generator", jsFmtKva(b.generatorSize) || "Size TBC", b.generatorSize ? "" : "warn") +
+    tile("clock", "Duration", jsFmtDuration(b.durationDays) || "TBC") +
+    tile("truck", "Delivery", need(b.deliveryRequired), b.deliveryRequired ? "hot" : "") +
+    tile("bolt", "Electrical", need(b.electricalConnectionRequired), b.electricalConnectionRequired ? "hot" : "") +
+    tile("fuel", "Refuel", need(b.refuellingRequired), b.refuellingRequired ? "hot" : "");
+
+  var alerts = jsActiveAlerts(b).map(function (al) {
+    return '<span class="jh-alert ' + al.cls + '">' + al.icon + " " + escapeHtml(al.text) + "</span>";
+  }).join("");
+
+  var missing = (!st.dispatchReady && st.key !== "ready" && st.missing.length)
+    ? '<div class="jh-missing"><span class="jh-missing-k">Before dispatch</span>' +
+      st.missing.map(function (mm) { return '<span class="jh-missing-i">' + escapeHtml(mm) + '</span>'; }).join("") + '</div>'
+    : "";
+
+  // quick contact actions
+  var phone = jsFmtPhone(b.contactPhone || b.sitePhone);
+  var mapU = jsMapsUrl(b);
+  var contact = '<div class="jh-contact">' +
+    (b.contact ? '<span class="jh-contact-name">' + escapeHtml(b.contact) + '</span>' : '') +
+    (phone ? '<a class="jh-act" href="tel:' + escapeHtml(String(phone).replace(/\s+/g, "")) + '">' + JS_HERO_SVG.phone + '<span>' + escapeHtml(phone) + '</span></a>' : '') +
+    (mapU ? '<a class="jh-act" href="' + escapeHtml(mapU) + '" target="_blank" rel="noopener">' + JS_HERO_SVG.pin + '<span>' + escapeHtml(b.suburb || b.site || "Map") + '</span></a>' : '') +
+    '</div>';
+
+  return '<div class="js-hero jh-tone-' + lc.tone + '">' +
+    '<div class="jh-top">' +
+      '<div class="jh-id">' +
+        '<div class="jh-job">' + jobRef(b) + '</div>' +
+        '<div class="jh-cust">' + escapeHtml(b.customer || "Unknown customer") +
+          (jsVal(b.suburb) ? ' <span class="jh-sub">· ' + escapeHtml(b.suburb) + '</span>' : '') + '</div>' +
+        '<span class="jh-type ' + tm.cls + '">' + tm.label + '</span>' +
+      '</div>' +
+      '<div class="jh-ready is-' + readyTone + '">' +
+        '<div class="jh-ready-lbl">' + escapeHtml(readyLabel) + '</div>' +
+        '<div class="jh-ready-sub">' + escapeHtml(readySub) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="jh-life is-' + lc.tone + '">' +
+      '<span class="jh-life-ic">' + (JS_HERO_SVG[lc.ico] || "") + '</span>' +
+      '<span class="jh-life-lbl">' + escapeHtml(lc.label) + '</span>' +
+      (lc.sub ? '<span class="jh-life-sub">' + escapeHtml(lc.sub) + '</span>' : '') +
+    '</div>' +
+    '<div class="jh-stats">' + tiles + '</div>' +
+    (alerts ? '<div class="jh-alerts">' + alerts + '</div>' : '') +
+    missing +
+    contact +
+  '</div>';
+}
+
 /* ---------- main jobsheet renderer (interactive dispatch sheet) ---------- */
 function renderJobSheet(b) {
   var tm = typeMeta(b);
@@ -1578,12 +2086,15 @@ function renderJobSheet(b) {
   html += '<div class="js-toolbar">';
   html += '<span class="js-title-min">Dispatch jobsheet &mdash; ' + escapeHtml(b.customer || "Unknown customer") + '</span>';
   html += '<button class="js-btn primary" id="jsPdfBtn" type="button">Download PDF</button>';
-  html += '<button class="js-btn" id="jsPrintBtn" type="button">Print</button>';
   html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Nexy deal &rarr;</a>';
   html += '<a class="js-btn survey" id="jsSurveyBtn" target="_blank" rel="noopener" href="https://nexus-site-survey.vercel.app/survey?dealId=' + encodeURIComponent(dealId) + '">Site Survey &rarr;</a>';
   html += '<button class="js-btn ready" id="jsReadyBtn" type="button">Mark ready for dispatch</button>';
   html += '<button class="modal-close" id="modalClose" type="button">&times;</button>';
   html += '</div>';
+
+  /* screen-only intelligence hero (sits above the printable A4 sheet; the PDF
+     export captures #jsSheetBody only, so the hero never lands in the PDF) */
+  html += jsHero(b, st);
 
   html += '<div class="js-body" id="jsSheetBody">';
 
@@ -1610,6 +2121,8 @@ function renderJobSheet(b) {
 
   html += jsSiteWarnings(b);
 
+  html += '<div class="js-cards">';
+
   /* 1. SITE DETAILS */
   html += jsCard("Site details", "", '<div class="js-grid js-grid-2">' +
     jsField("Customer", b.customer, {required:true}) +
@@ -1619,8 +2132,6 @@ function renderJobSheet(b) {
     jsField("Contact email", b.contactEmail, {full:true}) +
     jsSiteAddressField(b, {label:"Site address", full:true}) +
     jsField("Suburb / state", [b.suburb, b.state].filter(Boolean).join(" ")) +
-    jsNoteField(dealId, "Site access notes", "site_access_notes") +
-    jsNoteField(dealId, "Site hazards / instructions", "site_hazards") +
   '</div>');
 
   /* 2. HIRE PERIOD & OUTAGE */
@@ -1640,6 +2151,7 @@ function renderJobSheet(b) {
       jsField("Additional equipment required", b.additionalEquipment, {full:true}) +
       jsField("Safety items required", b.safetyItems, {full:true}) +
     '</div>' +
+    jsCrmAllocatedBlock(b) +
     '<div id="jsEquipmentHolder" class="js-picking">' + jsStaticEquipmentTable(b, st) + '</div>');
 
   /* 4. ELECTRICAL CONNECT / DISCONNECT */
@@ -1682,19 +2194,7 @@ function renderJobSheet(b) {
       jsNoteField(dealId, "Internal dispatch notes", "internal_dispatch_notes"));
   }
 
-  /* 8. DISPATCH CHECKLIST & SIGN-OFF */
-  var checkItems = [
-    {key:"chk_equip", label:"Equipment picked"},
-    {key:"chk_cable", label:"Cable set picked"},
-    {key:"chk_ramps", label:"Cable ramps picked"},
-    {key:"chk_fuel", label:"Fuel checked"},
-    {key:"chk_elec", label:"Electrical booking confirmed"},
-    {key:"chk_contact", label:"Site contact confirmed"},
-    {key:"chk_staff", label:"Staff allocation confirmed"},
-    {key:"chk_dispatch", label:"Dispatch approved"}
-  ];
-  html += jsCard("Dispatch checklist & sign-off", "js-card-signoff",
-    jsChecklist(dealId, checkItems) + jsSignBlock(b));
+  html += '</div>'; /* js-cards */
 
   html += '</div></div>'; /* js-body, jobsheet */
 
@@ -1714,6 +2214,32 @@ function renderJobSheet(b) {
   }
 }
 
+/* The units allocated to this job IN THE NEXY CRM — the authoritative allocation.
+   The CRM is now the source of truth for which physical machine goes out; the
+   board reads it here from the feed (b.allocatedUnits) rather than deciding for
+   itself. Empty until units are allocated on the deal in the CRM. */
+function jsCrmAllocatedBlock(b) {
+  var units = (b && b.allocatedUnits) || [];
+  if (!units.length) return "";
+  var rows = units.map(function (u) {
+    var fn = u.fleetNumber ? "#" + String(u.fleetNumber).replace(/^#+/, "") : "\u2014";
+    var stt = (u.status === "OUT") ? "On hire" : "Booked";
+    var stc = (u.status === "OUT") ? "is-out" : "is-booked";
+    return '<li class="js-crm-alloc-row">' +
+             '<span class="js-crm-alloc-fn">' + escapeHtml(fn) + '</span>' +
+             '<span class="js-crm-alloc-lbl">' + escapeHtml(u.label || "Unit") + '</span>' +
+             '<span class="js-crm-alloc-st ' + stc + '">' + escapeHtml(stt) + '</span>' +
+           '</li>';
+  }).join("");
+  return '<div class="js-crm-alloc">' +
+           '<div class="js-crm-alloc-head">Allocated in Nexy CRM' +
+             '<span class="js-crm-alloc-count">' + units.length + '</span>' +
+             '<span class="js-crm-alloc-tag">source of truth</span>' +
+           '</div>' +
+           '<ul class="js-crm-alloc-list">' + rows + '</ul>' +
+         '</div>';
+}
+
 /* Static (print-safe) equipment table used before/without the live fleet data.
    Shows CRM-derived requirements with manual tick boxes so the sheet is
    still usable on paper if the database is unreachable. */
@@ -1725,7 +2251,7 @@ function jsStaticEquipmentTable(b, st) {
   .forEach(function (r) {
     var a = r.alloc;
     var allocated = a ? (r.kind === "generator"
-        ? (a.asset && a.asset.fleet_number ? "#" + a.asset.fleet_number : (a.allocation_status === "cross_hire_required" ? "Cross-hire" : "—"))
+        ? (a.asset && a.asset.fleet_number ? "#" + String(a.asset.fleet_number).replace(/^#+/, "") : (a.allocation_status === "cross_hire_required" ? "Cross-hire" : "—"))
         : String(a.quantity_allocated || 0))
       : "—";
     rows += "<tr><td>" + escapeHtml(r.label) + '</td><td class="num">' + r.qtyRequired +
