@@ -1742,10 +1742,20 @@ function jsWarningInner(st) {
     st.missing.map(function (m) { return "<li>" + escapeHtml(m) + "</li>"; }).join("") + "</ul>";
 }
 
-/* Refresh pill + warning + ready button inside an open jobsheet after the
-   allocation state changes (called via NexusJobsheetSync). */
+/* Refresh everything status-driven inside an open jobsheet after the
+   allocation state changes (called via NexusJobsheetSync).
+
+   The hero is in this list because it used to be missing from it. It carries
+   the "N items to sort" badge, the five tiles and the red Before dispatch
+   chips, and it was built once when the modal opened and never touched again.
+   So you ticked all three Picked boxes, saved hours and fuel, watched the
+   table below redraw with your ticks in it - and the five warnings sat there
+   accusing you of not having done the thing you had just done. A warning that
+   cannot clear itself is one everybody learns to scroll past. */
 function jsUpdateStatusUI(b) {
   var st = jsComputeStatus(b);
+  var hero = document.getElementById("jsHeroHolder");
+  if (hero) hero.innerHTML = jsHero(b, st);
   var pill = document.getElementById("jsStatusPill");
   if (pill) {
     pill.textContent = st.label;
@@ -2018,8 +2028,15 @@ function jsHero(b, st) {
       '<span class="jh-stat-v">' + escapeHtml(v) + '</span></span></div>';
   }
   var need = function (v) { return v === true ? "Required" : (v === false ? "Not needed" : "—"); };
+  /* The size on the truck, not the size on the field that nobody filled in.
+     st.generatorSize resolves the allocated unit first (see resourcing-status
+     .js) so an allocated #602 stops reading "Size TBC" in red. It goes amber
+     only when nothing anywhere knows the size, and hot when the allocated unit
+     is smaller than the one we sold. */
+  var genSize = st.generatorSize || jsFmtKva(b.generatorSize) || "";
+  var genTone = genSize ? (st.undersize && st.undersize.length ? "hot" : "") : "warn";
   var tiles =
-    tile("gen", "Generator", jsFmtKva(b.generatorSize) || "Size TBC", b.generatorSize ? "" : "warn") +
+    tile("gen", "Generator", genSize || "Size TBC", genTone) +
     tile("clock", "Duration", jsFmtDuration(b.durationDays) || "TBC") +
     tile("truck", "Delivery", need(b.deliveryRequired), b.deliveryRequired ? "hot" : "") +
     tile("bolt", "Electrical", need(b.electricalConnectionRequired), b.electricalConnectionRequired ? "hot" : "") +
@@ -2094,7 +2111,7 @@ function renderJobSheet(b) {
 
   /* screen-only intelligence hero (sits above the printable A4 sheet; the PDF
      export captures #jsSheetBody only, so the hero never lands in the PDF) */
-  html += jsHero(b, st);
+  html += '<div id="jsHeroHolder">' + jsHero(b, st) + '</div>';
 
   html += '<div class="js-body" id="jsSheetBody">';
 

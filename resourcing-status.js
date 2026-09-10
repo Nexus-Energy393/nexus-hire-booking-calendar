@@ -26,6 +26,85 @@
     return s !== "released" && s !== "cancelled";
   }
 
+
+  /* ---- Generator size: the allocated unit answers the question -------------
+     A job is sold as a size ("100kVA Generator Hire") and dispatched as a fleet
+     number. Those are two different facts and the jobsheet was only ever asking
+     the first one, so a job with #602 sitting allocated against it still read
+     "Size TBC" in red. If a unit is allocated, its size IS the size going out.
+
+     Keeping both facts also lets us answer the question nobody was asking: is
+     the unit on the truck actually big enough for what we sold? */
+
+  function kvaNumber(v) {
+    if (v == null || v === "") return null;
+    var m = /(\d+(?:\.\d+)?)/.exec(String(v));
+    if (!m) return null;
+    var n = Number(m[1]);
+    return isFinite(n) && n > 0 ? n : null;
+  }
+
+  function fmtKva(n) {
+    if (n == null) return null;
+    return String(Math.round(n * 10) / 10).replace(/\.0$/, "") + " kVA";
+  }
+
+  /* The size of the unit actually allocated. generator_size_kva is the column
+     that means it; the asset name ("60 kVA Diesel Generator - Trailer Mounted")
+     is the fallback for rows recorded before that column was carried through. */
+  function allocatedKva(a) {
+    if (!a) return null;
+    var asset = a.asset || {};
+    var direct = kvaNumber(a.generator_size_kva != null ? a.generator_size_kva : asset.generator_size_kva);
+    if (direct != null) return direct;
+    var name = asset.asset_name || a.asset_name || a.booking_title || "";
+    var m = /(\d+(?:\.\d+)?)\s*kva/i.exec(name);
+    return m ? kvaNumber(m[1]) : null;
+  }
+
+  /* The size we sold. generatorSize is the explicit field; the hire product
+     lines carry it for the many deals where nobody filled that field in. */
+  function requiredKva(booking) {
+    booking = booking || {};
+    var direct = kvaNumber(booking.generatorSize);
+    if (direct != null) return direct;
+    var lines = booking.generatorLines || [];
+    for (var i = 0; i < lines.length; i++) {
+      var m = /(\d+(?:\.\d+)?)\s*kva/i.exec(String(lines[i] || ""));
+      if (m) return kvaNumber(m[1]);
+    }
+    return null;
+  }
+
+  /* What the GENERATOR tile and the crew should read. Allocated wins, because
+     that is what goes on the truck; otherwise what we sold; otherwise nothing,
+     and the caller says "Size TBC". */
+  function generatorSizeLabel(booking, allocations) {
+    var gens = (allocations || []).filter(function (a) { return a.asset_id && live(a); });
+    for (var i = 0; i < gens.length; i++) {
+      var k = allocatedKva(gens[i]);
+      if (k != null) return fmtKva(k);
+    }
+    return fmtKva(requiredKva(booking));
+  }
+
+  /* An allocated unit smaller than the one sold is a job that fails on site.
+     Returns the shortfalls, newest logic in one place so the chip and any
+     future UI say exactly the same thing. */
+  function undersizeWarnings(booking, allocations) {
+    var need = requiredKva(booking);
+    if (need == null) return [];
+    var out = [];
+    (allocations || []).forEach(function (a) {
+      if (!a.asset_id || !live(a)) return;
+      var got = allocatedKva(a);
+      if (got == null || got >= need) return;
+      var who = (a.asset && a.asset.fleet_number) || a.fleet_number;
+      out.push((who ? "#" + who + " " : "") + fmtKva(got) + " is smaller than the " + fmtKva(need) + " sold");
+    });
+    return out;
+  }
+
   /* Build the list of equipment requirements for a booking from the Pipedrive
      fields that are actually synced (generator size + cable set). Extra stock
      allocations recorded against the deal are treated as additional
@@ -42,7 +121,10 @@
     for (var gi = 0; gi < genSlots; gi++) {
       reqs.push({
         kind: "generator",
-        label: "Generator " + (booking.generatorSize || "(size TBC)") + (genSlots > 1 ? " #" + (gi + 1) : ""),
+        /* The Item column is what was ORDERED; the Allocated column beside it
+           is what is going. Falling back to the allocated size keeps the row
+           readable when nobody recorded what was sold. */
+        label: "Generator " + (fmtKva(requiredKva(booking)) || fmtKva(allocatedKva(genAllocs[gi])) || "(size TBC)") + (genSlots > 1 ? " #" + (gi + 1) : ""),
         qtyRequired: 1,
         alloc: genAllocs[gi] || null
       });
@@ -188,6 +270,8 @@
     var hoursIn = engineHours.some(function (r) { return r.hours_in != null; });
     var fuelRecorded = engineHours.some(function (r) { return /fuel out:\s*\d/i.test(r.notes || ""); });
     var refuellingRequired = engineHours.some(function (r) { return /ongoing refuelling required/i.test(r.notes || ""); });
+    var undersize = undersizeWarnings(booking, allocations);
+    undersize.forEach(function (m) { missing.push("Allocated " + m); });
     if (covered && !hoursOut) missing.push("Engine hours out not recorded");
     if (covered && !fuelRecorded) missing.push("Fuel level not checked / recorded");
     if (!booking.contactPhone && !booking.sitePhone) missing.push("Site contact phone missing");
@@ -224,6 +308,12 @@
     return {
       key: key,
       label: labels[key],
+      /* What the crew should read on the GENERATOR tile, and why it might be
+         wrong. Computed here so the tile, the chip and the picking row can
+         never disagree about the same job. */
+      generatorSize: generatorSizeLabel(booking, allocations),
+      requiredKva: requiredKva(booking),
+      undersize: undersize,
       missing: missing,
       requirements: reqs,
       genAlloc: genAlloc,
@@ -233,11 +323,12 @@
       hoursInRecorded: hoursIn,
       fuelRecorded: fuelRecorded,
       refuellingRequired: refuellingRequired,
-      dispatchReady: allOk && allPicked && hoursOut && fuelRecorded
+      dispatchReady: allOk && allPicked && hoursOut && fuelRecorded && undersize.length === 0
     };
   }
 
-  var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked, isOnHire: isOnHire };
+  var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked, isOnHire: isOnHire,
+              generatorSizeLabel: generatorSizeLabel, allocatedKva: allocatedKva, requiredKva: requiredKva, undersizeWarnings: undersizeWarnings, fmtKva: fmtKva };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();
