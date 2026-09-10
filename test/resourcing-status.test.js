@@ -151,6 +151,14 @@ test("with nothing sold recorded, the row names the unit allocated", () => {
   assert.equal(reqs[0].label, "Generator 60 kVA");
 });
 
+test("marking a job ready does not clear an undersize unit", () => {
+  const b = BOOKING({ generatorLines: ["100kVA Generator Hire - 12hr - Daily Rate"] });
+  const st = R.computeJobStatus(b, [GEN({ dispatch_status: "ready" })], [HOURS()]);
+  assert.equal(st.key, "ready", "the job is still marked ready");
+  assert.equal(st.missing.length, 1, "and the mismatch is still reported");
+  assert.equal(st.dispatchReady, false);
+});
+
 // ------------------------------------------- the half that is not pure logic
 // The bug was never in the rules — it was that nothing redrew the hero, which
 // carries the badge, the tiles and the chips. Guard the call itself.
@@ -171,4 +179,14 @@ test("the hero has a holder to be redrawn into", () => {
 test("the tile asks the status for the size, not the raw booking field", () => {
   assert.match(appJs, /st\.generatorSize/);
   assert.doesNotMatch(appJs, /jsFmtKva\(b\.generatorSize\) \|\| "Size TBC"/);
+});
+
+test("a job marked ready still shows what is outstanding", () => {
+  const hero = /function jsHero\(b, st\)\s*\{[\s\S]*?\n\}/.exec(appJs);
+  assert.ok(hero, "jsHero not found");
+  // The chip row used to hide itself the moment st.key was "ready", so a job
+  // marked ready and then broken went on claiming CLEARED TO GO.
+  assert.match(hero[0], /var missing = st\.missing\.length/);
+  assert.doesNotMatch(hero[0], /st\.key !== "ready" && st\.missing\.length/);
+  assert.match(hero[0], /Marked ready/);
 });

@@ -2017,10 +2017,16 @@ function jsHero(b, st) {
   var tm = typeMeta(b);
   var lc = jsLifecycle(b);
 
+  /* "Ready" is somebody asserting they have done the checks. It is not a
+     reason to stop showing what is still outstanding: a job can be marked
+     ready and then have its generator swapped for a smaller one, and the
+     screen used to go on saying CLEARED TO GO over the top of it. Say both. */
   var readyTone, readyLabel, readySub;
-  if (st.key === "ready") { readyTone = "ready"; readyLabel = "Ready for dispatch"; readySub = "Cleared to go"; }
+  var nOut = st.missing.length;
+  if (st.key === "ready" && !nOut) { readyTone = "ready"; readyLabel = "Ready for dispatch"; readySub = "Cleared to go"; }
+  else if (st.key === "ready") { readyTone = "warn"; readyLabel = "Marked ready — " + nOut + (nOut === 1 ? " item outstanding" : " items outstanding"); readySub = "Check before it leaves"; }
   else if (st.dispatchReady) { readyTone = "ok"; readyLabel = "Cleared — mark ready"; readySub = "Nothing outstanding"; }
-  else { readyTone = "warn"; readyLabel = (st.missing.length || "Checks") + (st.missing.length ? (st.missing.length === 1 ? " item to sort" : " items to sort") : " pending"); readySub = "Before dispatch"; }
+  else { readyTone = "warn"; readyLabel = (nOut || "Checks") + (nOut ? (nOut === 1 ? " item to sort" : " items to sort") : " pending"); readySub = "Before dispatch"; }
 
   function tile(ico, k, v, tone) {
     return '<div class="jh-stat' + (tone ? " is-" + tone : "") + '"><span class="jh-stat-ic">' + (JS_HERO_SVG[ico] || "") + '</span>' +
@@ -2046,7 +2052,7 @@ function jsHero(b, st) {
     return '<span class="jh-alert ' + al.cls + '">' + al.icon + " " + escapeHtml(al.text) + "</span>";
   }).join("");
 
-  var missing = (!st.dispatchReady && st.key !== "ready" && st.missing.length)
+  var missing = st.missing.length
     ? '<div class="jh-missing"><span class="jh-missing-k">Before dispatch</span>' +
       st.missing.map(function (mm) { return '<span class="jh-missing-i">' + escapeHtml(mm) + '</span>'; }).join("") + '</div>'
     : "";
