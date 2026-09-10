@@ -89,8 +89,17 @@
   }
 
   /* An allocated unit smaller than the one sold is a job that fails on site.
-     Returns the shortfalls, newest logic in one place so the chip and any
-     future UI say exactly the same thing. */
+
+     Each shortfall carries a key, and the key is the whole reason accepting
+     one is safe. It names the exact fact accepted - this allocation, this
+     size, against this sold size - so an acceptance cannot outlive the thing
+     it was about. Swap #602 for a 20 kVA, or resell the job at 150 kVA, and
+     the key changes and the warning comes straight back. A dismissal keyed on
+     the job instead of the fact is just a blindfold with an audit trail. */
+  function undersizeKey(a, got, need) {
+    return "undersize:" + (a.allocation_id || a.asset_id || "?") + ":" + got + "v" + need;
+  }
+
   function undersizeWarnings(booking, allocations) {
     var need = requiredKva(booking);
     if (need == null) return [];
@@ -100,9 +109,27 @@
       var got = allocatedKva(a);
       if (got == null || got >= need) return;
       var who = (a.asset && a.asset.fleet_number) || a.fleet_number;
-      out.push((who ? "#" + who + " " : "") + fmtKva(got) + " is smaller than the " + fmtKva(need) + " sold");
+      out.push({
+        key: undersizeKey(a, got, need),
+        text: "Allocated " + (who ? "#" + who + " " : "") + fmtKva(got) + " is smaller than the " + fmtKva(need) + " sold"
+      });
     });
     return out;
+  }
+
+  /* Acceptances, however they arrive (Set, array of keys, array of rows). */
+  function ackIndex(acks) {
+    var map = {};
+    if (!acks) return map;
+    if (typeof acks.forEach === "function" && typeof acks.has === "function") {
+      acks.forEach(function (k) { map[String(k)] = {}; });
+      return map;
+    }
+    (acks.length ? acks : []).forEach(function (a) {
+      if (typeof a === "string") map[a] = {};
+      else if (a && a.warning_key) map[String(a.warning_key)] = a;
+    });
+    return map;
   }
 
   /* Build the list of equipment requirements for a booking from the Pipedrive
@@ -223,7 +250,7 @@
    *   { key, label, missing:[..], requirements:[..], genAlloc, allOk, allPicked }
    * engineHours may be null/[] when only the calendar pill is needed.
    */
-  function computeJobStatus(booking, allocations, engineHours) {
+  function computeJobStatus(booking, allocations, engineHours, acks) {
     allocations = (allocations || []).filter(live);
     engineHours = engineHours || [];
     var reqs = buildRequirements(booking, allocations);
@@ -270,8 +297,18 @@
     var hoursIn = engineHours.some(function (r) { return r.hours_in != null; });
     var fuelRecorded = engineHours.some(function (r) { return /fuel out:\s*\d/i.test(r.notes || ""); });
     var refuellingRequired = engineHours.some(function (r) { return /ongoing refuelling required/i.test(r.notes || ""); });
-    var undersize = undersizeWarnings(booking, allocations);
-    undersize.forEach(function (m) { missing.push("Allocated " + m); });
+    /* An undersize can be a real fault or a deal line nobody updated. Someone
+       who knows which is which can accept it; until then it blocks. Accepted
+       ones leave the red row but are never erased - they move to `accepted`,
+       which the jobsheet shows quietly with who accepted it. */
+    var acked = ackIndex(acks);
+    var undersize = [];
+    var accepted = [];
+    undersizeWarnings(booking, allocations).forEach(function (w) {
+      if (acked[w.key]) accepted.push({ key: w.key, text: w.text, by: acked[w.key].acknowledged_by || null, at: acked[w.key].acknowledged_at || null, note: acked[w.key].note || null });
+      else undersize.push(w);
+    });
+    undersize.forEach(function (w) { missing.push(w.text); });
     if (covered && !hoursOut) missing.push("Engine hours out not recorded");
     if (covered && !fuelRecorded) missing.push("Fuel level not checked / recorded");
     if (!booking.contactPhone && !booking.sitePhone) missing.push("Site contact phone missing");
@@ -314,6 +351,10 @@
       generatorSize: generatorSizeLabel(booking, allocations),
       requiredKva: requiredKva(booking),
       undersize: undersize,
+      /* The chips that carry an X, keyed. Everything else in `missing` is a
+         fact nobody gets to wave away by clicking. */
+      acknowledgeable: undersize,
+      accepted: accepted,
       missing: missing,
       requirements: reqs,
       genAlloc: genAlloc,
@@ -328,7 +369,8 @@
   }
 
   var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked, isOnHire: isOnHire,
-              generatorSizeLabel: generatorSizeLabel, allocatedKva: allocatedKva, requiredKva: requiredKva, undersizeWarnings: undersizeWarnings, fmtKva: fmtKva };
+              generatorSizeLabel: generatorSizeLabel, allocatedKva: allocatedKva, requiredKva: requiredKva, undersizeWarnings: undersizeWarnings, fmtKva: fmtKva,
+              undersizeKey: undersizeKey, ackIndex: ackIndex };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

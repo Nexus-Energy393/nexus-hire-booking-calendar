@@ -2887,6 +2887,22 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
 .jh-missing { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .jh-missing-k { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #b71c1c; }
 .jh-missing-i { font-size: 11.5px; font-weight: 600; color: #7a2a2a; background: #fdecea; border: 1px solid #f1b0a8; border-radius: 6px; padding: 2px 8px; }
+.jh-missing-i.is-ackable { display: inline-flex; align-items: center; gap: 6px; padding-right: 3px; }
+/* The X is deliberately quiet until you go for it: accepting a warning is a
+   decision, not a tidy-up. */
+.jh-ack, .jh-unack { border: 0; background: transparent; cursor: pointer; line-height: 1; padding: 2px 4px;
+  border-radius: 4px; font-size: 11px; color: #a86a62; opacity: .6; }
+.jh-ack:hover, .jh-unack:hover { opacity: 1; background: rgba(0,0,0,.06); }
+.jh-ack:focus-visible, .jh-unack:focus-visible { outline: 2px solid #2f6fed; outline-offset: 1px; opacity: 1; }
+
+.jh-accepted { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.jh-accepted-k { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #7b7f8a; }
+.jh-accepted-i { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600;
+  color: #5d626e; background: #f2f3f5; border: 1px solid #dfe1e6; border-radius: 6px; padding: 2px 3px 2px 8px; }
+.jh-accepted-by { font-weight: 500; color: #8a8f9a; }
+.jh-accepted-i .jh-unack { color: #5d626e; }
+.js-trading-time { width: 7.5em; }
+.js-trading-normal { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 .jh-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 12px;
   padding-top: 11px; border-top: 1px dashed #e4e6eb; }

@@ -553,6 +553,66 @@ function dismissBooking(b) {
     .then(function () { render(); })
     .catch(function (e) { alert(e.message); });
 }
+/* Accepted dispatch warnings, per deal, kept server-side so an acceptance
+   sticks across devices and the office screen — and so it is somebody's name
+   against it, not an anonymous click in one browser's localStorage.
+
+   The acceptance is keyed to the exact fact (see undersizeKey), so swapping
+   the unit or changing what was sold brings the warning straight back. */
+function loadAcknowledgements() {
+  return fetch(groupsApiBase() + "/acknowledgements", { headers: { Accept: "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var by = {};
+      ((d && d.acknowledgements) || []).forEach(function (row) {
+        var k = String(row.deal_id);
+        (by[k] = by[k] || []).push(row);
+      });
+      STATE.acks = by;
+    })
+    .catch(function () { STATE.acks = STATE.acks || {}; });
+}
+
+function acksFor(b) {
+  var by = STATE.acks || {};
+  return (by[String(b.pipedriveDealId)] || []).concat(by[String(b.crmDealId)] || []);
+}
+
+/* Accept one warning, or take the acceptance back. Admin-gated: this is the
+   one control on the jobsheet that can stop a fault blocking dispatch. */
+function ackWarning(b, key, text) {
+  if (!groupsAuthHeaders()["x-fleet-admin-token"]) {
+    alert("Enter the Fleet admin token (Sync view) to accept a warning.");
+    return;
+  }
+  var why = window.prompt(
+    "Accept this warning and stop it blocking dispatch?\n\n" + text +
+    "\n\nIt comes back by itself if the unit is swapped or the job is resold at a different size.\n\nWhy is it acceptable? (optional)");
+  if (why === null) return; // cancelled
+  var who = ""; try { who = localStorage.getItem("nexusStaffName") || ""; } catch (e) {}
+  fetch(groupsApiBase() + "/acknowledgements", {
+    method: "POST", headers: groupsAuthHeaders(),
+    body: JSON.stringify({ dealId: String(b.pipedriveDealId), key: key, text: text, note: why || null, by: who || null })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (res) { if (!res.ok) throw new Error(res.error || "Could not accept the warning"); return loadAcknowledgements(); })
+    .then(function () { jsUpdateStatusUI(b); render(); })
+    .catch(function (e) { alert(e.message); });
+}
+
+function unackWarning(b, key) {
+  if (!groupsAuthHeaders()["x-fleet-admin-token"]) {
+    alert("Enter the Fleet admin token (Sync view) to change this.");
+    return;
+  }
+  fetch(groupsApiBase() + "/acknowledgements?dealId=" + encodeURIComponent(String(b.pipedriveDealId)) +
+        "&key=" + encodeURIComponent(key), { method: "DELETE", headers: groupsAuthHeaders() })
+    .then(function (r) { return r.json(); })
+    .then(function (res) { if (!res.ok) throw new Error(res.error || "Could not undo"); return loadAcknowledgements(); })
+    .then(function () { jsUpdateStatusUI(b); render(); })
+    .catch(function (e) { alert(e.message); });
+}
+
 function groupOfBooking(b) {
   var g = STATE.groups || {};
   return g[String(b.pipedriveDealId)] || g[String(b.crmDealId)] || null;
@@ -1636,7 +1696,7 @@ function init() {
 
   setupEventDrag();   // drag typed events between days (delegated, survives re-renders)
   refresh();
-  Promise.all([loadGroups(), loadDismissals()]).then(function () { if ((STATE.bookings || []).length) render(); });
+  Promise.all([loadGroups(), loadDismissals(), loadAcknowledgements()]).then(function () { if ((STATE.bookings || []).length) render(); });
   setInterval(refresh, REFRESH_MS); // auto-refresh for the office screen
 }
 
@@ -1726,7 +1786,7 @@ function jsActiveAlerts(b) {
 function jsComputeStatus(b) {
   var allocs = (STATE.allocationsByDeal || {})[String(b.pipedriveDealId)] || [];
   var hours = (STATE.hoursByDeal || {})[String(b.pipedriveDealId)] || [];
-  if (window.NexusResourcing) return window.NexusResourcing.computeJobStatus(b, allocs, hours);
+  if (window.NexusResourcing) return window.NexusResourcing.computeJobStatus(b, allocs, hours, acksFor(b));
   var sm = statusMeta(b);
   return { key: b.status, label: sm.label, missing: [], requirements: [], allOk: false, genAlloc: null };
 }
@@ -1845,14 +1905,27 @@ function jsInspectorTimeField(dealId, b) {
     '<span class="v"><input type="time" class="js-install-input js-time" data-deal="' + dealId + '" data-key="elec_inspector_time" value="' + escapeHtml(val) + '" />' +
     ' <small class="js-hint">' + hint + '</small></span></div>';
 }
+/* Customer trading hours.
+
+   These used to be two dashes. The CRM rarely has them, and the person who
+   finds them out is whoever rings the site the day before - who then had
+   nowhere to put the answer, so it went on a sticky note and the next person
+   rang the site again. Editable now, like the inspector time beside it.
+
+   A typed time overrides whatever the CRM sent; clearing the box hands it
+   back to the CRM value. Held per browser, same as the rest of this section. */
 function jsTradingHoursField(dealId, b) {
   var local = jsLoadLocal(dealId);
-  var open = jsVal(b.tradingHoursOpen) ? jsFmtTime12(String(b.tradingHoursOpen)) : "";
-  var close = jsVal(b.tradingHoursClose) ? jsFmtTime12(String(b.tradingHoursClose)) : "";
+  var openVal = (local.trading_open != null && local.trading_open !== "") ? local.trading_open : (jsVal(b.tradingHoursOpen) ? jsFmtTime(String(b.tradingHoursOpen)) : "");
+  var closeVal = (local.trading_close != null && local.trading_close !== "") ? local.trading_close : (jsVal(b.tradingHoursClose) ? jsFmtTime(String(b.tradingHoursClose)) : "");
   var is24 = (local.open_24h != null) ? !!local.open_24h : !!b.open24h;
+  function timeBox(key, val, label) {
+    return '<input type="time" class="js-install-input js-time js-trading-time" data-deal="' + dealId + '" data-key="' + key + '"' +
+      ' value="' + escapeHtml(val || "") + '" aria-label="' + escapeHtml(label) + '" />';
+  }
   return '<div class="js-field full js-trading"><span class="k">Customer trading hours</span>' +
     '<span class="v">' +
-      '<span class="js-trading-normal"' + (is24 ? ' hidden' : '') + '>Open ' + escapeHtml(open || "—") + ' / Close ' + escapeHtml(close || "—") + '</span>' +
+      '<span class="js-trading-normal"' + (is24 ? ' hidden' : '') + '>Open ' + timeBox("trading_open", openVal, "Store opening time") + ' / Close ' + timeBox("trading_close", closeVal, "Store closing time") + '</span>' +
       '<span class="js-trading-24"' + (is24 ? '' : ' hidden') + ' style="font-weight:700">Open 24 hours</span>' +
       ' <label class="js-24-label"><input type="checkbox" class="js-install-input js-24-toggle" data-deal="' + dealId + '" data-key="open_24h"' + (is24 ? ' checked' : '') + ' /> 24 hr</label>' +
     '</span></div>';
@@ -1885,6 +1958,11 @@ function jsFmtDuration(days) {
   if (days == null || days === "") return "";
   var n = parseInt(days, 10);
   return isNaN(n) ? String(days) : (n + " day" + (n === 1 ? "" : "s"));
+}
+function jsFmtAckDate(v) {
+  var d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 }
 function jsFmtKva(s) { return s ? String(s).replace(/(\d)\s*kva/ig, "$1 kVA") : s; }
 function jsFmtCable(s) {
@@ -2052,9 +2130,33 @@ function jsHero(b, st) {
     return '<span class="jh-alert ' + al.cls + '">' + al.icon + " " + escapeHtml(al.text) + "</span>";
   }).join("");
 
+  /* Chips. A judgement call (an undersize unit against a deal line nobody
+     updated) carries an X so somebody who knows can accept it. Everything else
+     is a fact, and facts do not get an X. */
+  var ackable = {};
+  (st.acknowledgeable || []).forEach(function (w) { ackable[w.text] = w.key; });
   var missing = st.missing.length
     ? '<div class="jh-missing"><span class="jh-missing-k">Before dispatch</span>' +
-      st.missing.map(function (mm) { return '<span class="jh-missing-i">' + escapeHtml(mm) + '</span>'; }).join("") + '</div>'
+      st.missing.map(function (mm) {
+        var k = ackable[mm];
+        return '<span class="jh-missing-i' + (k ? ' is-ackable' : '') + '">' + escapeHtml(mm) +
+          (k ? '<button type="button" class="jh-ack" data-ack-key="' + escapeHtml(k) + '" title="Accept this warning \u2014 it returns if the unit or the sold size changes" aria-label="Accept this warning">\u2715</button>' : '') +
+          '</span>';
+      }).join("") + '</div>'
+    : "";
+
+  /* Accepted ones are not deleted. They sit quietly with a name against them,
+     and one click puts them back. A warning somebody waved away without trace
+     is how the next person repeats the mistake. */
+  var acceptedRow = (st.accepted || []).length
+    ? '<div class="jh-accepted"><span class="jh-accepted-k">Accepted</span>' +
+      st.accepted.map(function (w) {
+        var whoWhen = [w.by || null, w.at ? jsFmtAckDate(w.at) : null].filter(Boolean).join(", ");
+        return '<span class="jh-accepted-i" title="' + escapeHtml(w.note || "No reason recorded") + '">' +
+          escapeHtml(w.text) + (whoWhen ? ' <span class="jh-accepted-by">\u2014 ' + escapeHtml(whoWhen) + '</span>' : '') +
+          '<button type="button" class="jh-unack" data-unack-key="' + escapeHtml(w.key) + '" title="Put this warning back" aria-label="Put this warning back">\u21ba</button>' +
+          '</span>';
+      }).join("") + '</div>'
     : "";
 
   // quick contact actions
@@ -2087,6 +2189,7 @@ function jsHero(b, st) {
     '<div class="jh-stats">' + tiles + '</div>' +
     (alerts ? '<div class="jh-alerts">' + alerts + '</div>' : '') +
     missing +
+    acceptedRow +
     contact +
   '</div>';
 }
@@ -2188,7 +2291,12 @@ function renderJobSheet(b) {
     jsField("Connect / disconnect required", jsYesLabel(b.electricalConnectionRequired)) +
     jsField("Electrical inspection required", jsYesLabel(b.electricalInspectionRequired)) +
     '<div class="js-field"><span class="k">Inspector booking time</span><span class="v"><input type="time" class="js-install-input js-time" data-deal="' + dealId + '" data-key="elec_inspector_time" value="' + escapeHtml(jsInspectorVal(b)) + '"></span></div>' +
-    jsField("Store opening time", b.tradingHoursOpen ? jsFmtTime12(b.tradingHoursOpen) : null) +
+    jsField("Store opening time", (function () {
+      /* what somebody typed on the jobsheet, else what the CRM sent */
+      var lo = jsLoadLocal(b.pipedriveDealId).trading_open;
+      var v = (lo != null && lo !== "") ? lo : b.tradingHoursOpen;
+      return v ? jsFmtTime12(v) : null;
+    })()) +
   '</div>';
   if (b.electricalInspectionRequired || b.electricalConnectionRequired) {
     elecBody += '<p class="js-elec-sentence">' + escapeHtml(jsInspectorSentence(b)) + '</p>';
@@ -2596,6 +2704,17 @@ function jsRenderStaffAllocations(holder, booking, opts) {
 
 /* Wire up jobsheet interactions. */
 function jsWire(m, b) {
+  /* Delegated from the holder, not the buttons: the hero is redrawn on every
+     sync, so anything bound to a chip would be dead the first time somebody
+     ticked a box. */
+  var heroHolder = document.getElementById("jsHeroHolder");
+  if (heroHolder) heroHolder.addEventListener("click", function (e) {
+    var ack = e.target.closest && e.target.closest(".jh-ack");
+    if (ack) { e.stopPropagation(); ackWarning(b, ack.getAttribute("data-ack-key"), (ack.parentNode.textContent || "").replace(/\u2715\s*$/, "").trim()); return; }
+    var un = e.target.closest && e.target.closest(".jh-unack");
+    if (un) { e.stopPropagation(); unackWarning(b, un.getAttribute("data-unack-key")); return; }
+  });
+
   jsLoadNotes(b.pipedriveDealId);
   jsWireNotes(b.pipedriveDealId);
   var closeBtn = document.getElementById("modalClose");

@@ -159,6 +159,96 @@ test("marking a job ready does not clear an undersize unit", () => {
   assert.equal(st.dispatchReady, false);
 });
 
+// ------------------------------------------------ accepting a judgement call
+const SOLD100 = () => BOOKING({ generatorLines: ["100kVA Generator Hire - 12hr - Daily Rate"] });
+const keyFor = (b, a) => R.undersizeWarnings(b, [a])[0].key;
+
+test("an accepted undersize stops blocking dispatch", () => {
+  const b = SOLD100(), g = GEN();
+  const st = R.computeJobStatus(b, [g], [HOURS()], [keyFor(b, g)]);
+  assert.deepEqual(st.missing, []);
+  assert.equal(st.dispatchReady, true);
+});
+
+test("accepting does not erase it — it moves, with whoever accepted it", () => {
+  const b = SOLD100(), g = GEN();
+  const st = R.computeJobStatus(b, [g], [HOURS()], [
+    { warning_key: keyFor(b, g), acknowledged_by: "Justin", acknowledged_at: "2026-09-10T00:00:00Z", note: "deal line out of date" },
+  ]);
+  assert.equal(st.accepted.length, 1);
+  assert.equal(st.accepted[0].by, "Justin");
+  assert.equal(st.accepted[0].note, "deal line out of date");
+  assert.match(st.accepted[0].text, /60 kVA is smaller than the 100 kVA sold/);
+});
+
+// The whole safety of a dismissible safety warning lives in these three.
+test("swapping to a DIFFERENT undersized unit brings the warning back", () => {
+  const b = SOLD100(), g = GEN();
+  const accepted = [keyFor(b, g)];
+  const swapped = GEN({ allocation_id: "a2", fleet_number: "607", generator_size_kva: 20, asset_name: "20 kVA Diesel Generator" });
+  const st = R.computeJobStatus(b, [swapped], [HOURS()], accepted);
+  assert.equal(st.missing.length, 1);
+  assert.equal(st.dispatchReady, false);
+});
+
+test("the same unit downgraded brings the warning back", () => {
+  const b = SOLD100(), g = GEN();
+  const accepted = [keyFor(b, g)];
+  const st = R.computeJobStatus(b, [GEN({ generator_size_kva: 20, asset_name: "20 kVA Diesel Generator" })], [HOURS()], accepted);
+  assert.equal(st.missing.length, 1, "a 20 kVA is not what was accepted");
+});
+
+test("reselling the job at a bigger size brings the warning back", () => {
+  const b = SOLD100(), g = GEN();
+  const accepted = [keyFor(b, g)];
+  const resold = BOOKING({ generatorLines: ["150kVA Generator Hire"] });
+  const st = R.computeJobStatus(resold, [g], [HOURS()], accepted);
+  assert.equal(st.missing.length, 1, "accepting 60-against-100 is not accepting 60-against-150");
+});
+
+test("an acceptance for one job does not travel to another", () => {
+  const b = SOLD100();
+  const other = GEN({ allocation_id: "different-job-alloc" });
+  const st = R.computeJobStatus(b, [other], [HOURS()], [keyFor(b, GEN())]);
+  assert.equal(st.missing.length, 1);
+});
+
+test("facts cannot be clicked away — only the judgement call carries a key", () => {
+  const b = SOLD100();
+  const st = R.computeJobStatus(b, [GEN({ dispatch_status: "" })], [HOURS({ hours_out: null, notes: "" })]);
+  const ackableText = (st.acknowledgeable || []).map((w) => w.text);
+
+  // Three real gaps are reported, and none of them is dismissible.
+  assert.ok(st.missing.some((m) => /not yet picked/.test(m)));
+  assert.ok(st.missing.some((m) => /Engine hours out/.test(m)));
+  assert.ok(st.missing.some((m) => /Fuel level/.test(m)));
+  for (const m of st.missing) {
+    if (/is smaller than/.test(m)) continue;
+    assert.ok(!ackableText.includes(m), "should not be dismissible: " + m);
+  }
+
+  // The undersize is, and accepting it leaves the other three standing.
+  assert.equal(ackableText.length, 1);
+  assert.match(ackableText[0], /is smaller than/);
+  const after = R.computeJobStatus(b, [GEN({ dispatch_status: "" })], [HOURS({ hours_out: null, notes: "" })], [st.acknowledgeable[0].key]);
+  assert.equal(after.missing.length, 3);
+  assert.equal(after.dispatchReady, false);
+});
+
+test("acceptances are read from a Set, a key list or full rows alike", () => {
+  const b = SOLD100(), g = GEN(), k = keyFor(b, g);
+  for (const acks of [new Set([k]), [k], [{ warning_key: k }]]) {
+    assert.deepEqual(R.computeJobStatus(b, [g], [HOURS()], acks).missing, [], String(acks));
+  }
+});
+
+test("no acceptances at all behaves exactly as before", () => {
+  const b = SOLD100(), g = GEN();
+  assert.equal(R.computeJobStatus(b, [g], [HOURS()]).missing.length, 1);
+  assert.equal(R.computeJobStatus(b, [g], [HOURS()], null).missing.length, 1);
+  assert.equal(R.computeJobStatus(b, [g], [HOURS()], []).missing.length, 1);
+});
+
 // ------------------------------------------- the half that is not pure logic
 // The bug was never in the rules — it was that nothing redrew the hero, which
 // carries the badge, the tiles and the chips. Guard the call itself.
@@ -189,4 +279,20 @@ test("a job marked ready still shows what is outstanding", () => {
   assert.match(hero[0], /var missing = st\.missing\.length/);
   assert.doesNotMatch(hero[0], /st\.key !== "ready" && st\.missing\.length/);
   assert.match(hero[0], /Marked ready/);
+});
+
+test("the X is delegated, so it survives the hero being redrawn", () => {
+  const fn = /function jsWire\(m, b\)\s*\{[\s\S]{0,1200}/.exec(appJs);
+  assert.ok(fn);
+  assert.match(fn[0], /jsHeroHolder[\s\S]{0,300}addEventListener\("click"/);
+  assert.match(fn[0], /jh-ack/);
+  assert.match(fn[0], /jh-unack/);
+});
+
+test("accepting a warning is admin-gated and asks why", () => {
+  const fn = /function ackWarning\(b, key, text\)\s*\{[\s\S]*?\n\}/.exec(appJs);
+  assert.ok(fn);
+  assert.match(fn[0], /x-fleet-admin-token/);
+  assert.match(fn[0], /window\.prompt/);
+  assert.match(fn[0], /note:/);
 });
