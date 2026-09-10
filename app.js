@@ -1959,6 +1959,64 @@ function jsFmtDuration(days) {
   var n = parseInt(days, 10);
   return isNaN(n) ? String(days) : (n + " day" + (n === 1 ? "" : "s"));
 }
+/* ---------- PDF export: colours html2canvas can actually read ----------
+
+   html2pdf 0.10.1 bundles a html2canvas that predates color-mix(). The board
+   uses color-mix() in 45 places; Chrome computes those to color(srgb r g b/a),
+   and html2canvas throws
+
+       Attempting to parse an unsupported color function "color"
+
+   on the first one it meets. That killed the export at the canvas step, inside
+   a .catch that only removed a loading class - so Download PDF did nothing,
+   said nothing, and looked like a dead button. 31 elements in the jobsheet
+   container carried one.
+
+   Two things had to be right, and both were learnt the hard way against the
+   live page:
+
+   - Kebab-case, through getPropertyValue/setProperty. The camelCase DOM
+     aliases silently do nothing for several of these.
+   - !important. The rules that produce these colours are themselves
+     !important, so a plain inline style loses to them and the computed value
+     never changes - which looks exactly like the fix not working.
+
+   Applied to html2pdf's own container, which is a clone it renders from, so
+   nothing on screen is touched. */
+var JS_PDF_COLOUR_PROPS = ["color", "background-color", "border-top-color", "border-right-color",
+  "border-bottom-color", "border-left-color", "outline-color", "text-decoration-color",
+  "column-rule-color", "fill", "stroke", "box-shadow", "background-image"];
+
+function jsSrgbToRgba(v) {
+  return String(v).replace(/color\(srgb\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)(?:\s*\/\s*([\d.eE+-]+%?))?\s*\)/gi,
+    function (_m, r, g, b, a) {
+      function ch(x) { var n = Math.round(parseFloat(x) * 255); return Math.max(0, Math.min(255, isFinite(n) ? n : 0)); }
+      var alpha = 1;
+      if (a != null) alpha = /%$/.test(a) ? parseFloat(a) / 100 : parseFloat(a);
+      if (!isFinite(alpha)) alpha = 1;
+      return "rgba(" + ch(r) + ", " + ch(g) + ", " + ch(b) + ", " + alpha + ")";
+    });
+}
+
+/* Rewrite every colour html2canvas cannot read, in place, on the tree it is
+   about to render. Returns how many it fixed, so a caller can tell the
+   difference between "nothing to do" and "did not run". */
+function jsPdfSanitiseColours(root) {
+  if (!root) return 0;
+  var els = [root].concat([].slice.call(root.querySelectorAll("*")));
+  var fixed = 0;
+  for (var i = 0; i < els.length; i++) {
+    var cs = window.getComputedStyle(els[i]);
+    for (var j = 0; j < JS_PDF_COLOUR_PROPS.length; j++) {
+      var prop = JS_PDF_COLOUR_PROPS[j];
+      var val = cs.getPropertyValue(prop);
+      if (!val || val.indexOf("color(") === -1) continue;
+      try { els[i].style.setProperty(prop, jsSrgbToRgba(val), "important"); fixed++; } catch (e) {}
+    }
+  }
+  return fixed;
+}
+
 function jsFmtAckDate(v) {
   var d = new Date(v);
   if (isNaN(d.getTime())) return "";
@@ -2736,8 +2794,17 @@ function jsWire(m, b) {
       html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
       pagebreak: { mode: ["css", "legacy"], avoid: [".js-field", ".js-card-head", ".js-staff-table tr", ".js-card-signoff", ".js-signgrid"] },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
-    }).from(node).save().then(function () { document.body.classList.remove("js-exporting"); })
-      .catch(function () { document.body.classList.remove("js-exporting"); });
+    }).from(node).toContainer().then(function () {
+      /* between the clone and the canvas: the only moment the tree html2canvas
+         will read exists and can still be changed. */
+      jsPdfSanitiseColours(this.prop.container);
+    }).save().then(function () { document.body.classList.remove("js-exporting"); })
+      .catch(function (e) {
+        document.body.classList.remove("js-exporting");
+        console.error("[jobsheet] PDF export failed:", e);
+        alert("Could not build the PDF: " + ((e && e.message) || e) + "\n\nPrinting instead \u2014 choose \u201cSave as PDF\u201d.");
+        window.print();
+      });
   });
 
   var readyBtn = document.getElementById("jsReadyBtn");
