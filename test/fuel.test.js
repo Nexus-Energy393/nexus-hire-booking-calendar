@@ -162,3 +162,40 @@ test("the CRM is sent numbers instead of a string to re-parse", () => {
 test("the browser actually loads the shared module", () => {
   assert.match(readFileSync(path.join(ROOT, "index.html"), "utf8"), /<script src="fuel\.js"><\/script>/);
 });
+
+// ---- the runner, so a migration cannot ship unapplied again --------------
+// 006 shipped and sat unapplied until every write to the board failed with
+// 'relation "events" does not exist'. The endpoint exists because of that.
+const migJs = readFileSync(path.join(ROOT, "api/migrate.js"), "utf8");
+
+test("007 is registered with the runner, not just written to a .sql file", () => {
+  assert.match(migJs, /MIGRATIONS\["007_fuel_columns"\]/);
+  assert.match(migJs, /MIGRATIONS\["006_events"\]/, "the original must not be dropped on the way past");
+});
+
+test("the runner's copy of 007 matches the .sql it mirrors", () => {
+  for (const frag of [
+    "fuel_out_pct    NUMERIC", "fuel_return_pct NUMERIC", "ongoing_refuel  BOOLEAN",
+    "engine_hour_fuel_pct_range", "idx_engine_fuel_out",
+  ]) {
+    assert.ok(migJs.includes(frag), frag);
+    assert.ok(sql.includes(frag), frag + " (sql)");
+  }
+});
+
+test("the runner's backfills are guarded the same way the .sql's are", () => {
+  const start = migJs.indexOf('MIGRATIONS["007_fuel_columns"]');
+  const block = migJs.slice(start, migJs.indexOf("];", start));
+  const updates = block.split(/UPDATE engine_hour_records/).slice(1);
+  assert.equal(updates.length, 3);
+  for (const u of updates) assert.match(u, /WHERE\s+\w+ IS NULL/);
+});
+
+test("it verifies rather than optimistically reporting success", () => {
+  assert.match(migJs, /VERIFY\s*=\s*\{/);
+  assert.match(migJs, /information_schema\.columns/);
+});
+
+test("it stays admin-gated", () => {
+  assert.match(migJs, /auth\.requireAdmin\(req, res\)/);
+});

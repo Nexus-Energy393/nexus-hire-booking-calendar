@@ -1568,6 +1568,40 @@ function renderSync(root) {
   whoCard.appendChild(whRow);
   whoCard.appendChild(whStatus);
   wrap.appendChild(whoCard);
+
+  /* Database migrations.
+
+     Nothing runs these on deploy. They were applied by hand with a connection
+     string pasted from Neon, which is how 006 shipped and sat unapplied until
+     every write to the board failed. This runs them through the app's own
+     runtime connection, so no connection string has to leave Vercel and nobody
+     has to handle it. Every statement is idempotent; pressing it twice is
+     nothing. */
+  var migCard = el("div", "sync-token-card");
+  migCard.style.cssText = "margin:0 0 18px;padding:14px 16px;border:1px solid rgba(120,120,120,0.3);border-radius:10px;";
+  migCard.appendChild(el("h3", null, "Database migrations"));
+  migCard.appendChild(el("p", "subtle", "Applies any schema changes shipped with the board. Safe to run more than once \u2014 every statement is written to be repeatable. Needs the admin token above."));
+  var migBtn = el("button", "btn-primary", "Run migrations"); migBtn.type = "button";
+  var migOut = el("pre", "subtle");
+  migOut.style.cssText = "margin-top:10px;white-space:pre-wrap;word-break:break-word;font-size:12px;";
+  migBtn.addEventListener("click", function () {
+    if (!groupsAuthHeaders()["x-fleet-admin-token"]) { migOut.textContent = "Set the fleet admin token above first."; return; }
+    migBtn.disabled = true; migBtn.textContent = "Running\u2026"; migOut.textContent = "";
+    fetch(groupsApiBase() + "/migrate", { method: "POST", headers: groupsAuthHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        migBtn.disabled = false; migBtn.textContent = "Run migrations";
+        if (!d.ok) { migOut.textContent = "Failed" + (d.migration ? " in " + d.migration : "") + (d.failedAtStep ? " at step " + d.failedAtStep : "") + ":\n" + (d.error || "unknown"); return; }
+        migOut.textContent = (d.ran || []).map(function (m) {
+          return "\u2713 " + m.migration + " \u2014 " + m.statements + " statements" +
+                 (m.verified ? "\n   " + JSON.stringify(m.verified) : "");
+        }).join("\n");
+      })
+      .catch(function (e) { migBtn.disabled = false; migBtn.textContent = "Run migrations"; migOut.textContent = e.message; });
+  });
+  migCard.appendChild(migBtn);
+  migCard.appendChild(migOut);
+  wrap.appendChild(migCard);
   var live = STATE.live;
   var rows = [
     ["Mode", live ? "Live (Nexy CRM feed connected)" : (CONFIG.apiBase ? "Sample data (live feed empty/unavailable)" : "Sample data mode")],

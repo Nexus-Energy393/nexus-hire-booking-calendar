@@ -1,6 +1,6 @@
 /*
  * api/migrate.js  (Vercel serverless)
- * One-shot, admin-gated migration runner for the events + event_staff tables.
+ * Admin-gated migration runner.
  *
  * WHY THIS EXISTS. Migrations in this repo are applied by hand
  * (`DATABASE_URL=... npm run migrate`) or by pasting SQL into the Neon
@@ -16,7 +16,11 @@
  * once: every statement is CREATE ... IF NOT EXISTS or an idempotent
  * DROP/CREATE, exactly as 006_events.sql is.
  *
- *   POST /api/migrate   (admin)   -> runs the events migration, reports each step
+ *   POST /api/migrate                        (admin) -> runs every migration here
+ *   POST /api/migrate?migration=007_fuel_columns    -> runs just that one
+ *
+ * Every statement is idempotent, so running them all is the default and
+ * re-running is safe.
  *
  * The DDL is inlined rather than read from db/migrations/*.sql because Vercel's
  * file tracer only bundles files that are `require`d, and a .sql read via fs is
@@ -34,7 +38,9 @@ const http = require("../lib/http");
 // references staff(staff_id) and the trigger calls touch_updated_at(); both
 // already exist from migrations 001/002, which is why the board's fleet and
 // staff features already work.
-const STATEMENTS = [
+const MIGRATIONS = {};
+
+MIGRATIONS["006_events"] = [
   `CREATE TABLE IF NOT EXISTS events (
      event_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
      event_type   TEXT NOT NULL
@@ -83,6 +89,59 @@ const STATEMENTS = [
      FOR EACH ROW EXECUTE FUNCTION touch_updated_at()`,
 ];
 
+/* 007_fuel_columns — mirrors db/migrations/007_fuel_columns.sql. Fuel stops
+   being a sentence parsed by four regexes and becomes three columns, with the
+   existing rows backfilled out of the note so no history is lost. Each backfill
+   is guarded on the column still being NULL, so a re-run can never let a stale
+   note overwrite a figure somebody typed. */
+MIGRATIONS["007_fuel_columns"] = [
+  `ALTER TABLE engine_hour_records ADD COLUMN IF NOT EXISTS fuel_out_pct    NUMERIC`,
+  `ALTER TABLE engine_hour_records ADD COLUMN IF NOT EXISTS fuel_return_pct NUMERIC`,
+  `ALTER TABLE engine_hour_records ADD COLUMN IF NOT EXISTS ongoing_refuel  BOOLEAN`,
+  `DO $$
+   BEGIN
+     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'engine_hour_fuel_pct_range') THEN
+       ALTER TABLE engine_hour_records ADD CONSTRAINT engine_hour_fuel_pct_range CHECK (
+         (fuel_out_pct    IS NULL OR (fuel_out_pct    >= 0 AND fuel_out_pct    <= 100)) AND
+         (fuel_return_pct IS NULL OR (fuel_return_pct >= 0 AND fuel_return_pct <= 100))
+       );
+     END IF;
+   END $$`,
+  `UPDATE engine_hour_records
+      SET fuel_out_pct = LEAST(100, GREATEST(0,
+            (substring(notes from 'Fuel out:\s*([0-9]{1,3})'))::numeric))
+    WHERE fuel_out_pct IS NULL
+      AND notes ~* 'Fuel out:\s*[0-9]'`,
+  `UPDATE engine_hour_records
+      SET fuel_return_pct = LEAST(100, GREATEST(0,
+            (substring(notes from 'Fuel return:\s*([0-9]{1,3})'))::numeric))
+    WHERE fuel_return_pct IS NULL
+      AND notes ~* 'Fuel return:\s*[0-9]'`,
+  `UPDATE engine_hour_records
+      SET ongoing_refuel = (notes ~* 'ongoing refuelling required')
+    WHERE ongoing_refuel IS NULL
+      AND notes ~* 'ongoing refuelling'`,
+  `CREATE INDEX IF NOT EXISTS idx_engine_fuel_out ON engine_hour_records (fuel_out_pct)`,
+];
+
+/* Proof, per migration, that the thing actually exists now — so the caller gets
+   a definitive "it worked" instead of an optimistic 200. */
+const VERIFY = {
+  "006_events": async function () {
+    const [{ count }] = await db.query("SELECT count(*)::int AS count FROM events", []);
+    return { eventsTableExists: true, eventsRowCount: count };
+  },
+  "007_fuel_columns": async function () {
+    const cols = await db.query(
+      "SELECT column_name FROM information_schema.columns " +
+      "WHERE table_name = 'engine_hour_records' AND column_name IN " +
+      "('fuel_out_pct','fuel_return_pct','ongoing_refuel')", []);
+    const [{ backfilled }] = await db.query(
+      "SELECT count(*)::int AS backfilled FROM engine_hour_records WHERE fuel_out_pct IS NOT NULL", []);
+    return { columns: cols.map(function (c) { return c.column_name; }).sort(), rowsWithFuel: backfilled };
+  },
+};
+
 module.exports = async function handler(req, res) {
   http.cors(res, "POST, OPTIONS");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
@@ -93,28 +152,36 @@ module.exports = async function handler(req, res) {
   // Same admin gate as every other write. requireAdmin writes its own 401/503.
   if (!auth.requireAdmin(req, res)) return;
 
-  const applied = [];
+  const only = (req.query && req.query.migration) || "";
+  const names = only ? [only] : Object.keys(MIGRATIONS).sort();
+  for (const n of names) {
+    if (!MIGRATIONS[n]) { res.status(400).json({ ok: false, error: "Unknown migration: " + n, known: Object.keys(MIGRATIONS).sort() }); return; }
+  }
+
+  const results = [];
   try {
-    for (let i = 0; i < STATEMENTS.length; i++) {
-      await db.query(STATEMENTS[i], []);
-      applied.push({ step: i + 1, ok: true });
+    for (const name of names) {
+      const statements = MIGRATIONS[name];
+      for (let i = 0; i < statements.length; i++) {
+        try {
+          await db.query(statements[i], []);
+        } catch (e) {
+          e.migration = name;
+          e.failedAtStep = i + 1;
+          throw e;
+        }
+      }
+      const verified = VERIFY[name] ? await VERIFY[name]() : null;
+      results.push({ migration: name, statements: statements.length, verified: verified });
     }
-    // Prove the table now exists and report its row count, so the caller gets a
-    // definitive "it worked" rather than an optimistic 200.
-    const [{ count }] = await db.query("SELECT count(*)::int AS count FROM events", []);
-    res.status(200).json({
-      ok: true,
-      migration: "006_events",
-      statements: applied.length,
-      eventsTableExists: true,
-      eventsRowCount: count,
-    });
+    res.status(200).json({ ok: true, ran: results });
   } catch (e) {
     res.status(500).json({
       ok: false,
       error: e.message,
-      failedAtStep: applied.length + 1,
-      applied,
+      migration: e.migration || null,
+      failedAtStep: e.failedAtStep || null,
+      completed: results,
     });
   }
 };
