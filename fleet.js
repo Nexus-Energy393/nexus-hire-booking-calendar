@@ -757,7 +757,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var hOut = num(outEl.value), hIn = num(inEl.value);
       if (hOut != null && hIn != null && hIn < hOut) { out.innerHTML = '<p class="fleet-err">Hours IN cannot be less than hours OUT.</p>'; return; }
       var payload = { asset_id: assetId, pipedrive_deal_id: num(m.body.querySelector("#ehDeal").value),
-        hours_out: hOut, hours_in: hIn, recorded_by: m.body.querySelector("#ehBy").value || null, notes: m.body.querySelector("#ehNotes").value || null };
+        hours_out: hOut, hours_in: hIn, recorded_by: m.body.querySelector("#ehBy").value || (window.jsWho ? window.jsWho() : "") || null, notes: m.body.querySelector("#ehNotes").value || null };
       out.innerHTML = "Saving&hellip;";
       apiSend("POST", "/jobsheet?action=engine-hours", payload).then(function (r) {
         if (!r.body.ok) { out.innerHTML = '<p class="fleet-err">' + esc(r.body.error || "Failed") + "</p>"; return; }

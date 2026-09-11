@@ -553,6 +553,36 @@ function dismissBooking(b) {
     .then(function () { render(); })
     .catch(function (e) { alert(e.message); });
 }
+/* Who is at this screen.
+
+   Every recorded_by on this board - engine hours, refuels, and now accepted
+   warnings - is meant to be somebody's name. Until now the only way to get one
+   in was to retype it into a box on each dialog, so most rows carried nobody,
+   and "accepted by nobody" is not an audit trail.
+
+   Asked once, kept on the device, changeable from Sync. */
+var NEXUS_WHO_KEY = "nexusStaffName";
+
+function jsWho(opts) {
+  opts = opts || {};
+  var name = "";
+  try { name = (localStorage.getItem(NEXUS_WHO_KEY) || "").trim(); } catch (e) {}
+  if (name || !opts.ask) return name;
+  var typed = window.prompt(
+    "Your name, so what you record on this board has somebody against it.\n" +
+    "(Kept on this device. Change it any time under Sync.)", "");
+  return jsSetWho(typed);
+}
+
+function jsSetWho(name) {
+  name = String(name == null ? "" : name).trim().slice(0, 120);
+  try {
+    if (name) localStorage.setItem(NEXUS_WHO_KEY, name);
+    else localStorage.removeItem(NEXUS_WHO_KEY);
+  } catch (e) {}
+  return name;
+}
+
 /* Accepted dispatch warnings, per deal, kept server-side so an acceptance
    sticks across devices and the office screen — and so it is somebody's name
    against it, not an anonymous click in one browser's localStorage.
@@ -585,11 +615,15 @@ function ackWarning(b, key, text) {
     alert("Enter the Fleet admin token (Sync view) to accept a warning.");
     return;
   }
+  /* Asked BEFORE the decision, and required. An acceptance is somebody
+     overriding a dispatch check; unsigned, it is just the warning gone. */
+  var who = jsWho({ ask: true });
+  if (!who) { alert("Enter your name first - an accepted warning has to have somebody against it."); return; }
   var why = window.prompt(
     "Accept this warning and stop it blocking dispatch?\n\n" + text +
+    "\n\nAccepted by: " + who +
     "\n\nIt comes back by itself if the unit is swapped or the job is resold at a different size.\n\nWhy is it acceptable? (optional)");
   if (why === null) return; // cancelled
-  var who = ""; try { who = localStorage.getItem("nexusStaffName") || ""; } catch (e) {}
   fetch(groupsApiBase() + "/acknowledgements", {
     method: "POST", headers: groupsAuthHeaders(),
     body: JSON.stringify({ dealId: String(b.pipedriveDealId), key: key, text: text, note: why || null, by: who || null })
@@ -1500,6 +1534,40 @@ function renderSync(root) {
   tokenCard.appendChild(tkRow);
   tokenCard.appendChild(tkStatus);
   wrap.appendChild(tokenCard);
+
+  /* Who this device records as. One place to say it, instead of retyping a
+     name into every dialog and leaving most rows anonymous. */
+  var whoCard = el("div", "sync-token-card");
+  whoCard.style.cssText = "margin:0 0 18px;padding:14px 16px;border:1px solid rgba(120,120,120,0.3);border-radius:10px;";
+  whoCard.appendChild(el("h3", null, "Your name (this device)"));
+  whoCard.appendChild(el("p", "subtle", "Recorded against what you do here \u2014 engine hours, fuel, and any dispatch warning you accept. Accepting a warning will ask for this if it is not set."));
+  var whRow = el("div");
+  whRow.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;";
+  var whInput = el("input");
+  whInput.type = "text";
+  whInput.placeholder = "e.g. Justin Mace";
+  whInput.autocomplete = "name";
+  whInput.value = jsWho();
+  whInput.style.cssText = "flex:1;min-width:240px;padding:8px 10px;border:1px solid rgba(120,120,120,0.4);border-radius:8px;font:inherit;";
+  var whSave = el("button", "btn-primary", "Save"); whSave.type = "button";
+  var whStatus = el("span", "subtle");
+  function whSetStatus() {
+    var n = jsWho();
+    whStatus.textContent = n ? ("\u2713 Recording as " + n) : "Not set \u2014 anything you record here will be anonymous";
+    whStatus.style.marginTop = "8px";
+    whStatus.style.display = "block";
+  }
+  whSetStatus();
+  whSave.addEventListener("click", function () {
+    jsSetWho(whInput.value);
+    whInput.value = jsWho();
+    whSetStatus();
+    whSave.textContent = "Saved"; setTimeout(function () { whSave.textContent = "Save"; }, 1500);
+  });
+  whRow.appendChild(whInput); whRow.appendChild(whSave);
+  whoCard.appendChild(whRow);
+  whoCard.appendChild(whStatus);
+  wrap.appendChild(whoCard);
   var live = STATE.live;
   var rows = [
     ["Mode", live ? "Live (Nexy CRM feed connected)" : (CONFIG.apiBase ? "Sample data (live feed empty/unavailable)" : "Sample data mode")],

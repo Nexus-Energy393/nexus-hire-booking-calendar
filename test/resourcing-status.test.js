@@ -296,3 +296,33 @@ test("accepting a warning is admin-gated and asks why", () => {
   assert.match(fn[0], /window\.prompt/);
   assert.match(fn[0], /note:/);
 });
+
+// ---- attribution: an unsigned override is just the warning gone ----------
+test("an acceptance cannot be made without a name", () => {
+  const fn = /function ackWarning\(b, key, text\)\s*\{[\s\S]*?\n\}/.exec(appJs);
+  assert.ok(fn);
+  assert.match(fn[0], /jsWho\(\{ ask: true \}\)/);
+  // The bail-out must come BEFORE the write, not merely exist somewhere.
+  const askAt = fn[0].indexOf("jsWho({ ask: true })");
+  const bailAt = fn[0].search(/if \(!who\)[\s\S]{0,200}return;/);
+  const postAt = fn[0].indexOf("method: \"POST\"");
+  assert.ok(askAt > -1 && bailAt > askAt && postAt > bailAt, "name is asked, enforced, then written");
+});
+
+test("the name is asked for before the decision, not after it", () => {
+  const fn = /function ackWarning\(b, key, text\)\s*\{[\s\S]*?\n\}/.exec(appJs);
+  assert.ok(fn[0].indexOf("jsWho({ ask: true })") < fn[0].indexOf("Why is it acceptable"));
+});
+
+test("the name survives a reload and is changeable", () => {
+  const fn = /function jsSetWho\(name\)\s*\{[\s\S]*?\n\}/.exec(appJs);
+  assert.ok(fn);
+  assert.match(fn[0], /localStorage\.setItem\(NEXUS_WHO_KEY/);
+  assert.match(fn[0], /removeItem\(NEXUS_WHO_KEY/, "clearing it must clear it, not store an empty string");
+  assert.match(appJs, /whSave\.addEventListener\("click"[\s\S]{0,200}jsSetWho\(whInput\.value\)/);
+});
+
+test("engine hours record under the same name", () => {
+  const fleetJs = readFileSync(path.join(ROOT, "fleet.js"), "utf8");
+  assert.match(fleetJs, /recorded_by: m\.body\.querySelector\("#ehBy"\)\.value \|\| \(window\.jsWho \? window\.jsWho\(\) : ""\)/);
+});
