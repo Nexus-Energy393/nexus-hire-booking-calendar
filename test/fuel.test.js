@@ -199,3 +199,38 @@ test("it verifies rather than optimistically reporting success", () => {
 test("it stays admin-gated", () => {
   assert.match(migJs, /auth\.requireAdmin\(req, res\)/);
 });
+
+/* The runner's statements are TEMPLATE LITERALS, and a template literal eats a
+   lone backslash: `\s` evaluates to "s". So the SQL that actually reached the
+   database read 'Fuel out:s*[0-9]', which matches nothing, and the first live
+   run backfilled 0 rows out of a table full of "Fuel out: 100%".
+
+   Reading the source text could not see that - it looked identical to the .sql.
+   These evaluate the statements and test the patterns that come out. */
+function runnerStatements(name) {
+  const marker = 'MIGRATIONS["' + name + '"] = ';
+  const i = migJs.indexOf(marker);
+  assert.ok(i > -1, "migration not registered: " + name);
+  const j = migJs.indexOf("\n];", i);
+  return eval(migJs.slice(i + marker.length, j + 2));
+}
+
+test("the runner's fuel patterns survive into SQL", () => {
+  const sqlText = runnerStatements("007_fuel_columns").join("\n");
+  assert.match(sqlText, /Fuel out:\\s\*/, "backslash was eaten by the template literal");
+  assert.match(sqlText, /Fuel return:\\s\*/);
+  assert.doesNotMatch(sqlText, /Fuel out:s\*/, "'\\s' collapsed to 's' - this matches nothing");
+});
+
+test("those patterns actually match a real note", () => {
+  const sqlText = runnerStatements("007_fuel_columns").join("\n");
+  const note = "Fuel out: 100% | Fuel return: 40% | Ongoing refuelling REQUIRED";
+  for (const pat of sqlText.match(/'Fuel (?:out|return):[^']*'/g)) {
+    const body = pat.slice(1, -1);
+    assert.match(note, new RegExp(body, "i"), "does not match a real note: " + body);
+  }
+  // and the capture pulls the number out
+  const cap = /'Fuel out:(\\s\*\([^']*\))'/.exec(sqlText);
+  assert.ok(cap, "the capturing form is missing");
+  assert.equal(new RegExp("Fuel out:" + cap[1], "i").exec(note)[1], "100");
+});

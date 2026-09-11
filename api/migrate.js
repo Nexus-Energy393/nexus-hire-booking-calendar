@@ -109,14 +109,14 @@ MIGRATIONS["007_fuel_columns"] = [
    END $$`,
   `UPDATE engine_hour_records
       SET fuel_out_pct = LEAST(100, GREATEST(0,
-            (substring(notes from 'Fuel out:\s*([0-9]{1,3})'))::numeric))
+            (substring(notes from 'Fuel out:\\s*([0-9]{1,3})'))::numeric))
     WHERE fuel_out_pct IS NULL
-      AND notes ~* 'Fuel out:\s*[0-9]'`,
+      AND notes ~* 'Fuel out:\\s*[0-9]'`,
   `UPDATE engine_hour_records
       SET fuel_return_pct = LEAST(100, GREATEST(0,
-            (substring(notes from 'Fuel return:\s*([0-9]{1,3})'))::numeric))
+            (substring(notes from 'Fuel return:\\s*([0-9]{1,3})'))::numeric))
     WHERE fuel_return_pct IS NULL
-      AND notes ~* 'Fuel return:\s*[0-9]'`,
+      AND notes ~* 'Fuel return:\\s*[0-9]'`,
   `UPDATE engine_hour_records
       SET ongoing_refuel = (notes ~* 'ongoing refuelling required')
     WHERE ongoing_refuel IS NULL
