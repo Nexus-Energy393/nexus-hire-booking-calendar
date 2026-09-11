@@ -104,6 +104,34 @@ function durationDays(b) {
   if (s && e) return Math.round((e - s) / 86400000) + 1;
   return null;
 }
+/* The machine(s) Nexy allocated to a job, as one line a person reads at a
+   glance: "#H71 · Honda EU70is · 7 kVA". Two units of the same spec fold into
+   "#H71 + #H72 · Honda EU70is · 7 kVA". Empty until a unit is allocated. */
+function allocatedLine(b) {
+  var units = (b && b.allocatedUnits) || [];
+  if (!units.length) return "";
+  var bySpec = {}, order = [];
+  units.forEach(function (u) {
+    var fn = String(u.fleetNumber || "").replace(/^#+/, "").trim();
+    var parts = String(u.label || "").split(" \u00b7 ");
+    if (parts.length && parts[0].charAt(0) === "#") parts.shift();   /* the label leads with the fleet number */
+    var spec = parts.join(" \u00b7 ").trim();
+    if (!fn && !spec) return;
+    if (!bySpec[spec]) { bySpec[spec] = []; order.push(spec); }
+    if (fn) bySpec[spec].push("#" + fn);
+  });
+  return order.map(function (spec) {
+    var ids = bySpec[spec].join(" + ");
+    return ids && spec ? ids + " \u00b7 " + spec : (ids || spec);
+  }).join(" + ");
+}
+function allocatedFleetNumbers(b) {
+  var out = {};
+  function add(v) { v = String(v || "").replace(/^#+/, "").trim().toUpperCase(); if (v) out[v] = true; }
+  String((b && b.equipmentId) || "").split(/[,+\/]/).forEach(add);
+  ((b && b.allocatedUnits) || []).forEach(function (u) { add(u.fleetNumber); });
+  return Object.keys(out);
+}
 function statusMeta(b) {
   if (b && b.resourcingStatus) {
     var rmap = {
@@ -155,17 +183,19 @@ function detectConflicts(bookings) {
   // used to raise a false "double-booked" alarm (e.g. two unrelated 40kVA hires,
   // a size we don't even stock), which is what this replaces.
   var conflicts = [];
-  function unit(b) { return String(b.equipmentId || "").replace(/^#+/, "").trim().toUpperCase(); }
+  // A unit allocated in Nexy (allocatedUnits) counts exactly like the free-text fleet number.
   var active = bookings.filter(function (b) {
-    return !b.prospective && b.status !== "cancelled" && b.status !== "completed" && unit(b) && bStart(b);
+    return !b.prospective && b.status !== "cancelled" && b.status !== "completed" && allocatedFleetNumbers(b).length && bStart(b);
   });
   for (var i = 0; i < active.length; i++) {
     for (var j = i + 1; j < active.length; j++) {
       var a = active[i], c = active[j];
-      if (unit(a) !== unit(c)) continue;   // different (or unallocated) units — normal pipeline
+      var ua = allocatedFleetNumbers(a), uc = allocatedFleetNumbers(c);
+      var shared = ua.filter(function (u) { return uc.indexOf(u) !== -1; });
+      if (!shared.length) continue;   // different (or unallocated) units — normal pipeline
       var as = bStart(a), ae = bEnd(a) || as, cs = bStart(c), ce = bEnd(c) || cs;
       if (as.getTime() <= ce.getTime() && cs.getTime() <= ae.getTime()) {
-        conflicts.push({ a: a, b: c, resource: "#" + unit(a) });
+        conflicts.push({ a: a, b: c, resource: "#" + shared[0] });
       }
     }
   }
@@ -186,7 +216,7 @@ function applyFilters(bookings) {
     if (q) {
       var qNum = q.replace(/^(#|job\s*|deal\s*)+/i, ""); /* "#458", "job 458", "deal 458" -> "458" */
       var hay = [b.customer, b.contact, b.site, b.suburb, b.dealOwner, b.generatorSize, b.notes,
-                 b.pipedriveDealId, b.equipmentId].join(" ").toLowerCase();
+                 b.pipedriveDealId, b.equipmentId, allocatedLine(b)].join(" ").toLowerCase();
       if (hay.indexOf(q) === -1 && (qNum === q || hay.indexOf(qNum) === -1)) return false;
     }
     return true;
@@ -484,7 +514,7 @@ function bookingCard(b, compact) {
   var sm = statusMeta(b), tm = typeMeta(b);
   var card = el("div", "booking-card " + tm.cls + " " + sm.cls + (compact ? " compact" : "") + (b.prospective ? " is-prospective" : ""));
   card.setAttribute("data-id", b.id);
-  var size = b.generatorSize ? b.generatorSize : "Size TBC";
+  var size = allocatedLine(b) || b.generatorSize || "Size TBC";
   var dur = b.durationDays ? (b.durationDays + (b.durationDays === 1 ? " day" : " days")) : "Duration TBC";
   var cardConflict = STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)];
   card.innerHTML =
@@ -678,9 +708,11 @@ function makeGroupBooking(gid, members, label) {
     if (e && (!end || e > end)) end = e;
   });
   var sizes = members.map(function (b) { return b.generatorSize; }).filter(Boolean);
+  var units = members.reduce(function (acc, b) { return acc.concat(b.allocatedUnits || []); }, []);
   var head = members[0];
   return Object.assign({}, head, {
     isGroup: true, groupId: gid, members: members, memberCount: members.length,
+    allocatedUnits: units,
     pipedriveDealId: "grp:" + gid,
     customer: label || head.customer,
     generatorSize: sizes.length ? (sizes.length > 2 ? sizes.slice(0, 2).join(", ") + " +" + (sizes.length - 2) : sizes.join(", ")) : head.generatorSize,
@@ -981,6 +1013,7 @@ function timelineRow(b, gridStart, numDays, todayCol) {
   row.setAttribute("data-deal-id", b.pipedriveDealId);
 
   var head = el("div", "tl-rowhead");
+  var machine = allocatedLine(b);
   var job = b.isGroup ? '<span class="tl-job tl-job-grp">' + b.memberCount + ' jobs</span>' : (b.jobNumber ? '<span class="tl-job">' + escapeHtml(b.jobNumber) + '</span>' : '');
   head.innerHTML =
     '<span class="tl-dot" title="' + escapeHtml(sm.label) + '"></span>' +
@@ -989,7 +1022,10 @@ function timelineRow(b, gridStart, numDays, todayCol) {
       '<span class="tl-sub">' + escapeHtml(b.suburb || b.site || "Site TBC") +
         (b.generatorSize ? '<span class="tl-gen"> · ' + escapeHtml(b.generatorSize) + '</span>' : '') +
       '</span>' +
+      (machine ? '<span class="tl-unit">' + escapeHtml(machine) + '</span>' : '') +
     '</span>' + job;
+  head.title = (b.customer || "Unknown customer") + "\n" + (b.suburb || b.site || "Site TBC") +
+    (b.generatorSize ? " · " + b.generatorSize : "") + (machine ? "\n" + machine : "\nNo unit allocated yet");
   head.addEventListener("click", function () {
     if (b.isGroup) { openGroupModal(b); return; }
     if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; }
@@ -1486,7 +1522,7 @@ function renderMissing(root, bookings) {
     var reasons = [];
     if (!bStart(b)) reasons.push("missing start date");
     if (!b.durationDays && b.status === "needs-duration") reasons.push("duration needs confirmation");
-    if (!b.equipmentId) reasons.push("equipment not allocated");
+    if (!b.equipmentId && !allocatedLine(b)) reasons.push("equipment not allocated");
     if (reasons.length) card.appendChild(el("div", "bc-flag", "&#9888; " + reasons.join(", ")));
     wrap.appendChild(card);
   });

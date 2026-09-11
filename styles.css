@@ -2693,6 +2693,7 @@ html.nx-embedded .side-rail .tab.active {
 .tl-cust { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
 .tl-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .tl-gen { color: var(--muted); }
+.tl-unit { font-size: 11.5px; color: var(--text); opacity: .82; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .tl-job { flex: 0 0 auto; font-size: 10px; font-weight: 700; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 1px 5px; letter-spacing: .01em; }
 
 /* ---- day track + banding ---- */
@@ -2714,7 +2715,7 @@ html.nx-embedded .side-rail .tab.active {
 /* ---- the hire bar ---- */
 .tl-bar {
   grid-row: 1; z-index: 1; position: relative;
-  min-height: var(--tl-bar-h); margin: 4px 0;
+  min-height: var(--tl-bar-h); margin: 4px 0; align-self: center;
   display: flex; align-items: center; gap: 7px;
   padding: 0 9px; overflow: hidden;
   border-radius: 8px;
@@ -2780,7 +2781,7 @@ html.nx-embedded .side-rail .tab.active {
 /* ---- Office screen (TV) ---- */
 body[data-mode="tv"] .tl { --tl-head: 300px; --tl-col-min: 70px; --tl-row-h: 52px; --tl-bar-h: 40px; font-size: 16px; }
 body[data-mode="tv"] .tl-cust { font-size: 16px; }
-body[data-mode="tv"] .tl-sub { font-size: 13px; }
+body[data-mode="tv"] .tl-sub, body[data-mode="tv"] .tl-unit { font-size: 13px; }
 body[data-mode="tv"] .tl-bar-lbl { font-size: 15px; }
 body[data-mode="tv"] .tl-dnum { font-size: 17px; }
 
