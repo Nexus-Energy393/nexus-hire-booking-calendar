@@ -85,6 +85,11 @@ module.exports = async function handler(req, res) {
               hoursOut: body.hours_out != null ? Number(body.hours_out) : null,
               hoursIn: body.hours_in != null ? Number(body.hours_in) : null,
               recordedBy: body.recorded_by || null,
+              // Typed, so the CRM stops re-parsing the same note string that
+              // the board just built out of these very numbers.
+              fuelOutPct: rec.fuel_out_pct != null ? Number(rec.fuel_out_pct) : null,
+              fuelReturnPct: rec.fuel_return_pct != null ? Number(rec.fuel_return_pct) : null,
+              ongoingRefuel: rec.ongoing_refuel != null ? !!rec.ongoing_refuel : null,
               notes: body.notes || null,
             });
           }

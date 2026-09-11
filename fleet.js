@@ -950,9 +950,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       if (genAllocs.length) {
         var genRows = genAllocs.map(function (a) {
           var L = latestByAsset[a.asset_id] || {};
-          var fO = /fuel out:\s*([0-9]{1,3})\s*%/i.exec(L.notes || "");
-          var fR = /fuel return:\s*([0-9]{1,3})\s*%/i.exec(L.notes || "");
-          var rq = /ongoing refuelling required/i.test(L.notes || "");
+          /* Columns first, note second, one reader for both (see lib/fuel.js). */
+          var fuel = window.NexusFuel ? window.NexusFuel.readingOf(L) : { fuelOut: null, fuelReturn: null, refuel: null };
+          var fO = fuel.fuelOut, fR = fuel.fuelReturn;
+          var rq = fuel.refuel === true;
           if (rq) anyRefuel = true;
           var kva = a.asset.generator_size_kva != null ? (a.asset.generator_size_kva + " kVA") : "";
           var cur = a.asset.current_engine_hours != null ? a.asset.current_engine_hours : "—";
@@ -963,8 +964,8 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
               '<span class="rs-gc" data-label="Hrs out"><input type="number" min="0" inputmode="decimal" class="rsg-out"' + d + ' value="' + esc(L.hours_out != null ? L.hours_out : "") + '" /></span>' +
               '<span class="rs-gc" data-label="Hrs in"><input type="number" min="0" inputmode="decimal" class="rsg-in"' + d + ' value="' + esc(L.hours_in != null ? L.hours_in : "") + '" /></span>' +
               '<span class="rs-gc rs-gc-run" data-label="Run"><output class="rsg-run">' + esc(L.runtime_hours != null ? L.runtime_hours : "—") + '</output></span>' +
-              '<span class="rs-gc" data-label="Fuel out %"><input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fout"' + d + ' value="' + esc(fO ? fO[1] : "") + '" placeholder="%" /></span>' +
-              '<span class="rs-gc" data-label="Return %"><input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fret"' + d + ' value="' + esc(fR ? fR[1] : "") + '" placeholder="%" /></span>' +
+              '<span class="rs-gc" data-label="Fuel out %"><input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fout"' + d + ' value="' + esc(fO != null ? fO : "") + '" placeholder="%" /></span>' +
+              '<span class="rs-gc" data-label="Return %"><input type="number" min="0" max="100" step="5" inputmode="numeric" class="rsg-fret"' + d + ' value="' + esc(fR != null ? fR : "") + '" placeholder="%" /></span>' +
               '<span class="rs-gc rs-gc-refuel" data-label="Refuel"><label class="rs-toggle"><input type="checkbox" class="rsg-refuel"' + (rq ? " checked" : "") + d + ' /><span class="rs-toggle-track"><span class="rs-toggle-thumb"></span></span><span class="rs-toggle-text rsg-refuel-txt">' + (rq ? "Yes" : "No") + '</span></label></span>' +
               '<span class="rsg-err" hidden></span>' +
             '</div>';
@@ -1057,11 +1058,17 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       return !msg;
     }
     function payloadFor(v) {
-      var noteParts = [];
-      if (v.fo != null) noteParts.push("Fuel out: " + Math.round(v.fo) + "%");
-      if (v.fr != null) noteParts.push("Fuel return: " + Math.round(v.fr) + "%");
-      noteParts.push(v.refuel ? "Ongoing refuelling REQUIRED" : "No ongoing refuelling");
-      return { asset_id: v.assetId, pipedrive_deal_id: booking.pipedriveDealId, hours_out: v.o, hours_in: v.i, notes: noteParts.join(" | ") };
+      /* Typed fields are the record; the note is the human-readable copy of
+         the same thing, built by the one function that knows its wording. */
+      var reading = { fuelOut: v.fo, fuelReturn: v.fr, refuel: !!v.refuel };
+      return {
+        asset_id: v.assetId, pipedrive_deal_id: booking.pipedriveDealId,
+        hours_out: v.o, hours_in: v.i,
+        fuel_out_pct: window.NexusFuel ? window.NexusFuel.pct(v.fo) : v.fo,
+        fuel_return_pct: window.NexusFuel ? window.NexusFuel.pct(v.fr) : v.fr,
+        ongoing_refuel: !!v.refuel,
+        notes: window.NexusFuel ? window.NexusFuel.noteFor(reading) : null
+      };
     }
     function saveRow(row, silent) {
       var v = rowVals(row);

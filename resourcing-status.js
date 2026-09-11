@@ -295,8 +295,19 @@
     }
     var hoursOut = engineHours.some(function (r) { return r.hours_out != null; });
     var hoursIn = engineHours.some(function (r) { return r.hours_in != null; });
-    var fuelRecorded = engineHours.some(function (r) { return /fuel out:\s*\d/i.test(r.notes || ""); });
-    var refuellingRequired = engineHours.some(function (r) { return /ongoing refuelling required/i.test(r.notes || ""); });
+    /* Fuel lives in a column now (migration 007). NexusFuel falls back to the
+       note for rows written before it, so no recorded reading ever reads as
+       unrecorded - a dispatch gate must not fail open on a wording change. */
+    var FUEL = (typeof window !== "undefined" && window.NexusFuel) ||
+               (typeof require === "function" ? require("./fuel") : null);
+    var fuelRecorded = engineHours.some(function (r) {
+      return FUEL ? FUEL.isFuelRecorded(r)
+                  : (r.fuel_out_pct != null || /fuel out:\s*\d/i.test(r.notes || ""));
+    });
+    var refuellingRequired = engineHours.some(function (r) {
+      if (FUEL) return FUEL.readingOf(r).refuel === true;
+      return r.ongoing_refuel != null ? !!r.ongoing_refuel : /ongoing refuelling required/i.test(r.notes || "");
+    });
     /* An undersize can be a real fault or a deal line nobody updated. Someone
        who knows which is which can accept it; until then it blocks. Accepted
        ones leave the red row but are never erased - they move to `accepted`,
