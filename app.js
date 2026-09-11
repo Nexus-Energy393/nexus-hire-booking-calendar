@@ -841,7 +841,9 @@ function openGroupModal(group) {
 
 function render() {
   var root = document.getElementById("calendarRoot");
-  root.innerHTML = "";
+  /* Sync keeps its DOM across refreshes - see renderSync. Everything else is a
+     pure function of the data and is cheaper to rebuild than to diff. */
+  if (!(STATE.view === "sync" && document.getElementById("syncPanel"))) root.innerHTML = "";
   var filtered = applyFilters(STATE.bookings);
   var visible = applyGroups(filtered);
   renderConflicts(detectConflicts(visible));
@@ -1529,8 +1531,44 @@ function renderMissing(root, bookings) {
   root.appendChild(wrap);
 }
 
+/* The status figures, refreshed in place. */
+function syncFillStatusRows(table) {
+  if (!table) return;
+  var live = STATE.live;
+  var rows = [
+    ["Mode", live ? "Live (Nexy CRM feed connected)" : (CONFIG.apiBase ? "Sample data (live feed empty/unavailable)" : "Sample data mode")],
+    ["API base", CONFIG.apiBase || "(not configured)"],
+    ["Source of truth", "Won deals in the Nexy CRM hire pipeline (read-only)"],
+    ["Total bookings loaded", String(STATE.bookings.length)],
+    ["Last refreshed", STATE.lastUpdated ? STATE.lastUpdated.toLocaleString("en-AU") : "--"],
+    ["Auto-refresh", "Every " + Math.round(REFRESH_MS / 1000) + "s (board re-polls the Nexy feed on its own)"]
+  ];
+  table.innerHTML = "";
+  rows.forEach(function (r) {
+    var tr = el("tr");
+    tr.appendChild(el("td", "sk", r[0]));
+    tr.appendChild(el("td", "sv", r[1]));
+    table.appendChild(tr);
+  });
+}
+
+/* Sync is the one view made of forms rather than data.
+
+   render() empties the board and rebuilds it, and the board re-polls itself
+   every 60 seconds for the office screen. On every other view that is exactly
+   right. Here it threw away the migration output before anybody could read it
+   - and, worse, wiped a token or a name half-typed into a field, mid-keystroke,
+   for no reason the person could see. Which is the likeliest reason the name
+   field kept ending up empty.
+
+   So: build it once, and afterwards let the auto-refresh update only the
+   figures. A person typing into this view is never interrupted by it. */
 function renderSync(root) {
+  var existing = document.getElementById("syncPanel");
+  if (existing && existing.parentNode === root) { syncFillStatusRows(document.getElementById("syncStatusTable")); return; }
+
   var wrap = el("div", "list-wrap sync-wrap");
+  wrap.id = "syncPanel";
   wrap.appendChild(el("h2", "day-title", "Nexy sync status"));
 
   /* Fleet admin token (this device) — enables job-sheet writes (allocations, notes) */
@@ -1638,23 +1676,10 @@ function renderSync(root) {
   migCard.appendChild(migBtn);
   migCard.appendChild(migOut);
   wrap.appendChild(migCard);
-  var live = STATE.live;
-  var rows = [
-    ["Mode", live ? "Live (Nexy CRM feed connected)" : (CONFIG.apiBase ? "Sample data (live feed empty/unavailable)" : "Sample data mode")],
-    ["API base", CONFIG.apiBase || "(not configured)"],
-    ["Source of truth", "Won deals in the Nexy CRM hire pipeline (read-only)"],
-    ["Total bookings loaded", String(STATE.bookings.length)],
-    ["Last refreshed", STATE.lastUpdated ? STATE.lastUpdated.toLocaleString("en-AU") : "--"],
-    ["Auto-refresh", "Every " + Math.round(REFRESH_MS / 1000) + "s (board re-polls the Nexy feed on its own)"]
-  ];
   var table = el("table", "sync-table");
-  rows.forEach(function (r) {
-    var tr = el("tr");
-    tr.appendChild(el("td", "sk", r[0]));
-    tr.appendChild(el("td", "sv", r[1]));
-    table.appendChild(tr);
-  });
+  table.id = "syncStatusTable";
   wrap.appendChild(table);
+  syncFillStatusRows(table);
   if (CONFIG.apiBase) {
     wrap.appendChild(el("p", "subtle", "A deal marked won in Nexy appears here on the next refresh, within about a minute once the server cache (\u224860s) clears. Hit \u201CRefresh now\u201D to pull the latest immediately."));
   }
