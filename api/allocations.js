@@ -24,22 +24,65 @@ const R = require("../lib/resourcing");
    store — the instant it is made on the board, so the deal and fleet reflect it
    without waiting for the daily import. Best-effort: a CRM hiccup never fails
    the board's own allocation. */
+/* Same default as api/bookings.js and lib/fleet-sync.js: with HIRE_FEED_URL
+   unset on the project this used to resolve to "" and the mirror silently never
+   fired, which is why units allocated here were missing from Nexy. */
 const CRM_ALLOC_URL = (
   process.env.CRM_ALLOC_URL ||
-  (process.env.HIRE_FEED_URL || "").replace(/\/calendar\/?$/, "/allocate")
+  (process.env.HIRE_FEED_URL || "https://nexus-crm-gilt.vercel.app/api/hire/calendar").replace(/\/calendar\/?$/, "/allocate")
 ).replace(/\/+$/, "");
 const CRM_TOKEN = process.env.HIRE_FEED_TOKEN || "";
 async function crmMirror(action, dealId, fleetNumber) {
-  if (!CRM_ALLOC_URL || !dealId || !fleetNumber) return;
+  if (!CRM_ALLOC_URL || !dealId || !fleetNumber) { console.warn("[api/allocations] CRM mirror skipped: no URL, deal or fleet number"); return; }
   try {
     const url = CRM_ALLOC_URL + (CRM_TOKEN ? "?token=" + encodeURIComponent(CRM_TOKEN) : "");
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: Object.assign({ "Content-Type": "application/json" }, CRM_TOKEN ? { Authorization: "Bearer " + CRM_TOKEN } : {}),
       body: JSON.stringify({ action: action, dealId: String(dealId), fleetNumber: String(fleetNumber), force: true }),
     });
+    if (!res.ok) {
+      const text = await res.text().catch(function () { return ""; });
+      console.error("[api/allocations] CRM mirror " + action + " #" + fleetNumber + " on " + dealId + " answered " + res.status + ": " + text.slice(0, 200));
+    } else {
+      console.log("[api/allocations] CRM mirror " + action + " #" + fleetNumber + " on " + dealId + " ok");
+    }
   } catch (e) {
     console.error("[api/allocations] CRM mirror failed:", e.message);
+  }
+}
+
+/* Nexy's own view of the unit for this deal: a unit booked online, or allocated
+   on the deal page in Nexy, has no row in this board's allocations table, so the
+   local check above cannot see it. GET /api/hire/allocate?dealId= answers with
+   every fleet unit flagged free / not free for the deal's window (the deal's own
+   allocation ignored). Best-effort: no answer means no extra conflict. */
+async function crmConflict(dealId, fleetNumber) {
+  if (!CRM_ALLOC_URL || !dealId || !fleetNumber) return null;
+  const want = String(fleetNumber).replace(/^#+/, "").trim();
+  try {
+    const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctl ? setTimeout(function () { ctl.abort(); }, 5000) : null;
+    const url = CRM_ALLOC_URL + "?dealId=" + encodeURIComponent(String(dealId)) + (CRM_TOKEN ? "&token=" + encodeURIComponent(CRM_TOKEN) : "");
+    const res = await fetch(url, { headers: CRM_TOKEN ? { Authorization: "Bearer " + CRM_TOKEN } : {}, signal: ctl ? ctl.signal : undefined });
+    if (timer) clearTimeout(timer);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json || json.ok === false || !json.window || !Array.isArray(json.units)) return null;
+    const unit = json.units.find(function (u) { return String(u.fleetNumber || "").replace(/^#+/, "").trim() === want; });
+    if (!unit || unit.free !== false || !unit.conflict) return null;
+    return {
+      allocation_id: "crm:" + want,
+      pipedrive_deal_id: null,
+      hire_start: unit.conflict.start,
+      hire_end: unit.conflict.end,
+      allocation_status: "allocated",
+      source: "crm",
+      booking_title: unit.conflict.who || "another hire in Nexy",
+    };
+  } catch (e) {
+    console.warn("[api/allocations] CRM availability check skipped:", e.message);
+    return null;
   }
 }
 
@@ -65,6 +108,9 @@ async function resolveSerialisedStatus(body) {
     { hire_start: body.hire_start, hire_end: body.hire_end, allocation_id: body.allocation_id, pipedrive_deal_id: dealId },
     allocs, body.allocation_id);
   if (conflicts.length) return { status: "conflict", conflicts: conflicts };
+  // Then what Nexy knows: an online booking or a deal-page allocation on this unit.
+  const crm = await crmConflict(dealId, asset.fleet_number);
+  if (crm) return { status: "conflict", conflicts: [crm], crm: true };
   return { status: "allocated", service: svc };
 }
 
@@ -108,6 +154,12 @@ module.exports = async function handler(req, res) {
         resolved = await resolveSerialisedStatus(body);
         if (resolved.error) { res.status(409).json({ ok: false, error: resolved.error, conflicts: resolved.conflicts }); return; }
         body.allocation_status = resolved.status;
+        if (resolved.crm && resolved.conflicts && resolved.conflicts[0]) {
+          // Say on the row what the board itself could not see.
+          const c = resolved.conflicts[0];
+          const line = "conflict: booked in Nexy for " + (c.booking_title || "another hire") + " " + (c.hire_start || "?") + " to " + (c.hire_end || "?");
+          body.notes = body.notes ? body.notes + " | " + line : line;
+        }
       } else if (body.stock_item_id) {
         // Non-serialised: check quantity availability.
         const avail = await store.stockItemAvailability(
