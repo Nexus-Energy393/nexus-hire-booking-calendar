@@ -24,20 +24,29 @@ const R = require("../lib/resourcing");
    store — the instant it is made on the board, so the deal and fleet reflect it
    without waiting for the daily import. Best-effort: a CRM hiccup never fails
    the board's own allocation. */
+/* Same default as api/bookings.js and lib/fleet-sync.js: with HIRE_FEED_URL
+   unset on the project this used to resolve to "" and the mirror silently never
+   fired, which is why units allocated here were missing from Nexy. */
 const CRM_ALLOC_URL = (
   process.env.CRM_ALLOC_URL ||
-  (process.env.HIRE_FEED_URL || "").replace(/\/calendar\/?$/, "/allocate")
+  (process.env.HIRE_FEED_URL || "https://nexus-crm-gilt.vercel.app/api/hire/calendar").replace(/\/calendar\/?$/, "/allocate")
 ).replace(/\/+$/, "");
 const CRM_TOKEN = process.env.HIRE_FEED_TOKEN || "";
 async function crmMirror(action, dealId, fleetNumber) {
-  if (!CRM_ALLOC_URL || !dealId || !fleetNumber) return;
+  if (!CRM_ALLOC_URL || !dealId || !fleetNumber) { console.warn("[api/allocations] CRM mirror skipped: no URL, deal or fleet number"); return; }
   try {
     const url = CRM_ALLOC_URL + (CRM_TOKEN ? "?token=" + encodeURIComponent(CRM_TOKEN) : "");
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: Object.assign({ "Content-Type": "application/json" }, CRM_TOKEN ? { Authorization: "Bearer " + CRM_TOKEN } : {}),
       body: JSON.stringify({ action: action, dealId: String(dealId), fleetNumber: String(fleetNumber), force: true }),
     });
+    if (!res.ok) {
+      const text = await res.text().catch(function () { return ""; });
+      console.error("[api/allocations] CRM mirror " + action + " #" + fleetNumber + " on " + dealId + " answered " + res.status + ": " + text.slice(0, 200));
+    } else {
+      console.log("[api/allocations] CRM mirror " + action + " #" + fleetNumber + " on " + dealId + " ok");
+    }
   } catch (e) {
     console.error("[api/allocations] CRM mirror failed:", e.message);
   }
