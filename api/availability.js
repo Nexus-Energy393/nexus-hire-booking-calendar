@@ -13,6 +13,7 @@ const store = require("../lib/store-fleet");
 const auth = require("../lib/auth");
 const http = require("../lib/http");
 const fleetSync = require("../lib/fleet-sync");
+const feed = require("../lib/feed");
 
 module.exports = async function handler(req, res) {
   http.cors(res, "GET, OPTIONS");
@@ -31,7 +32,10 @@ module.exports = async function handler(req, res) {
       return;
     }
     try { await fleetSync.maybeReconcile(); } catch (e) { /* best-effort CRM fleet mirror */ }
-    const result = await store.generatorAvailability(candidate);
+    // What Nexy has booked (online bookings, deal-page allocations) counts here too.
+    let external = [];
+    try { external = feed.crmAllocations(await feed.getBookings()); } catch (e) { /* feed down: board rows only */ }
+    const result = await store.generatorAvailability(candidate, external);
 res.status(200).json({ ok: true, dbConfigured: true, kind: "generator",
       available: result.available, conflicted: result.conflicted, crossHireRequired: result.crossHireRequired });
   } catch (e) {
