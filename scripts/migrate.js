@@ -27,7 +27,17 @@ async function main() {
     console.error("Missing dependency. Run: npm install @neondatabase/serverless");
     process.exit(1);
   }
-  const sql = neon.neon(url);
+  // Use the pg-compatible Pool (the same driver lib/db.js uses at runtime), NOT
+  // the http neon() tagged-template function: the installed @neondatabase/serverless
+  // version's neon() has no .query() method, which is what threw
+  // "sql.query is not a function". The Pool needs a WebSocket constructor in
+  // plain Node, wired from the bundled "ws" exactly as lib/db.js does.
+  try {
+    if (neon.neonConfig && !neon.neonConfig.webSocketConstructor) {
+      neon.neonConfig.webSocketConstructor = require("ws");
+    }
+  } catch (e) { /* ws optional; pool.query surfaces a clear error if it's missing */ }
+  const pool = new neon.Pool({ connectionString: url });
   const dir = path.join(__dirname, "..", "db", "migrations");
   const files = fs.readdirSync(dir).filter(function (f) { return f.endsWith(".sql"); }).sort();
   if (!files.length) { console.log("No .sql migrations found in", dir); return; }
@@ -42,11 +52,12 @@ async function main() {
     for (const stmt of statements) {
       const trimmed = stmt.trim();
       if (!trimmed) continue;
-      await sql.query(trimmed);
+      await pool.query(trimmed);
     }
     console.log("done.");
   }
   console.log("All migrations applied.");
+  await pool.end();
 }
 
 /* Split a SQL script into statements, respecting $$ dollar-quoted blocks so the
