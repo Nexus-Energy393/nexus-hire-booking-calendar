@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test test/resourcing-status.test.js test/pdf-colours.test.js test/fuel.test.js test/sync-view.test.js test/crm-allocations.test.js test/crm-reconcile.test.js",
     "migrate": "node scripts/migrate.js",
-    "seed-staff": "node scripts/seed-staff.js"
+    "seed-staff": "node scripts/seed-staff.js",
+    "fleet-cleanup": "node scripts/cleanup-fleet-duplicates.js"
   },
   "engines": {
     "node": ">=18"
