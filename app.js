@@ -165,7 +165,22 @@ function typeMeta(b) {
   };
   return map[b.jobType] || { label: "Hire", cls: "jt-general" };
 }
-function dealUrl(b) { return b.crmUrl || (CRM_BASE + "/deals/" + (b.crmDealId || b.pipedriveDealId)); }
+function dealUrl(b) {
+  if (b && b.crmUrl) return b.crmUrl;
+  var id = (b && (b.crmDealId || b.pipedriveDealId)) || "";
+  // No id means no deal page. Returning CRM_BASE + "/deals/" sent people to a
+  // 404, which is a worse answer than not opening anything.
+  return id ? (CRM_BASE + "/deals/" + id) : "";
+}
+
+/* Only a PROSPECTIVE CRM DEAL opens in Nexy. A tentative EVENT is also
+   flagged prospective — it is a board-native row with no deal behind it, so
+   crmDealId and pipedriveDealId are both "" — and it was taking this branch
+   and opening crm.nexusenergy.au/deals/ with nothing on the end. Its editor,
+   which is where Delete lives, was unreachable from the calendar. */
+function opensInCrm(b) {
+  return !!(b && b.prospective && b.kind !== "event" && dealUrl(b));
+}
 
 function spansDay(b, day) {
   var s = bStart(b), e = bEnd(b);
@@ -535,7 +550,7 @@ function bookingCard(b, compact) {
       '<div class="bc-meta"><span>' + escapeHtml(size) + '</span><span>' + tm.label + '</span></div>' +
       '<div class="bc-dates">' + fmtShort(bStart(b)) + ' &rarr; ' + fmtShort(bEnd(b)) + ' &middot; ' + dur + '</div>' +
       '<div class="bc-owner">' + escapeHtml(b.dealOwner || "Unassigned") + '</div>');
-  card.addEventListener("click", function () { if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); });
+  card.addEventListener("click", function () { if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); });
   makeEventDraggable(card, b);
   return card;
 }
@@ -1043,7 +1058,7 @@ function timelineRow(b, gridStart, numDays, todayCol) {
     (b.generatorSize ? " · " + b.generatorSize : "") + (machine ? "\n" + machine : "\nNo unit allocated yet");
   head.addEventListener("click", function () {
     if (b.isGroup) { openGroupModal(b); return; }
-    if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; }
+    if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; }
     openModal(b);
   });
   row.appendChild(head);
@@ -1090,7 +1105,7 @@ function buildTimelineBar(b, sm, tm, seg) {
 
   bar.innerHTML =
     '<span class="tl-bar-cap tl-bar-l">' + left + (miles ? '<span class="tl-bar-miles">' + miles + '</span>' : '') + '</span>' +
-    (b.prospective ? '<button type="button" class="tl-bar-dismiss" title="Dismiss this pending booking — it won\u2019t return unless the deal is won" aria-label="Dismiss pending booking">\u2715</button>' : '') +
+    (opensInCrm(b) ? '<button type="button" class="tl-bar-dismiss" title="Dismiss this pending booking — it won\u2019t return unless the deal is won" aria-label="Dismiss pending booking">\u2715</button>' : '') +
     '<span class="tl-bar-lbl">' + escapeHtml(b.customer || "") + '</span>' +
     (b.isGroup ? '<span class="tl-bar-grp">' + b.memberCount + ' jobs</span>' : '') +
     '<span class="tl-bar-dur">' + dur + '</span>' +
@@ -1107,7 +1122,7 @@ function buildTimelineBar(b, sm, tm, seg) {
     (b.customer || "Unknown customer") + ", " + (b.suburb || b.site || "") + ", " +
     fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) + ", " + sm.label);
 
-  var open = function () { if (b.isGroup) { openGroupModal(b); return; } if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
+  var open = function () { if (b.isGroup) { openGroupModal(b); return; } if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
   bar.addEventListener("click", function (e) {
     if (e.target && e.target.closest && e.target.closest(".tl-bar-dismiss")) { e.stopPropagation(); dismissBooking(b); return; }
     open();
@@ -1421,7 +1436,7 @@ function bookingSpan(seg) {
     fuelPin.innerHTML = "&#9981;"; /* ⛽ fuel pump */
     bar.appendChild(fuelPin);
   }
-  var open = function () { if (b.prospective) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
+  var open = function () { if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
   bar.addEventListener("click", open);
   bar.addEventListener("keydown", function (e) {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
