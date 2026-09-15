@@ -1909,6 +1909,19 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .js-alertbox { border-radius: 8px; padding: 10px 14px; margin: 0 0 12px; font-size: 13px; }
 .js-alertbox-warn { background: #fdf3e2; border: 1px solid #f0c36d; border-left: 4px solid #e8920c; color: #7a4f00; }
 .js-alertbox-crit { background: #fcecec; border: 1px solid #f1b0a8; border-left: 4px solid #d23f3f; color: #8a2a2a; }
+/* A confirmed notice. Green, but still a box: what was checked stays on the
+   sheet, it just stops shouting. */
+.js-alertbox-ok { background: #eaf6ed; border: 1px solid #b6dcc1; border-left: 4px solid #2e7d32; color: #235c2a; }
+.js-alertbox-ok strong { color: #1b4a20; }
+.js-elec-ack, .js-elec-unack {
+  margin-left: 10px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.js-elec-ack { background: #e8920c; border: 1px solid #c97f0a; color: #fff; }
+.js-elec-ack:hover { filter: brightness(1.06); }
+.js-elec-unack { background: transparent; border: 1px solid currentColor; color: inherit; opacity: .75; }
+.js-elec-unack:hover { opacity: 1; }
+.js-elec-note { display: block; margin-top: 4px; font-style: italic; opacity: .85; }
 .js-alertbox strong { color: #5a3a00; }
 .js-elec-none { margin: 0 0 4px; color: #6b7280; font-style: italic; }
 .js-elec-sentence { margin: 9px 0 2px; font-size: 13px; color: #1f2733; }
@@ -3036,6 +3049,8 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
 /* alert boxes → tokens */
 .js-alertbox-warn, .jobsheet .js-warning { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 50%, transparent) !important; color: var(--text) !important; }
 .js-alertbox-crit, .rs-alert.crit { background: var(--danger-bg) !important; border-color: color-mix(in srgb, var(--danger) 50%, transparent) !important; color: var(--text) !important; }
+.js-alertbox-ok { background: var(--success-bg) !important; border-color: color-mix(in srgb, var(--confirmed) 50%, transparent) !important; border-left-color: var(--confirmed) !important; color: var(--text) !important; }
+.js-alertbox-ok strong { color: var(--text) !important; }
 .rs-alert.warn { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 50%, transparent) !important; color: var(--text) !important; }
 .js-sitewarn { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 45%, transparent) !important; }
 .js-sitewarn-title, .js-sitewarn-item { color: var(--text) !important; }

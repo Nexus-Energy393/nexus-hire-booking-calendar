@@ -2372,6 +2372,13 @@ function jsCard(title, cls, bodyHtml) {
   return '<section class="js-card ' + (cls || "") + '"><h3 class="js-card-head">' + escapeHtml(title) + '</h3>' +
          '<div class="js-card-body">' + bodyHtml + '</div></section>';
 }
+/* What was confirmed, not merely which job. A deal that later gains an
+   inspection requirement is a different thing to have checked, so the old
+   confirmation does not carry over to it. */
+function elecKey(b) {
+  return "elec:" + (b.electricalConnectionRequired ? 1 : 0) + ":" + (b.electricalInspectionRequired ? 1 : 0);
+}
+
 function jsAlertBox(kind, inner) { return '<div class="js-alertbox js-alertbox-' + kind + '">' + inner + '</div>'; }
 function jsChecklist(dealId, items) {
   var local = jsLoadLocal(dealId);
@@ -2628,7 +2635,31 @@ function renderJobSheet(b) {
   /* 4. ELECTRICAL CONNECT / DISCONNECT */
   var elecBody = '';
   if (b.electricalConnectionRequired) {
-    elecBody += jsAlertBox("warn", '<strong>Electrical connection required.</strong> Confirm electrician booking, isolation plan and inspection requirements before dispatch.');
+    /* This used to be a notice nothing could ever clear. It rendered the same
+       the day the sparky was booked as the day the deal was won, so the only
+       way to work with it was to stop reading it — which is the worst thing a
+       safety notice can teach. It is confirmable now, through the same
+       acknowledgements the size warnings use: server-side, so it holds across
+       devices and the office screen, with a name and a time against it.
+
+       The key carries what was confirmed, so adding an inspection requirement
+       to the deal brings the notice back rather than inheriting a tick that
+       was given for a simpler job. */
+    var elecAckKey = elecKey(b);
+    var elecAck = null;
+    acksFor(b).forEach(function (a) { if (String(a.key) === elecAckKey) elecAck = a; });
+    if (elecAck) {
+      var ewhen = [elecAck.by || null, elecAck.at ? jsFmtAckDate(elecAck.at) : null].filter(Boolean).join(", ");
+      elecBody += jsAlertBox("ok",
+        '<strong>Electrical connection confirmed.</strong> Electrician booking, isolation plan and inspection requirements checked' +
+        (ewhen ? ' \u2014 ' + escapeHtml(ewhen) : '') +
+        (elecAck.note ? '<span class="js-elec-note">' + escapeHtml(elecAck.note) + '</span>' : '') +
+        '<button type="button" class="js-elec-unack" data-unack-key="' + escapeHtml(elecAckKey) + '" title="Put this notice back">\u21ba Undo</button>');
+    } else {
+      elecBody += jsAlertBox("warn",
+        '<strong>Electrical connection required.</strong> Confirm electrician booking, isolation plan and inspection requirements before dispatch.' +
+        '<button type="button" class="js-elec-ack" data-ack-key="' + escapeHtml(elecAckKey) + '">Confirm</button>');
+    }
   } else if (b.electricalConnectionRequired === false) {
     elecBody += '<p class="js-elec-none">Electrical connection not required.</p>';
   }
@@ -3058,6 +3089,17 @@ function jsWire(m, b) {
     if (ack) { e.stopPropagation(); ackWarning(b, ack.getAttribute("data-ack-key"), (ack.parentNode.textContent || "").replace(/\u2715\s*$/, "").trim()); return; }
     var un = e.target.closest && e.target.closest(".jh-unack");
     if (un) { e.stopPropagation(); unackWarning(b, un.getAttribute("data-unack-key")); return; }
+  });
+
+  /* Delegated from the modal, not the buttons: the electrical card is rebuilt
+     whenever the sheet re-renders. */
+  if (m && m.body) m.body.addEventListener("click", function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var ok = t.closest(".js-elec-ack");
+    if (ok) { e.stopPropagation(); ackWarning(b, ok.getAttribute("data-ack-key"), "Electrical connection \u2014 electrician, isolation plan and inspection confirmed"); return; }
+    var no = t.closest(".js-elec-unack");
+    if (no) { e.stopPropagation(); unackWarning(b, no.getAttribute("data-unack-key")); return; }
   });
 
   jsLoadNotes(b.pipedriveDealId);
