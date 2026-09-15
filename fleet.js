@@ -889,12 +889,14 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           if (a && a.asset) {
             var svc = a.service || {};
             allocatedCell = "<strong>#" + esc(a.asset.fleet_number) + "</strong> " + esc(fmtItem(a.asset.asset_name || "")) + " " + svcPill(svc);
+            if (a.source === "crm") allocatedCell += ' <span class="alloc-badge crm" title="Booked against this deal in Nexy. Allocate it on the board to pick it.">from Nexy</span>';
           } else if (a && a.allocation_status === "cross_hire_required") {
             allocatedCell = "Cross-hire" + (a.override_note ? " — " + esc(a.override_note) : "");
           } else allocatedCell = "&mdash;";
+          var boardRow = a && a.allocation_id;   // a CRM unit has none
           actions = can
-            ? '<button class="fleet-btn sm" data-act="alloc-gen"' + (a ? ' data-alloc="' + esc(a.allocation_id) + '"' : "") + ">" + (a ? "Change" : "Allocate generator") + "</button>" +
-              (a ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "") +
+            ? '<button class="fleet-btn sm" data-act="alloc-gen"' + (boardRow ? ' data-alloc="' + esc(a.allocation_id) + '"' : "") + ">" + (a ? (boardRow ? "Change" : "Allocate on board") : "Allocate generator") + "</button>" +
+              (boardRow ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "") +
               (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen">Cross-hire</button>')
             : '<span class="fleet-write-off sm">read-only</span>';
         } else {
@@ -907,10 +909,12 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           ? allocBadge(a.allocation_status)
           : '<span class="alloc-badge none">not allocated</span>';
         var picked = a && /^(picked|ready)$/i.test(a.dispatch_status || "");
-        pickedCell = a
+        pickedCell = (a && a.allocation_id)
           ? '<input type="checkbox" class="js-chk" data-act="pick" data-alloc="' + esc(a.allocation_id) + '"' +
             (picked ? " checked" : "") + (can ? "" : " disabled") + ' aria-label="Picked" />'
-          : '<span class="js-box"></span>';
+          : (a && a.source === "crm"
+              ? '<span class="js-box" title="Allocate this unit on the board before it can be picked"></span>'
+              : '<span class="js-box"></span>');
         var noteLine = "";
         if (a && a.allocation_status === "cross_hire_required") {
           var xn = (a.override_note || a.notes || "").trim();
@@ -1143,7 +1147,8 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var avail = r.body.available || [], confAll = r.body.conflicted || [];
       // Only show same-size units in the "unavailable" list — every other
       // size that's busy is just noise here.
-      var conf = size ? confAll.filter(function (c) { return Number(c.asset && c.asset.generator_size_kva) === size; }) : confAll;
+      var confLive = confAll.filter(function (c) { return !c.retired && String((c.asset && c.asset.status) || "").toLowerCase() !== "retired"; });
+      var conf = size ? confLive.filter(function (c) { return Number(c.asset && c.asset.generator_size_kva) === size; }) : confLive;
 
       var exact = [], others = [];
       avail.forEach(function (a) {

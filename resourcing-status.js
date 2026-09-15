@@ -100,21 +100,38 @@
     return "undersize:" + (a.allocation_id || a.asset_id || "?") + ":" + got + "v" + need;
   }
 
-  function undersizeWarnings(booking, allocations) {
+  /* Every unit whose size differs from the size sold.
+
+     Under and over are not the same thing. A unit smaller than the sale fails
+     on site, so it blocks. A unit one size UP is a substitution the yard makes
+     every week — worth saying out loud on the sheet, never worth stopping the
+     truck for. Reporting both as faults is how a board teaches people to
+     ignore it. */
+  function sizeWarnings(booking, allocations) {
     var need = requiredKva(booking);
     if (need == null) return [];
     var out = [];
-    (allocations || []).forEach(function (a) {
-      if (!a.asset_id || !live(a)) return;
-      var got = allocatedKva(a);
-      if (got == null || got >= need) return;
-      var who = (a.asset && a.asset.fleet_number) || a.fleet_number;
-      out.push({
-        key: undersizeKey(a, got, need),
-        text: "Allocated " + (who ? "#" + who + " " : "") + fmtKva(got) + " is smaller than the " + fmtKva(need) + " sold"
+    mergeCrmUnits((allocations || []).filter(function (a) { return a.asset_id && live(a); }), booking)
+      .forEach(function (a) {
+        var got = allocatedKva(a);
+        if (got == null || got === need) return;
+        var who = (a.asset && a.asset.fleet_number) || a.fleet_number;
+        var tag = who ? "#" + who + " " : "";
+        out.push(got < need ? {
+          kind: "under",
+          key: undersizeKey(a, got, need),
+          text: "Allocated " + tag + fmtKva(got) + " is smaller than the " + fmtKva(need) + " sold"
+        } : {
+          kind: "over",
+          key: undersizeKey(a, got, need),
+          text: tag + fmtKva(got) + " allocated against a " + fmtKva(need) + " sale"
+        });
       });
-    });
     return out;
+  }
+
+  function undersizeWarnings(booking, allocations) {
+    return sizeWarnings(booking, allocations).filter(function (w) { return w.kind === "under"; });
   }
 
   /* Acceptances, however they arrive (Set, array of keys, array of rows). */
@@ -132,13 +149,60 @@
     return map;
   }
 
+  /* ---- Units the CRM has booked but the board has not ----------------------
+
+     The board keeps its own allocations table; the CRM keeps EquipmentBooking.
+     They are separate systems joined only by the deal id, and the jobsheet was
+     only ever reading the board's. So NEX-1493, with #1201 BOOKED in the CRM
+     for exactly those dates, rendered "Generator 100 kVA — not allocated" and
+     counted as an unresourced job. The unit was allocated. Nobody had told
+     this table about it.
+
+     A CRM unit is therefore folded in as a real, satisfied requirement — but
+     marked source:"crm" and given no allocation_id, because there is no board
+     row to tick Picked against or to release. The UI renders it read-only and
+     says where it came from. */
+  function crmUnits(booking) {
+    var out = [];
+    ((booking && booking.allocatedUnits) || []).forEach(function (u) {
+      var fleet = String(u.fleetNumber == null ? "" : u.fleetNumber).replace(/^#+/, "").trim();
+      if (!fleet) return;
+      out.push({
+        allocation_id: null,
+        source: "crm",
+        asset_id: "crm:" + fleet,
+        fleet_number: fleet,
+        asset_name: u.label || "",
+        generator_size_kva: u.kva != null ? u.kva : null,
+        allocation_status: "allocated",
+        dispatch_status: "",
+        hire_start: u.start || null,
+        hire_end: u.end || null,
+        asset: { fleet_number: fleet, asset_name: u.label || "", generator_size_kva: u.kva != null ? u.kva : null }
+      });
+    });
+    return out;
+  }
+
+  /* Board rows win: once staff allocate on the board that row is the one that
+     can be picked. A CRM unit only fills a slot nothing else is filling. */
+  function mergeCrmUnits(genAllocs, booking) {
+    var have = {};
+    genAllocs.forEach(function (a) {
+      var f = String((a.asset && a.asset.fleet_number) || a.fleet_number || "").replace(/^#+/, "").trim();
+      if (f) have[f] = true;
+    });
+    var extra = crmUnits(booking).filter(function (u) { return !have[u.fleet_number]; });
+    return genAllocs.concat(extra);
+  }
+
   /* Build the list of equipment requirements for a booking from the Pipedrive
      fields that are actually synced (generator size + cable set). Extra stock
      allocations recorded against the deal are treated as additional
      requirements so they also gate readiness. */
   function buildRequirements(booking, allocations) {
     var reqs = [];
-    var genAllocs = allocations.filter(function (a) { return a.asset_id; });
+    var genAllocs = mergeCrmUnits(allocations.filter(function (a) { return a.asset_id; }), booking);
     // How many generator slots this job needs. The count is sourced from the
     // original Nexy booking (generatorQty, parsed from the deal's hire lines);
     // staff allocate the actual fleet number to each slot. Never fewer than the
@@ -362,6 +426,8 @@
       generatorSize: generatorSizeLabel(booking, allocations),
       requiredKva: requiredKva(booking),
       undersize: undersize,
+      /* Said on the sheet, never blocking: a size-up substitution is routine. */
+      oversize: sizeWarnings(booking, allocations).filter(function (w) { return w.kind === "over"; }),
       /* The chips that carry an X, keyed. Everything else in `missing` is a
          fact nobody gets to wave away by clicking. */
       acknowledgeable: undersize,
@@ -381,7 +447,7 @@
 
   var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked, isOnHire: isOnHire,
               generatorSizeLabel: generatorSizeLabel, allocatedKva: allocatedKva, requiredKva: requiredKva, undersizeWarnings: undersizeWarnings, fmtKva: fmtKva,
-              undersizeKey: undersizeKey, ackIndex: ackIndex };
+              undersizeKey: undersizeKey, ackIndex: ackIndex, sizeWarnings: sizeWarnings, crmUnits: crmUnits };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

@@ -2902,6 +2902,9 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
   color: #5d626e; background: #f2f3f5; border: 1px solid #dfe1e6; border-radius: 6px; padding: 2px 3px 2px 8px; }
 .jh-accepted-by { font-weight: 500; color: #8a8f9a; }
 .jh-accepted-i .jh-unack { color: #5d626e; }
+.jh-note .jh-accepted-k { color: #8a6d2f; }
+.jh-note .jh-accepted-i { color: #6b5420; background: #fdf6e3; border-color: #e8d9a8; }
+.alloc-badge.crm { background: #eef4ff; color: #2f4d8a; border: 1px solid #c7d8f5; font-size: 10px; padding: 1px 6px; border-radius: 4px; }
 .js-trading-time { width: 7.5em; }
 .js-trading-normal { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 

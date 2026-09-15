@@ -2369,6 +2369,13 @@ function jsHero(b, st) {
   /* Accepted ones are not deleted. They sit quietly with a name against them,
      and one click puts them back. A warning somebody waved away without trace
      is how the next person repeats the mistake. */
+  /* A size-up substitution. Stated plainly, never as a fault — it is what the
+     yard does when the exact size is out, and blocking it would be wrong. */
+  var oversizeRow = (st.oversize || []).length
+    ? '<div class="jh-accepted jh-note"><span class="jh-accepted-k">Substitution</span>' +
+      st.oversize.map(function (w) { return '<span class="jh-accepted-i">' + escapeHtml(w.text) + '</span>'; }).join("") + '</div>'
+    : "";
+
   var acceptedRow = (st.accepted || []).length
     ? '<div class="jh-accepted"><span class="jh-accepted-k">Accepted</span>' +
       st.accepted.map(function (w) {
@@ -2410,6 +2417,7 @@ function jsHero(b, st) {
     '<div class="jh-stats">' + tiles + '</div>' +
     (alerts ? '<div class="jh-alerts">' + alerts + '</div>' : '') +
     missing +
+    oversizeRow +
     acceptedRow +
     contact +
   '</div>';
