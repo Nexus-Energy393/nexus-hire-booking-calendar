@@ -44,17 +44,28 @@ module.exports = async function handler(req, res) {
   try {
     const bookings = await fetchBookings();
     CACHE = { at: now, bookings: bookings };
+    /* AWAITED, not fire-and-forget.
+       These are two bulk WRITES - one rewrites hire_start/hire_end on every
+       live allocation, one flips allocations to 'released' - kicked off from a
+       public unauthenticated GET and then abandoned. On Vercel the lambda can
+       be frozen or reclaimed the moment res.json() returns, so the work could
+       be killed part-way through; and with no transaction support in lib/db,
+       part-way means half the rows moved and half not. Awaiting costs one
+       cache miss a minute and makes the writes either happen or not. */
     try {
       const db = require('../lib/db');
       if (db.isConfigured()) {
         const store = require('../lib/store-fleet');
-        store.syncAllocationDates(bookings)
-          .then(function (n) { if (n) console.log('[api/bookings] re-synced hire dates on ' + n + ' allocation(s)'); })
-          .then(function () { return store.releaseOrphanAllocations(bookings); })
-          .then(function (n) { if (n) console.log('[api/bookings] auto-released ' + n + ' orphaned allocation(s)'); })
-          .catch(function (e2) { console.warn('[api/bookings] allocation reconciliation skipped:', e2.message); });
+        const moved = await store.syncAllocationDates(bookings);
+        if (moved) console.log('[api/bookings] re-synced hire dates on ' + moved + ' allocation(s)');
+        const released = await store.releaseOrphanAllocations(bookings);
+        if (released) console.log('[api/bookings] auto-released ' + released + ' orphaned allocation(s)');
       }
-    } catch (e2) { /* fleet db optional */ }
+    } catch (e2) {
+      // Never fail the read because the reconciliation failed - the board
+      // showing today's jobs matters more than the tidy-up.
+      console.warn('[api/bookings] allocation reconciliation skipped:', e2.message);
+    }
     res.setHeader('X-Cache', 'MISS');
     res.status(200).json({ ok: true, cached: false, count: bookings.length, bookings: bookings });
   } catch (e) {

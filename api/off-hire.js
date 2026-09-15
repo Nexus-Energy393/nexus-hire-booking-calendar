@@ -51,6 +51,7 @@ module.exports = async function handler(req, res) {
       if (!auth.requireAdmin(req, res)) return;
       const action = (req.query && req.query.action) || "off-hire";
       const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
 
       if (action === "refuel") {
         const ev = await store.addRefuelEvent(body);

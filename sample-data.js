@@ -12,7 +12,12 @@
     var d = new Date();
     d.setHours(0, 0, 0, 0);
     d.setDate(d.getDate() + offsetDays);
-    return d.toISOString().slice(0, 10);
+    // Local, not UTC: setHours(0,0,0,0) above makes this local midnight, which
+    // toISOString() renders as the PREVIOUS day in Melbourne. Every sample
+    // booking was one day early, and "today"'s demo row was filtered off the
+    // timeline entirely.
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
   }
 
   window.NEXUS_SAMPLE_BOOKINGS = [

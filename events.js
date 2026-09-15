@@ -124,7 +124,13 @@
     if (!d) return "";
     if (typeof d === "string") return d.slice(0, 10);
     var p = new Date(d);
-    return isNaN(p.getTime()) ? "" : p.toISOString().slice(0, 10);
+    // LOCAL date, not UTC. toISOString() here made every event created before
+    // 10am (11am in summer) default to yesterday - and start_date is a NOT NULL
+    // DATE column, so it was persisted, rendered on yesterday's column, and
+    // could trip the end_date >= start_date CHECK on a valid same-day range.
+    if (isNaN(p.getTime())) return "";
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    return p.getFullYear() + "-" + pad(p.getMonth() + 1) + "-" + pad(p.getDate());
   }
 
   /*

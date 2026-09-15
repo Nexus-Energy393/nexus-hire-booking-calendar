@@ -100,6 +100,13 @@ function bEnd(b) {
 }
 function durationDays(b) {
   var s = bStart(b), e = bEnd(b);
+  /* THE DATES DECIDE. durationDays is a field on the CRM record; bEnd() prefers
+     the live endDate. So after an extension or an early off-hire return the bar
+     was drawn from the new dates while every duration readout - the bar label,
+     the List column, the printed jobsheet, "day 3 of 2" - still quoted the old
+     number. Compute from the dates when we have both, and keep the field only
+     as a fallback for a booking whose dates are incomplete. */
+  if (s && e) return Math.round((e - s) / 86400000) + 1;
   if (b.durationDays) return b.durationDays;
   if (s && e) return Math.round((e - s) / 86400000) + 1;
   return null;
@@ -305,7 +312,16 @@ function applyResourcingStatuses() {
     var st = window.NexusResourcing.computeJobStatus(b, allocs, hoursByDeal[String(b.pipedriveDealId)] || [], acksFor(b));
     b.resourcing = st;
     b.resourcingStatus = st.key;
-    b.refuellingRequired = !!st.refuellingRequired;
+    /* The CRM's own flag WINS.
+       This used to be `b.refuellingRequired = !!st.refuellingRequired`, which
+       overwrote what the feed sold with a value derived from engine-hour rows.
+       STATE.hoursByDeal is only ever populated for a jobsheet somebody has
+       opened this session (there is no bulk hours endpoint), so for every
+       other deal that derivation ran on an empty array and answered false -
+       destroying a `refuellingRequired: true` that came straight from the
+       deal. The fuel chip vanished and the hero tile read "Not needed" on a
+       hire sold with ongoing refuelling. Only ever ADD to it. */
+    if (st.refuellingRequired) b.refuellingRequired = true;
   });
 }
 
@@ -385,7 +401,9 @@ function refresh() {
 function loadEvents() {
   if (!window.NexusEvents) return Promise.resolve();
   var from = addDays(STATE.cursor, -365), to = addDays(STATE.cursor, 365);
-  var ymd = function (d) { return d.toISOString().slice(0, 10); };
+  // ymdStr is the local-date helper this file already has (app.js ~448); the
+  // inline toISOString version shifted both ends of the window by a day.
+  var ymd = ymdStr;
   return window.NexusEvents.load(ymd(from), ymd(to)).then(function (items) {
     STATE.events = items || [];
     render();
@@ -538,7 +556,10 @@ function bookingCard(b, compact) {
   var card = el("div", "booking-card " + tm.cls + " " + sm.cls + (compact ? " compact" : "") + (b.prospective ? " is-prospective" : ""));
   card.setAttribute("data-id", b.id);
   var size = allocatedLine(b) || b.generatorSize || "Size TBC";
-  var dur = b.durationDays ? (b.durationDays + (b.durationDays === 1 ? " day" : " days")) : "Duration TBC";
+  // Use the helper, not the raw field: typed events never carry durationDays,
+  // so the Day card said "Duration TBC" for a job the List view called 3 days.
+  var _dd = durationDays(b);
+  var dur = _dd ? (_dd + (_dd === 1 ? " day" : " days")) : "Duration TBC";
   var cardConflict = STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)];
   card.innerHTML =
     '<div class="bc-top"><span class="bc-cust">' + escapeHtml(b.customer || "Unknown customer") + '</span>' +
@@ -2089,7 +2110,12 @@ function jsComputeStatus(b) {
 var JS_STATUS_CLS = {
   "needs-equipment": "st-equipment", "part-allocated": "st-duration",
   "cross-hire": "st-equipment", "conflict": "st-review",
-  "allocated": "st-confirmed", "ready": "st-confirmed", "completed": "st-completed"
+  // on-hire was missing, so the one state the yard most needs to read at a
+  // glance - the machine is live on site - rendered as an unstyled grey chip
+  // while the calendar tile for the same job was blue.
+  "on-hire": "st-onhire",
+  "allocated": "st-confirmed", "ready": "st-confirmed", "completed": "st-completed",
+  "cancelled": "st-cancelled", "prospective": "st-prospective"
 };
 
 function jsWarningInner(st) {
@@ -2640,7 +2666,12 @@ function renderJobSheet(b) {
   /* 3. EQUIPMENT REQUIRED & PICKING LIST */
   html += jsCard("Equipment required & picking list", "js-card-alloc",
     '<div class="js-grid js-grid-2">' +
-      jsField("Generator size required", jsFmtKva(b.generatorSize)) +
+      jsField("Generator size sold", jsFmtKva(b.generatorSize)) +
+      /* The size that is actually going on the truck. The hero carries this on
+         screen, and the hero is hidden in print and in the PDF - so the paper
+         the driver was handed showed only the size SOLD. Allocate a 60 against
+         a 100 kVA sale and the screen said 60 while the printout said 100. */
+      jsField("Generator size allocated", (st && st.generatorSize) ? st.generatorSize : "\u2014") +
       jsField("Cable set required", jsFmtCable(b.cableSet)) +
       jsField("Additional equipment required", b.additionalEquipment, {full:true}) +
       jsField("Safety items required", b.safetyItems, {full:true}) +
@@ -2717,6 +2748,13 @@ function renderJobSheet(b) {
       jsNoteField(dealId, "Internal dispatch notes", "internal_dispatch_notes"));
   }
 
+  /* 8. SIGN-OFF.
+     jsSignBlock has existed since the sheet was written and was never once
+     called - the PDF config even lists .js-card-signoff and .js-signgrid in
+     pagebreak.avoid, and .js-signgrid has its own CSS, so it was always meant
+     to be here. The printed dispatch sheet had nowhere to sign. */
+  html += jsCard("Sign-off", "js-card-signoff", jsSignBlock(b));
+
   html += '</div>'; /* js-cards */
 
   html += '</div></div>'; /* js-body, jobsheet */
@@ -2777,9 +2815,14 @@ function jsStaticEquipmentTable(b, st) {
         ? (a.asset && a.asset.fleet_number ? "#" + String(a.asset.fleet_number).replace(/^#+/, "") : (a.allocation_status === "cross_hire_required" ? "Cross-hire" : "—"))
         : String(a.quantity_allocated || 0))
       : "—";
-    rows += "<tr><td>" + escapeHtml(r.label) + '</td><td class="num">' + r.qtyRequired +
-            '</td><td>' + escapeHtml(allocated) + '</td><td>' + escapeHtml(a ? (a.allocation_status || "") : "not allocated") +
-            '</td><td class="chk"><span class="js-box"></span></td></tr>';
+    /* data-label on every cell: the mobile stylesheet hides the header row and
+       renders each stacked cell's label from attr(data-label). Without them
+       this table - the one that shows when the database is unreachable, i.e.
+       exactly when somebody is on a phone on a bad connection - stacked into
+       an unlabelled column of numbers. The live table in fleet.js has them. */
+    rows += '<tr><td data-label="Item">' + escapeHtml(r.label) + '</td><td class="num" data-label="Req">' + r.qtyRequired +
+            '</td><td data-label="Allocated">' + escapeHtml(allocated) + '</td><td data-label="Status">' + escapeHtml(a ? (a.allocation_status || "") : "not allocated") +
+            '</td><td class="chk" data-label="Picked"><span class="js-box"></span></td></tr>';
   });
   return '<table class="js-table js-equip stackable"><thead><tr>' +
          '<th>Item</th><th class="num">Req</th><th>Allocated</th><th>Status</th><th class="chk">Picked</th>' +
@@ -2842,7 +2885,26 @@ function jsWireNotes(deal) {
   var timers = {};
   document.querySelectorAll('.js-note-input[data-deal="' + deal + '"]').forEach(function(t){
     var k = t.getAttribute("data-key");
-    function save(){ jsSaveNote(deal, k, t.value).catch(function(){}); }
+    /* SAY SOMETHING when the save fails.
+       This was `.catch(function(){})`, and fetch only rejects on a network
+       error - a 500 resolves. So for as long as the jobsheet_notes table did
+       not exist, every note was accepted by the textarea, discarded by the
+       server, and reported as fine. A note the crew relies on ("isolate at
+       MSB, sparky booked 0600") must never fail quietly. */
+    function save(){
+      return jsSaveNote(deal, k, t.value)
+        .then(function (r) {
+          if (r && r.ok) { t.classList.remove("js-note-failed"); return; }
+          return r.json().catch(function () { return {}; }).then(function (j) {
+            throw new Error((j && j.error) || ("HTTP " + (r && r.status)));
+          });
+        })
+        .catch(function (err) {
+          t.classList.add("js-note-failed");
+          t.title = "This note is NOT saved: " + (err && err.message ? err.message : "the server rejected it");
+          evToast("Note not saved \u2014 " + (err && err.message ? err.message : "server error"), false);
+        });
+    }
     t.addEventListener("input", function(){ clearTimeout(timers[k]); timers[k] = setTimeout(save, 800); });
     t.addEventListener("blur", function(){ clearTimeout(timers[k]); save(); });
   });
@@ -2864,6 +2926,20 @@ function jsRenderStaffAllocations(holder, booking, opts) {
   ]).then(function(results) {
     var allocData = results[0] || {};
     var staffData = results[1] || {};
+    /* A database outage answers HTTP 200 with {ok:false, dbConfigured:false}
+       and no `allocations` key (lib/http.dbNotConfigured). Neither flag was
+       checked, so `allocData.allocations || []` became [] and the sheet
+       rendered the POSITIVE statement "No staff allocated." - which on a
+       dispatch sheet is the opposite instruction to "could not load", and sent
+       somebody off to allocate a crew that was already allocated. */
+    if (allocData.dbConfigured === false || staffData.dbConfigured === false ||
+        allocData.ok === false || staffData.ok === false) {
+      holder.innerHTML = '<div class="js-alertbox js-alertbox-warn">' +
+        '<strong>Staff allocations could not be loaded.</strong> ' +
+        escapeHtml(allocData.error || staffData.error || "The fleet database is unreachable.") +
+        ' This is not the same as nobody being allocated \u2014 check before dispatch.</div>';
+      return;
+    }
     var staffList = staffData.staff || [];
     var staffById = {};
     staffList.forEach(function(s){ staffById[String(s.staff_id)] = s; });
@@ -3108,8 +3184,15 @@ function jsWire(m, b) {
   });
 
   /* Delegated from the modal, not the buttons: the electrical card is rebuilt
-     whenever the sheet re-renders. */
-  if (m && m.body) m.body.addEventListener("click", function (e) {
+     whenever the sheet re-renders.
+
+     `m` is the #bookingModal DIV itself (app.js:2570), not fleet.js's
+     openModal() object - a div has no .body, so the original `if (m && m.body)`
+     was always false and these buttons were dead from the day they shipped.
+     The test that was supposed to cover this asserted the source TEXT of the
+     listener existed, which it did; it never checked that m.body was a real
+     thing. Bind to the element. */
+  if (m) m.addEventListener("click", function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
     var ok = t.closest(".js-elec-ack");
@@ -3201,39 +3284,67 @@ function jsWire(m, b) {
    Supports a print/share deep link. Uses the hash so it works on the static
    host without server rewrites: e.g. .../#/jobsheet/458 . On load (and on hash
    change) it finds the loaded booking by deal id and opens its jobsheet. */
+var _jsOpenPoll = null;
 function jsOpenByDealId(dealId) {
+  var want = String(dealId);
   function tryOpen() {
     var list = (STATE && STATE.bookings) || [];
     var hit = null;
     for (var i = 0; i < list.length; i++) {
-      if (String(list[i].pipedriveDealId) === String(dealId)) { hit = list[i]; break; }
+      var b = list[i];
+      // Either id. dealUrl() addresses the CRM by crmDealId while the board
+      // keys on pipedriveDealId, so a link built from either must resolve.
+      if (String(b.pipedriveDealId) === want || String(b.crmDealId || "") === want) { hit = b; break; }
     }
     if (hit) { renderJobSheet(hit); return true; }
     return false;
   }
+  // Only one poller at a time. Two overlapping ones could each fire
+  // renderJobSheet and replace a sheet the user had since opened by hand.
+  if (_jsOpenPoll) { clearInterval(_jsOpenPoll); _jsOpenPoll = null; }
   if (tryOpen()) return;
   var tries = 0;
-  var iv = setInterval(function () {
+  _jsOpenPoll = setInterval(function () {
     tries++;
-    if (tryOpen() || tries > 30) clearInterval(iv);
+    if (tryOpen()) { clearInterval(_jsOpenPoll); _jsOpenPoll = null; return; }
+    if (tries > 30) {
+      clearInterval(_jsOpenPoll); _jsOpenPoll = null;
+      // Giving up silently left the board sitting on the calendar with no
+      // explanation for a link somebody had been sent.
+      evToast("Job " + want + " is not on the board for this date range.", false);
+    }
   }, 300);
 }
 function jsRouteFromHash() {
-    if (/#\/(staff)/.test(window.location.hash || "")) {
-      STATE.view = "staff";
-      tabs.forEach(function (t) { t.classList.toggle("active", t.getAttribute("data-view") === "staff"); });
-    } else if (/#\/(fleet|rental-stock)/.test(window.location.hash || "")) {
-      STATE.view = "fleet";
-      var tabs = document.querySelectorAll(".tab");
-      for (var ti = 0; ti < tabs.length; ti++) {
-        tabs[ti].classList.toggle("active", tabs[ti].getAttribute("data-view") === "fleet");
-      }
-      render();
-      return;
-    }
   var h = window.location.hash || "";
-  var match = h.match(/#\/jobsheet\/(\d+)/);
-  if (match) jsOpenByDealId(match[1]);
+  /* `tabs` was declared with `var` inside the SECOND branch, so it hoisted to
+     the top of the function as undefined and the staff branch threw
+     "Cannot read properties of undefined (reading 'forEach')" on every load
+     and every hashchange. One list, declared once, used by both. */
+  var tabs = document.querySelectorAll(".tab");
+  function markTab(view) {
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle("active", tabs[i].getAttribute("data-view") === view);
+    }
+  }
+  if (/#\/(staff)/.test(h)) {
+    STATE.view = "staff";
+    markTab("staff");
+    render();                 // the staff branch never repainted either
+    return;
+  }
+  if (/#\/(fleet|rental-stock)/.test(h)) {
+    STATE.view = "fleet";
+    markTab("fleet");
+    render();
+    return;
+  }
+  /* A deal id is NOT always an integer. Deals created natively in Nexy carry
+     a cuid (cmr4jnd9500038mrb2elus20m) and merged bookings are "grp:<id>", so
+     \d+ matched neither and the documented share link was dead for every
+     deal that did not come from the Pipedrive import. */
+  var match = h.match(/#\/jobsheet\/(.+)$/);
+  if (match) jsOpenByDealId(decodeURIComponent(match[1]));
 }
 window.addEventListener("hashchange", jsRouteFromHash);
 window.addEventListener("load", function () { setTimeout(jsRouteFromHash, 400); });

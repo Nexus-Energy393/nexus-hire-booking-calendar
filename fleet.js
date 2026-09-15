@@ -62,6 +62,20 @@
   function dash(v) { return (v == null || v === "") ? "&mdash;" : esc(v); }
   /* display-only: "200kVA" -> "200 kVA", "95mm x 25Mt" -> "95 mm x 25 m" (does NOT change the
      requirement label used for stock matching) */
+/* The LOCAL calendar date, as YYYY-MM-DD.
+ *
+ * `new Date().toISOString().slice(0,10)` is the UTC date. Melbourne is
+ * UTC+10/+11, so local midnight is 14:00 (13:00 in daylight saving) of the
+ * PREVIOUS day in UTC - and every "today" built that way was a day early until
+ * 10 or 11am local. Deterministic, not flaky, and the cutover moves with
+ * daylight saving, which is what made it look random. */
+  function ymdLocal(d) {
+    var x = d ? new Date(d) : new Date();
+    if (isNaN(x.getTime())) return "";
+    var p = function (n) { return String(n).padStart(2, "0"); };
+    return x.getFullYear() + "-" + p(x.getMonth() + 1) + "-" + p(x.getDate());
+  }
+
   function fmtItem(s) {
     return s ? String(s).replace(/(\d)\s*kva/ig, "$1 kVA").replace(/(\d)\s*mm/ig, "$1 mm").replace(/(\d)\s*mt\b/ig, "$1 m") : s;
   }
@@ -220,15 +234,25 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
 
   /* ---------- stock table ---------- */
   function stockRow(s) {
-    var allocated = s._allocated != null ? s._allocated : 0;
-    var available = (Number(s.total_quantity) || 0) - allocated;
-    var shortCls = available < 0 ? ' class="fleet-short"' : "";
+    /* Real figures from the server now (store.listStockWithAllocated).
+       _allocated was assigned NOWHERE in this repo, so this read `|| 0` every
+       time: every item showed "Allocated 0, Available = total", the
+       fleet-short warning could never fire, and the number a yard person reads
+       to answer "how many 95mm sets are free this week" was always just the
+       number we own. If the server ever omits them, show an em dash rather
+       than a confident zero. */
+    var hasFigures = s._allocated != null;
+    var allocated = hasFigures ? Number(s._allocated) : null;
+    var available = hasFigures
+      ? (s._available != null ? Number(s._available) : (Number(s.total_quantity) || 0) - allocated)
+      : null;
+    var shortCls = (available != null && available < 0) ? ' class="fleet-short"' : "";
     return '<tr class="fleet-row" data-stock="' + esc(s.stock_item_id) + '">' +
       '<td data-label="Item" class="cell-strong">' + esc(s.item_name) + "</td>" +
       '<td data-label="Category">' + dash(s.category) + "</td>" +
       '<td data-label="Total">' + esc(s.total_quantity) + " " + esc(s.unit || "") + "</td>" +
-      '<td data-label="Allocated">' + esc(allocated) + "</td>" +
-      '<td data-label="Available"' + shortCls + ">" + esc(available) + "</td>" +
+      '<td data-label="Allocated">' + (allocated == null ? "&mdash;" : esc(allocated)) + "</td>" +
+      '<td data-label="Available"' + shortCls + ">" + (available == null ? "&mdash;" : esc(available)) + "</td>" +
       '<td data-label="Status">' + statusPill(s.status) + "</td>" +
       '<td data-label="Location">' + dash(s.location) + "</td>" +
       '<td data-label="Actions" class="fleet-actions">' +
@@ -772,7 +796,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     if (!guardWrite()) return;
     var asset = STATE.assets.filter(function (a) { return String(a.asset_id) === String(assetId); })[0];
     if (!asset) return;
-    var today = new Date().toISOString().slice(0, 10);
+    var today = ymdLocal();
     var m = openModal("Service record - Fleet #" + asset.fleet_number,
       '<div class="fm-grid">' +
         '<label>Service type<input id="svcType" type="text" placeholder="e.g. 300hr service" /></label>' +
@@ -850,7 +874,9 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     if (!container) return;
     var dealId = booking.pipedriveDealId;
     container.innerHTML = '<div class="js-resourcing"><div class="rs-loading">Loading equipment &amp; allocation&hellip;</div></div>';
-    apiGet("/jobsheet?dealId=" + encodeURIComponent(dealId)).then(function (r) {
+    // Returned so callers can act once the panel really exists - reopenJobsheet
+    // restores unsaved hour/fuel drafts on it.
+    return apiGet("/jobsheet?dealId=" + encodeURIComponent(dealId)).then(function (r) {
       var box = container.querySelector(".js-resourcing");
       if (!box) return;
       if (r.body.dbConfigured === false) {
@@ -952,7 +978,9 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       }
 
       /* engine hours & fuel — PER GENERATOR (aligned table; each unit records its own) */
-      var genAllocs = (allocations || []).filter(function (a) { return a.asset_id && a.asset; })
+      // Live rows only: a released unit is off the job and must not get an
+      // engine-hours row on the sheet.
+      var genAllocs = (allocations || []).filter(function (a) { return a.asset_id && a.asset && isLiveAlloc(a); })
         .sort(function (x, y) { return String(x.asset.fleet_number == null ? "" : x.asset.fleet_number).localeCompare(String(y.asset.fleet_number == null ? "" : y.asset.fleet_number), undefined, { numeric: true }); });
       var latestByAsset = {};
       (engineHours || []).forEach(function (r) { if (r.asset_id && !latestByAsset[r.asset_id]) latestByAsset[r.asset_id] = r; });
@@ -1040,7 +1068,9 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         t.disabled = true;
         var norm = function (v) { return String(v == null ? "" : v).replace(/^#+/, "").trim().toLowerCase(); };
         var want = norm(fleet);
-        apiGet("/availability?start=" + encodeURIComponent(booking.startDate || "") + "&end=" + encodeURIComponent(booking.endDate || ""))
+        apiGet("/availability?start=" + encodeURIComponent(booking.startDate || "") +
+               "&end=" + encodeURIComponent(booking.endDate || "") +
+               "&dealId=" + encodeURIComponent(booking.pipedriveDealId == null ? "" : booking.pipedriveDealId))
           .then(function (r) {
             var b = r.body || {};
             var hit = null;
@@ -1190,7 +1220,13 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     // Fetch ALL available assets for the window (no size filter) — the
     // requested size is a recommendation, not a hard gate: dispatch can
     // allocate a different unit rather than being forced into a cross-hire.
-    var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") + "&end=" + encodeURIComponent(booking.endDate || "");
+    /* Send the deal, and the row being replaced when this is a "Change". The
+       server needs both to avoid reporting this deal's own unit as a conflict
+       with itself. */
+    var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") +
+             "&end=" + encodeURIComponent(booking.endDate || "") +
+             "&dealId=" + encodeURIComponent(booking.pipedriveDealId == null ? "" : booking.pipedriveDealId) +
+             (replaceId ? "&ignore=" + encodeURIComponent(replaceId) : "");
     var m = openModal((replaceId ? "Change generator - deal #" : "Allocate generator - deal #") + booking.pipedriveDealId,
       '<p class="subtle">Required size: <strong>' + esc(booking.generatorSize || "TBC") + "</strong> &middot; " + esc(booking.startDate || "?") + " &rarr; " + esc(booking.endDate || "?") + "</p>" +
       '<div id="allocList">Loading available generators&hellip;</div>');
@@ -1371,10 +1407,25 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
   /* Gated ready-for-dispatch: requires complete allocation; service-overdue
      generators additionally require an override note. app.js enforces the
      completeness gate; the API re-checks server-side regardless. */
+  /* Released and cancelled rows are still in the cache.
+     store.listAllocations has no status filter, so /api/jobsheet hands back
+     every row a deal ever had, oldest first. computeJobStatus filters them
+     (resourcing-status.js `live`); this did not - so after a generator swap
+     "Mark ready for dispatch" PATCHed the RELEASED row, the API happily
+     returned ok, and the status the sheet then re-read came from the live row,
+     which was still "picked". The button sprang back with no error and the
+     truck was never marked ready. */
+  function isLiveAlloc(a) {
+    var st = String((a && a.allocation_status) || "").toLowerCase();
+    return st !== "released" && st !== "cancelled";
+  }
+
   function setDispatchReady(booking, makeReady, done) {
     if (!ensureToken()) return;
     var cache = (STATE.jobsheet || {})[booking.pipedriveDealId] || {};
-    var genAlloc = (cache.allocations || []).filter(function (a) { return a.asset_id; })[0];
+    var genAlloc = (cache.allocations || []).filter(function (a) {
+      return a.asset_id && isLiveAlloc(a);
+    })[0];
     if (!genAlloc) { alert("Allocate a generator first."); return; }
     var patch = { dispatch_status: makeReady ? "ready" : "picked" };
     if (makeReady && genAlloc.service && genAlloc.service.state === "overdue") {
@@ -1389,9 +1440,59 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     }).catch(function (e) { alert(e.message); });
   }
 
+  /* KEEP WHAT SOMEBODY HAS TYPED.
+     renderResourcing rebuilds the whole panel from the last SAVED
+     engine_hour_records row, and reopenJobsheet runs on every pick, release,
+     allocate and stock change. The yard's natural order is: read the meter,
+     type 1,284 out and 80% fuel, then tick Picked - and that tick wiped both
+     numbers with no warning that anything had been dropped. Capture the
+     unsaved values first and put them back after the redraw. */
+  function captureHourDrafts() {
+    var drafts = {};
+    var rows = document.querySelectorAll(".rs-gen");
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var key = row.getAttribute("data-asset");
+      if (!key) continue;
+      var g = function (sel) { var el = row.querySelector(sel); return el ? el.value : null; };
+      var cb = row.querySelector(".rsg-refuel");
+      drafts[key] = { out: g(".rsg-out"), inn: g(".rsg-in"), fout: g(".rsg-fout"),
+                      fret: g(".rsg-fret"), refuel: cb ? cb.checked : null };
+    }
+    return drafts;
+  }
+
+  function restoreHourDrafts(drafts) {
+    if (!drafts) return;
+    var rows = document.querySelectorAll(".rs-gen");
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var d = drafts[row.getAttribute("data-asset")];
+      if (!d) continue;
+      var put = function (sel, v) {
+        var el = row.querySelector(sel);
+        // Only restore a value the person actually typed; never blank a field
+        // the redraw has just filled from the database.
+        if (el && v != null && v !== "") el.value = v;
+      };
+      put(".rsg-out", d.out); put(".rsg-in", d.inn);
+      put(".rsg-fout", d.fout); put(".rsg-fret", d.fret);
+      var cb = row.querySelector(".rsg-refuel");
+      if (cb && d.refuel != null && cb.checked !== d.refuel) {
+        cb.checked = d.refuel;
+        var txt = row.querySelector(".rsg-refuel-txt");
+        if (txt) txt.textContent = d.refuel ? "Yes" : "No";
+      }
+    }
+  }
+
   function reopenJobsheet(booking) {
     var holder = document.getElementById("jsEquipmentHolder") || document.getElementById("jsResourcingHolder");
-    if (holder) renderResourcing(holder, booking);
+    if (!holder) return;
+    var drafts = captureHourDrafts();
+    var r = renderResourcing(holder, booking);
+    if (r && typeof r.then === "function") r.then(function () { restoreHourDrafts(drafts); });
+    else restoreHourDrafts(drafts);
   }
 
   function parseGenSize(s) {

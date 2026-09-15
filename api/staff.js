@@ -63,7 +63,10 @@ module.exports = async function handler(req, res) {
         res.status(200).json({ ok: true, staff: member, allocations: allocs });
         return;
       }
-      const staffList = await store.listStaff({ staffType: q.staffType, showInactive: q.showInactive });
+      // A query string is always a string, so "0" and "false" were both truthy
+      // and silently turned the filter off.
+      const showInactive = q.showInactive === "1" || q.showInactive === "true";
+      const staffList = await store.listStaff({ staffType: q.staffType, showInactive: showInactive });
       res.status(200).json({ ok: true, staff: staffList, writesEnabled: auth.configured() });
       return;
     }
@@ -72,6 +75,7 @@ module.exports = async function handler(req, res) {
     if (req.method === "POST" || req.method === "PATCH") {
       if (!auth.requireAdmin(req, res)) return;
       const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
       const action = q.action || body.action || "";
 
       if (action === "create-staff" || (!action && body.name && !body.staff_id)) {

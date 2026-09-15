@@ -79,8 +79,37 @@ test("ackWarning is admin-gated and records a name", () => {
   assert.match(fn, /by: who/);
 });
 
-test("the wiring is delegated, so a re-render does not orphan the buttons", () => {
-  assert.match(appJs, /if \(m && m\.body\) m\.body\.addEventListener\("click"/);
+test("the wiring is actually attached to the modal element", () => {
+  /* The first version of this asserted the SOURCE TEXT
+       if (m && m.body) m.body.addEventListener("click", ...)
+     existed. It did. It also never ran: `m` is document.getElementById
+     ("bookingModal"), and index.html declares that as a <div>. A div has no
+     .body, so the guard was always false and the Confirm button was dead from
+     the day it shipped - with a green test sitting on top of it.
+
+     So this EXECUTES the line against a stand-in that behaves like a div:
+     addEventListener exists, .body does not. A test that matches text can only
+     prove the text is there; this proves something happens. */
+  const src = appJs.slice(appJs.indexOf("/* Delegated from the modal"),
+                          appJs.indexOf("jsLoadNotes(b.pipedriveDealId)"));
+  assert.ok(src.length > 0, "the electrical wiring block moved - re-anchor this test");
+
+  const attached = [];
+  const fakeDiv = {                       // what getElementById really returns
+    addEventListener: (type) => attached.push(type),
+    // deliberately NO .body
+  };
+  const run = new Function("m", "b", "ackWarning", "unackWarning", src);
+  run(fakeDiv, { pipedriveDealId: "d1" }, () => {}, () => {});
+  assert.deepEqual(attached, ["click"], "no listener was attached to the modal");
+});
+
+test("index.html really does declare bookingModal as a plain div", () => {
+  // The premise the test above rests on. If this ever becomes a component with
+  // its own .body, the guard would need to come back.
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  assert.match(html, /<div[^>]*id="bookingModal"/,
+    "bookingModal is no longer a div - re-check the electrical wiring");
 });
 
 test("the confirmed box has a style in both themes", () => {

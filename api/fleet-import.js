@@ -54,6 +54,36 @@ function toObjects(rows) {
 
 function num(v) { if (v === "" || v == null) return null; const n = Number(v); return isNaN(n) ? null : n; }
 
+/* LEAVE UNCHANGED, rather than write a default.
+ *
+ * planRow used to build a fully-populated record with `num(x) || 0` fallbacks,
+ * and store.updateAsset writes every key that is not undefined. So an import
+ * row with a blank (or absent) column overwrote the real value with 0 - or with
+ * "available", or with a 300-hour service interval. Someone bulk-updating
+ * locations with a trimmed CSV zeroed every engine-hour meter in the fleet,
+ * which made recomputeAssetService read every machine as freshly serviced, and
+ * flipped retired and in_service plant back to available.
+ *
+ * On UPDATE a missing column must mean "don't touch it". On CREATE there is
+ * nothing to preserve, so a sensible default is right. */
+function keepIfBlank(v, dflt, isCreate) {
+  if (v === undefined || v === null || v === "") return isCreate ? dflt : undefined;
+  return v;
+}
+function numOrKeep(v, dflt, isCreate) {
+  const n = num(v);
+  if (n === null) return isCreate ? dflt : undefined;
+  return n;
+}
+
+/* updateAsset/updateStock skip keys that are undefined, so stripping them is
+ * what makes "leave unchanged" work. */
+function dropUndefined(o) {
+  const out = {};
+  Object.keys(o).forEach(function (k) { if (o[k] !== undefined) out[k] = o[k]; });
+  return out;
+}
+
 /* Validate + classify one CSV row into a planned action. */
 async function planRow(o, idx) {
   const line = idx + 2; // 1-based + header
@@ -65,6 +95,7 @@ async function planRow(o, idx) {
     if (!o.fleet_number) return { line: line, action: "error", error: "fleet_number is required for serialised assets.", raw: o };
     if (!o.asset_name) return { line: line, action: "error", error: "asset_name is required for serialised assets.", raw: o };
     const existing = await store.getAssetByFleet(o.fleet_number);
+    const isCreate = !existing;
     const record = {
       fleet_number: o.fleet_number,
       asset_name: o.asset_name,
@@ -74,30 +105,31 @@ async function planRow(o, idx) {
       model: o.model || null,
       serial_number: o.serial_number || null,
       registration_number: o.registration_number || null,
-      current_engine_hours: num(o.current_engine_hours) || 0,
-      last_service_hours: num(o.last_service_hours) || 0,
-      service_interval_hours: num(o.service_interval_hours) || 300,
-      location: o.location || null,
-      status: o.status || "available",
-      notes: o.notes || null
+      current_engine_hours: numOrKeep(o.current_engine_hours, 0, isCreate),
+      last_service_hours: numOrKeep(o.last_service_hours, 0, isCreate),
+      service_interval_hours: numOrKeep(o.service_interval_hours, 300, isCreate),
+      location: keepIfBlank(o.location, null, isCreate),
+      status: keepIfBlank(o.status, "available", isCreate),
+      notes: keepIfBlank(o.notes, null, isCreate)
     };
-    return { line: line, action: existing ? "update" : "create", kind: "asset", existingId: existing ? existing.asset_id : null, record: record };
+    return { line: line, action: existing ? "update" : "create", kind: "asset", existingId: existing ? existing.asset_id : null, record: dropUndefined(record) };
   }
   // non_serialised
   if (!o.item_name) return { line: line, action: "error", error: "item_name is required for non_serialised stock.", raw: o };
   const category = o.category || "Cable";
   const existing = await store.getStockByNameCategory(o.item_name, category);
+  const isCreateStock = !existing;
   const record = {
     item_name: o.item_name,
     category: category,
     description: o.description || null,
-    total_quantity: num(o.total_quantity) || 0,
-    unit: o.unit || "set",
-    location: o.location || null,
-    status: o.status || "available",
-    notes: o.notes || null
+    total_quantity: numOrKeep(o.total_quantity, 0, isCreateStock),
+    unit: keepIfBlank(o.unit, "set", isCreateStock),
+    location: keepIfBlank(o.location, null, isCreateStock),
+    status: keepIfBlank(o.status, "available", isCreateStock),
+    notes: keepIfBlank(o.notes, null, isCreateStock)
   };
-  return { line: line, action: existing ? "update" : "create", kind: "stock", existingId: existing ? existing.stock_item_id : null, record: record };
+  return { line: line, action: existing ? "update" : "create", kind: "stock", existingId: existing ? existing.stock_item_id : null, record: dropUndefined(record) };
 }
 
 module.exports = async function handler(req, res) {
@@ -109,6 +141,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const body = await http.readBody(req);
+    if (http.badBody(res, body)) return;
     const csv = body.csv || "";
     if (!csv.trim()) { res.status(400).json({ ok: false, error: "No CSV provided (send { csv: \"...\" })." }); return; }
 

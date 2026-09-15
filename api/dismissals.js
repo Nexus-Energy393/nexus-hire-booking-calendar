@@ -43,6 +43,7 @@ module.exports = async function handler(req, res) {
     if (req.method === "POST") {
       if (!auth.requireAdmin(req, res)) return;
       const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
       const dealId = String((body && body.dealId) || "").trim();
       if (!dealId) { res.status(400).json({ ok: false, error: "dealId is required." }); return; }
       const by = body && body.by ? String(body.by).slice(0, 120) : null;

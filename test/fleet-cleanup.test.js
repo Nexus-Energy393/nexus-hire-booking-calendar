@@ -30,10 +30,11 @@ function fakeDb(assets, counts) {
       const a = assets.find((x) => x.fleet_number === want && (!retiredOnly || x.status === "retired"));
       return a || null;
     }
-    m = /FROM (allocations|engine_hour_records|service_records)/.exec(sql);
+    m = /FROM (allocations|engine_hour_records|service_records|refuel_events)/.exec(sql);
     if (m) {
       const c = counts[params[0]] || {};
-      const key = { allocations: "allocations", engine_hour_records: "hours", service_records: "services" }[m[1]];
+      const key = { allocations: "allocations", engine_hour_records: "hours",
+                    service_records: "services", refuel_events: "refuels" }[m[1]];
       return { n: c[key] || 0 };
     }
     throw new Error("unexpected queryOne: " + sql);
@@ -76,7 +77,11 @@ test("a plain 1201 already existing STOPS rather than merging", async () => {
 // Each of the three reference kinds must independently block a delete.
 for (const [kind, label] of [["allocations", "a booking that would be ORPHANED (SET NULL)"],
                              ["hours", "engine hours that would be CASCADE deleted"],
-                             ["services", "service history that would be CASCADE deleted"]]) {
+                             ["services", "service history that would be CASCADE deleted"],
+                             // refuel_events was missed when this was first
+                             // written: the header enumerated the foreign keys
+                             // and listed three of the four.
+                             ["refuels", "a fuel log that would be CASCADE deleted"]]) {
   test(`#2002 is not deleted when it has ${label}`, async () => {
     fakeDb([A, B, C], { a1: { allocations: 1 }, b1: { [kind]: 1 } });
     const steps = await cleanup.plan({});

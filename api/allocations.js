@@ -134,6 +134,7 @@ module.exports = async function handler(req, res) {
     if (req.method === "POST" || req.method === "PATCH") {
       if (!auth.requireAdmin(req, res)) return;
       const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
       const id = req.query && req.query.id;
       if (req.method === "PATCH" && id) body.allocation_id = id;
 
@@ -176,7 +177,15 @@ module.exports = async function handler(req, res) {
 
       let row;
       if (req.method === "POST") row = await store.createAllocation(body);
-      else row = await store.updateAllocation(id, body);
+      else {
+      // Without this, `id` is undefined, the UPDATE runs WHERE allocation_id =
+      // NULL, matches nothing, and the handler answers 200 {ok:true,
+      // allocation:null}. The operator sees a success and the release, pick or
+      // dispatch change is silently lost. assets.js and stock.js both guard;
+      // this did not.
+      if (!id) { res.status(400).json({ ok: false, error: "id is required for PATCH." }); return; }
+      row = await store.updateAllocation(id, body);
+    }
 
       // Mirror to the CRM (authoritative allocation): create -> allocate,
       // release -> remove. Best-effort; the board's own write already succeeded.

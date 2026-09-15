@@ -178,9 +178,25 @@
     return out || s;
   }
 
+  /* Only a unit Nexy still has ON the job counts. lib/feed.js has always
+     filtered on this before letting a CRM unit block another deal; crmUnits
+     did not, and hard-coded allocation_status:"allocated" for every entry.
+     That failed in BOTH directions: a job whose only unit had been RETURNED
+     or CANCELLED rendered "Allocated" and was never reported as unresourced,
+     while a cancelled undersized unit raised a size warning that blocked
+     dispatch of a job it was no longer part of. */
+  function isLiveCrmUnit(u) {
+    var st = String((u && u.status) || "").toUpperCase();
+    // No status at all is treated as live: older feed rows omit it, and
+    // refusing those would silently unresource real jobs.
+    return st === "" || st === "BOOKED" || st === "OUT";
+  }
+  var CRM_LIVE_UNIT = isLiveCrmUnit;
+
   function crmUnits(booking) {
     var out = [];
     ((booking && booking.allocatedUnits) || []).forEach(function (u) {
+      if (!CRM_LIVE_UNIT(u)) return;
       var fleet = String(u.fleetNumber == null ? "" : u.fleetNumber).replace(/^#+/, "").trim();
       if (!fleet) return;
       out.push({
@@ -282,11 +298,25 @@
      hire day(s) count as On Hire. Multi-day general / emergency hires use the
      hire start -> end period. Schedule-driven only (no engine-hours needed). */
   var ON_HIRE_BUFFER_MS = 2 * 60 * 60 * 1000;
+  /* am/pm AWARE. This used to stop at (\d{1,2}):(\d{2}) and silently discard
+     the meridiem, so "6:00 PM" was read as 06:00 - a clean twelve-hour error.
+     The jobsheet PRINTS the same field through app.js's jsParseTimeMins, which
+     does handle am/pm, so the sheet said "6:00 pm to 6:00 am" while the status
+     computed from the identical string had the window inverted: On Hire lit up
+     during the day and went dark at night. */
   function parseHM(s) {
-    var m = /(\d{1,2}):(\d{2})/.exec(String(s || "").trim());
+    var str = String(s || "").trim();
+    var m = /(\d{1,2}):(\d{2})/.exec(str);
     if (!m) return null;
     var h = +m[1], mi = +m[2];
     if (h > 23 || mi > 59) return null;
+    var mer = /(a\.?m\.?|p\.?m\.?)/i.exec(str);
+    if (mer) {
+      var pm = /^p/i.test(mer[1]);
+      if (h > 12) return null;          // "13:00 pm" is not a time
+      h = h % 12;
+      if (pm) h += 12;
+    }
     return { h: h, mi: mi };
   }
   function splitOutageWindow(s) {
@@ -312,6 +342,13 @@
     if (win) {
       var ls = dateAt(startStr, win.start), ue = dateAt(endStr, win.end);
       if (!ls || !ue) return false;
+      /* An outage that runs 22:00 -> 06:00 ENDS THE NEXT MORNING. Both ends
+         were pinned to their own date string, so for a single-day overnight
+         job the computed window was 20:00 -> 08:00 of the SAME day: upper <
+         lower, an empty interval, and isOnHire could never be true. Overnight
+         distribution outages are the core of this business - at 1am, with the
+         generator running on site, the board said "Ready for dispatch". */
+      if (ue.getTime() <= ls.getTime()) ue = new Date(ue.getTime() + 86400000);
       lower = ls.getTime() - ON_HIRE_BUFFER_MS;
       upper = ue.getTime() + ON_HIRE_BUFFER_MS;
     } else {

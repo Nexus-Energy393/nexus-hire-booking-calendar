@@ -13,6 +13,16 @@
   var API = (window.CONFIG && window.CONFIG.apiBase) ? window.CONFIG.apiBase.replace(/\/$/, "") : "/api";
   var TOKEN = (window.CONFIG && window.CONFIG.adminToken) ? window.CONFIG.adminToken : null;
 
+  /* Local calendar date. toISOString() is UTC, which in Melbourne is the
+     previous day until 10/11am - so "today" on the utilisation screen was
+     yesterday every morning. */
+  function ymdLocalStaff(d) {
+    var x = d ? new Date(d) : new Date();
+    if (isNaN(x.getTime())) return "";
+    var p = function (n) { return String(n).padStart(2, "0"); };
+    return x.getFullYear() + "-" + p(x.getMonth() + 1) + "-" + p(x.getDate());
+  }
+
   // ── tiny DOM helpers ──────────────────────────────────────────────
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -68,7 +78,7 @@
   var STATE = {
     tab:        "utilisation",
     period:     "week",
-    date:       new Date().toISOString().slice(0, 10),
+    date:       ymdLocalStaff(),
     staffType:  "",
     staffId:    "",
     util:       null,   // last utilisation response
@@ -82,7 +92,7 @@
     else if (period === "week")  d.setUTCDate(d.getUTCDate() + dir * 7);
     else if (period === "month") d.setUTCMonth(d.getUTCMonth() + dir);
     else                         d.setUTCFullYear(d.getUTCFullYear() + dir);
-    return d.toISOString().slice(0, 10);
+    return ymdLocalStaff(d);
   }
 
   // ── utilisation colour helpers ────────────────────────────────────
@@ -500,7 +510,7 @@
     var todayBtn = root.querySelector("#suToday");
     if (prevBtn)  prevBtn.addEventListener("click",  function () { STATE.date = shiftDate(STATE.date, STATE.period, -1); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
     if (nextBtn)  nextBtn.addEventListener("click",  function () { STATE.date = shiftDate(STATE.date, STATE.period, +1); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
-    if (todayBtn) todayBtn.addEventListener("click", function () { STATE.date = new Date().toISOString().slice(0,10); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
+    if (todayBtn) todayBtn.addEventListener("click", function () { STATE.date = ymdLocalStaff(); if (datePicker) datePicker.value = STATE.date; loadUtilisation(root); });
 
     loadUtilisation(root);
   }

@@ -3237,6 +3237,13 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
   opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease;
 }
 .tl-bar:hover .tl-bar-dismiss, .tl-bar:focus-within .tl-bar-dismiss { opacity: .85; }
+/* On touch there is no hover, and an opacity:0 element is still tappable - so
+   tapping the left edge of a tentative bar opened "Remove this pending
+   booking" instead of the job, from a control that was never visible and could
+   not be discovered. Same escape hatch .alloc-badge-btn .abx already has. */
+@media (pointer: coarse) {
+  .tl-bar-dismiss { opacity: .85; }
+}
 .tl-bar-dismiss:hover { opacity: 1; background: color-mix(in srgb, #d23f3f 22%, transparent); color: #d23f3f; }
 
 /* ---- CRM-authoritative allocation block on the dispatch jobsheet ---- */
@@ -3274,10 +3281,27 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
 .rsg-err { grid-column:1 / -1; color:var(--emergency, #dc2626); font-size:12px; padding-top:2px; }
 .rsg-err[hidden] { display:none; }
 .rs-note { color:var(--muted); font-size:13px; padding:10px 0; }
-@media (max-width: 720px) {
+
+/* The engine-hours grid needs about 714px of content, and .rs-gtable's own
+   overflow:hidden clipped it with NO scrollbar - so between 721px and ~816px
+   the Fuel out, Return and Refuel columns were invisible and unreachable.
+   That band is iPad mini (744), iPad (768) and iPad Air (810) in PORTRAIT:
+   the tablet this sheet is designed for. Fuel is a hard dispatch gate, so the
+   job could not be marked ready from any of them. Stack at 860 instead, and
+   let the table scroll rather than clip if it is ever squeezed again. */
+.rs-gtable { overflow-x: auto; }
+
+@media (max-width: 860px) {
   .rs-ghead { display:none; }
   .rs-grow { grid-template-columns: 1fr 1fr; gap:8px 14px; padding:12px 14px; }
   .rs-gc-unit { grid-column:1 / -1; }
   .rs-gc[data-label]::before { content:attr(data-label); display:block; font-size:9px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); font-weight:700; margin-bottom:3px; }
   .rs-gc input { text-align:left; }
+}
+
+/* A note the server refused. Silence here is how three shared free-text fields
+   went a whole release without ever persisting. */
+.js-note-input.js-note-failed {
+  border-color: var(--danger, #d23f3f) !important;
+  background: var(--danger-bg, rgba(210,63,63,.08)) !important;
 }

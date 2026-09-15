@@ -71,6 +71,7 @@ module.exports = async function handler(req, res) {
       if (!auth.requireAdmin(req, res)) return;
       const action = (req.query && req.query.action) || "";
       const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
 
       if (action === "engine-hours") {
         if (!body.asset_id) { res.status(400).json({ ok: false, error: "asset_id is required." }); return; }

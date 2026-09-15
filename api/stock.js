@@ -34,7 +34,8 @@ module.exports = async function handler(req, res) {
         res.status(200).json({ ok: true, dbConfigured: true, item: item });
         return;
       }
-      const stock = await store.listStock({ category: req.query && req.query.category });
+      // With _allocated/_available attached, so the table stops inventing them.
+      const stock = await store.listStockWithAllocated({ category: req.query && req.query.category });
       res.status(200).json({ ok: true, dbConfigured: true, writesEnabled: auth.configured(), count: stock.length, stock: stock });
       return;
     }
@@ -42,6 +43,7 @@ module.exports = async function handler(req, res) {
     if (req.method === "POST") {
       if (!auth.requireAdmin(req, res)) return;
       const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
       if (!body.item_name) { res.status(400).json({ ok: false, error: "item_name is required." }); return; }
       if (body.total_quantity != null && (isNaN(Number(body.total_quantity)) || Number(body.total_quantity) < 0)) {
         res.status(400).json({ ok: false, error: "total_quantity must be a non-negative number." }); return;
@@ -69,6 +71,7 @@ module.exports = async function handler(req, res) {
         return;
       }
       const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
       if (body.total_quantity != null && (isNaN(Number(body.total_quantity)) || Number(body.total_quantity) < 0)) {
         res.status(400).json({ ok: false, error: "total_quantity must be a non-negative number." }); return;
       }

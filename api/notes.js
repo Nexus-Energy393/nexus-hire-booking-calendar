@@ -10,6 +10,34 @@ const db = require("../lib/db");
 const auth = require("../lib/auth");
 const http = require("../lib/http");
 
+/* jobsheet_notes did not exist.
+ *
+ * It is referenced by both handlers below and created nowhere - not in
+ * db/migrations, not in api/migrate.js, and unlike its three siblings
+ * (dismissals, acknowledgements, groups) this file had no ensureTable(). Every
+ * call returned 500 `relation "jobsheet_notes" does not exist`, and nothing on
+ * the front end inspected the response: jsSaveNote returns the raw fetch
+ * promise and fetch only rejects on a NETWORK error, so the 500 resolved
+ * quietly. The three shared free-text fields on the jobsheet - connection and
+ * isolation notes, transport and collection notes, internal dispatch notes -
+ * have therefore never once persisted. A dispatcher typed them, saw no error,
+ * and they were gone on reload.
+ *
+ * Additive and reversible: CREATE TABLE IF NOT EXISTS cannot destroy data, and
+ * DROP TABLE jobsheet_notes puts it back exactly as it was. The unique index
+ * is what the ON CONFLICT below needs to be an upsert rather than a duplicate. */
+async function ensureTable() {
+  await db.query(
+    "CREATE TABLE IF NOT EXISTS jobsheet_notes (" +
+    "  pipedrive_deal_id text NOT NULL," +
+    "  field_key         text NOT NULL," +
+    "  value             text," +
+    "  updated_at        timestamptz NOT NULL DEFAULT now()," +
+    "  PRIMARY KEY (pipedrive_deal_id, field_key)" +
+    ")"
+  );
+}
+
 module.exports = async function handler(req, res) {
   http.cors(res, "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
@@ -17,6 +45,7 @@ module.exports = async function handler(req, res) {
 
   const q = req.query || {};
   try {
+    await ensureTable();
     if (req.method === "GET") {
       const dealId = q.dealId;
       if (!dealId) { res.status(400).json({ ok: false, error: "dealId is required" }); return; }
@@ -33,6 +62,7 @@ module.exports = async function handler(req, res) {
     if (req.method === "POST") {
       if (!auth.requireAdmin(req, res)) return;
       const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
       const dealId = body.dealId;
       const key = body.field_key;
       if (!dealId || !key) { res.status(400).json({ ok: false, error: "dealId and field_key are required" }); return; }

@@ -57,6 +57,7 @@ module.exports = async function handler(req, res) {
     // Everything past here writes. requireAdmin writes its own 401/503.
     if (!auth.requireAdmin(req, res)) return;
     const body = await http.readBody(req);
+    if (http.badBody(res, body)) return;
 
     if (req.method === "POST" && q.action === "staff") {
       if (!body.event_id) { res.status(400).json({ ok: false, error: "event_id is required." }); return; }

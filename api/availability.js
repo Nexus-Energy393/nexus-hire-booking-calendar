@@ -22,7 +22,19 @@ module.exports = async function handler(req, res) {
   if (!db.isConfigured()) { http.dbNotConfigured(res, auth, { available: [], conflicted: [] }); return; }
 
   const q = req.query || {};
-  const candidate = { hire_start: q.start, hire_end: q.end, sizeKva: q.sizeKva };
+  /* Carry the deal and the row being replaced.
+     Without these, suggestAssets could apply neither the same-deal skip nor
+     ignoreAllocationId - so a deal asking what is available was told its OWN
+     machine was unavailable, the modal's Unavailable row read "on hire to deal
+     #<itself>", and the Release button offered to release the very allocation
+     the user was trying to change. */
+  const candidate = {
+    hire_start: q.start,
+    hire_end: q.end,
+    sizeKva: q.sizeKva,
+    pipedrive_deal_id: q.dealId != null ? q.dealId : undefined,
+    allocation_id: q.ignore != null ? q.ignore : undefined
+  };
 
   try {
     if (q.stockItemId) {
