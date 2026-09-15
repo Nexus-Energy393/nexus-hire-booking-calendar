@@ -128,3 +128,69 @@ test("apply renames to a parameter, never string-interpolated SQL", async () => 
   const upd = writes.find((w) => w[0] === "UPDATE");
   assert.deepEqual(upd[1], ["a1", "1201"]);
 });
+
+/* ------------------------------------------------------------------ wiring
+ * The endpoint and the Sync card are the only way this runs: the admin token
+ * is a Vercel secret nobody can read, so the CLI path is unusable in practice.
+ * These assert the source, the same way test/fuel.test.js guards api/migrate.js.
+ */
+const fs = require("fs");
+const apiJs = fs.readFileSync(path.join(__dirname, "..", "api", "fleet-cleanup.js"), "utf8");
+const appJs = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+
+test("the endpoint stays admin-gated", () => {
+  assert.match(apiJs, /auth\.requireAdmin\(req, res\)/);
+});
+
+test("the endpoint is POST only, so a link or a crawler cannot fire it", () => {
+  assert.match(apiJs, /req\.method !== "POST"/);
+});
+
+test("the endpoint is a DRY RUN unless apply is asked for explicitly", () => {
+  assert.match(apiJs, /q\.apply === "1"/);
+  assert.match(apiJs, /if \(!APPLY\)/);
+  // The dry-run reply must come back before anything calls apply().
+  assert.ok(apiJs.indexOf("if (!APPLY)") < apiJs.indexOf("cleanup.apply(steps)"),
+    "the dry-run return must precede the apply call");
+});
+
+test("the endpoint refuses a plan holding a STOP before writing", () => {
+  assert.ok(apiJs.indexOf("cleanup.hasStop(steps)") < apiJs.indexOf("cleanup.apply(steps)"));
+});
+
+test("the Sync card sends the admin token the board already holds", () => {
+  assert.match(appJs, /fleet-cleanup" \+ q, \{ method: "POST", headers: groupsAuthHeaders\(\) \}/);
+});
+
+test("the Sync card will not post without a token", () => {
+  const card = appJs.slice(appJs.indexOf("function fdRun("), appJs.indexOf("fdCheck.addEventListener"));
+  const guard = card.indexOf('groupsAuthHeaders()["x-fleet-admin-token"]');
+  const post = card.indexOf("fetch(");
+  // guard > -1 FIRST. Without it, deleting the check makes indexOf return -1,
+  // and -1 < post is true, so the ordering assertion passes on the broken code.
+  assert.ok(guard > -1, "the token check is gone");
+  assert.ok(post > -1, "the fetch moved - re-anchor this test");
+  assert.ok(guard < post, "the token check must come before the fetch");
+});
+
+test("Apply starts disabled and is only opened by a clean Check", () => {
+  // Not a bare /fdApply.disabled = true/ - that string appears four times, so
+  // deleting the one that matters still matched and the mutation slipped past.
+  // What matters is that it is disabled BEFORE it reaches the page.
+  const created = appJs.indexOf('var fdApply = el("button"');
+  const appended = appJs.indexOf("fdRow.appendChild(fdCheck); fdRow.appendChild(fdApply);");
+  assert.ok(created > -1 && appended > created, "the Apply button moved - re-anchor this test");
+  assert.match(appJs.slice(created, appended), /fdApply\.disabled = true;/,
+    "Apply must be disabled before it is put on the page");
+  assert.match(appJs, /fdApply\.disabled = actionable\.length === 0;/);
+});
+
+test("changing the retired option locks Apply again", () => {
+  assert.match(appJs, /fdRetiredBox\.addEventListener\("change", fdLock\)/);
+  assert.match(appJs, /function fdLock\(\) \{ fdApply\.disabled = true; \}/);
+});
+
+test("the card reports a refusal instead of dying quietly", () => {
+  assert.match(appJs, /Could not reach the board: /);
+  assert.match(appJs, /d\.error \|\| \("HTTP " \+ res\.status\)/);
+});

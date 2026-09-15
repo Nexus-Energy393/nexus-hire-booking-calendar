@@ -1676,6 +1676,94 @@ function renderSync(root) {
   migCard.appendChild(migBtn);
   migCard.appendChild(migOut);
   wrap.appendChild(migCard);
+
+  /* Fleet duplicates.
+
+     Three leftover asset rows: "#1201" and "#2002" from an older import, and a
+     retired FG Wilson "2002" from the June legacy load. Not a live sync bug —
+     lib/fleet-sync.js already strips a leading "#" when it keys on fleetNumber,
+     which is why it never created a second 1201; the ugly value just stayed.
+
+     Here rather than in a script for the same reason migrations are: the admin
+     token is a Vercel secret nobody can read, and the board already holds one.
+     The endpoint refuses to touch anything with allocations, engine hours or
+     service records, and re-checks at write time — the foreign keys do not
+     protect it (allocations.asset_id is ON DELETE SET NULL, so a delete would
+     silently orphan a booking rather than fail). */
+  var fleetDupCard = el("div", "sync-token-card");
+  fleetDupCard.style.cssText = "margin:0 0 18px;padding:14px 16px;border:1px solid rgba(120,120,120,0.3);border-radius:10px;";
+  fleetDupCard.appendChild(el("h3", null, "Fleet duplicates"));
+  fleetDupCard.appendChild(el("p", "subtle", "Clears the leftover <strong>#1201</strong>, <strong>#2002</strong> and retired <strong>2002</strong> rows. #1201 is renamed, not deleted \u2014 it carries a live allocation. Check first; nothing is written until you apply. Needs the admin token above."));
+
+  var fdRetired = el("label", "subtle");
+  fdRetired.style.cssText = "display:flex;align-items:center;gap:8px;margin:10px 0;cursor:pointer;";
+  var fdRetiredBox = document.createElement("input");
+  fdRetiredBox.type = "checkbox";
+  fdRetired.appendChild(fdRetiredBox);
+  fdRetired.appendChild(document.createTextNode("Also remove the retired FG Wilson 2002"));
+  fleetDupCard.appendChild(fdRetired);
+
+  var fdRow = el("div", null);
+  fdRow.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;";
+  var fdCheck = el("button", "btn-primary", "Check"); fdCheck.type = "button";
+  var fdApply = el("button", "btn-secondary", "Apply"); fdApply.type = "button";
+  fdApply.disabled = true;
+  fdRow.appendChild(fdCheck); fdRow.appendChild(fdApply);
+  fleetDupCard.appendChild(fdRow);
+
+  var fdOut = el("pre", "subtle");
+  fdOut.style.cssText = "margin-top:10px;white-space:pre-wrap;word-break:break-word;font-size:12px;";
+  fleetDupCard.appendChild(fdOut);
+
+  /* Apply is only ever enabled by a Check that came back clean, and any change
+     to the options turns it off again, so nobody can apply a plan they have
+     not seen. */
+  function fdLock() { fdApply.disabled = true; }
+  fdRetiredBox.addEventListener("change", fdLock);
+
+  function fdRun(apply) {
+    if (!groupsAuthHeaders()["x-fleet-admin-token"]) { fdOut.textContent = "Set the fleet admin token above first."; return; }
+    var q = "?" + (apply ? "apply=1&" : "") + "dropRetired=" + (fdRetiredBox.checked ? "1" : "0");
+    var btn = apply ? fdApply : fdCheck;
+    var label = btn.textContent;
+    fdCheck.disabled = true; fdApply.disabled = true;
+    btn.textContent = apply ? "Applying\u2026" : "Checking\u2026";
+    fdOut.textContent = "";
+    fetch(groupsApiBase() + "/fleet-cleanup" + q, { method: "POST", headers: groupsAuthHeaders() })
+      .then(function (r) { return r.json().then(function (d) { return { status: r.status, body: d }; }); })
+      .then(function (res) {
+        var d = res.body || {};
+        fdCheck.disabled = false; btn.textContent = label;
+        if (!d.ok) {
+          // A 409 is the plan refusing itself, which is a result, not a crash.
+          fdOut.textContent = (d.error || ("HTTP " + res.status)) +
+            (d.plan && d.plan.length ? "\n\n" + d.plan.join("\n") : "");
+          return;
+        }
+        var lines = (d.plan || []).slice();
+        if (!lines.length) lines = ["Nothing to do \u2014 no duplicate rows found."];
+        if (d.dryRun) {
+          var actionable = (d.steps || []).filter(function (x) { return x.act === "rename" || x.act === "delete"; });
+          fdApply.disabled = actionable.length === 0;
+          fdOut.textContent = lines.join("\n") + "\n\n" +
+            (actionable.length ? "Nothing written. Press Apply to make these " + actionable.length + " change(s)."
+                               : "Nothing written, and nothing to write.");
+        } else {
+          fdApply.disabled = true;
+          fdOut.textContent = (d.applied || []).map(function (a) {
+            return "\u2713 " + a.act + " " + a.fleet + (a.why ? " \u2014 " + a.why : "");
+          }).join("\n") || "Nothing needed changing.";
+        }
+      })
+      .catch(function (e) {
+        fdCheck.disabled = false; btn.textContent = label;
+        fdOut.textContent = "Could not reach the board: " + e.message;
+      });
+  }
+
+  fdCheck.addEventListener("click", function () { fdRun(false); });
+  fdApply.addEventListener("click", function () { fdRun(true); });
+  wrap.appendChild(fleetDupCard);
   var table = el("table", "sync-table");
   table.id = "syncStatusTable";
   wrap.appendChild(table);
