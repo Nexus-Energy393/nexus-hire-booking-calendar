@@ -2611,8 +2611,8 @@ html.nx-embedded .side-rail .tab.active {
  * CONTINUOUS TIMELINE  (3-Week + Week views)  — added to replace the old
  * week-row "span band" grid. One day axis, one bar per hire, sticky identity
  * column + sticky day header, weekends/today banded straight down the grid.
- * Colour = job type (matches the Hire / Planned-outage legend); the status
- * dot + texture carry readiness. Themed via existing tokens (light/dark/TV).
+ * Colour = READINESS (ready / needs something / on hire / done); the job type
+ * is the icon at the left of each bar. Themed via existing tokens.
  * ======================================================================== */
 .tl {
   --tl-head: 244px;         /* sticky identity column width */
@@ -2757,19 +2757,32 @@ html.nx-embedded .side-rail .tab.active {
 .tl-staff-conflict { display: inline-flex; color: var(--danger, #d23f3f); }
 .tl-staff-conflict svg { width: 13px; height: 13px; }
 
-/* type = colour (matches toolbar legend) */
-.tl-bar.jt-general,  .tl-row.jt-general  .tl-rowhead { --tl-accent: var(--general); }
-.tl-bar.jt-outage,   .tl-row.jt-outage   .tl-rowhead { --tl-accent: var(--outage); }
-.tl-bar.jt-emergency,.tl-row.jt-emergency .tl-rowhead { --tl-accent: var(--emergency); }
+/* READINESS = colour. Type is the icon at the left of the bar.
+   It was the other way round: --tl-accent came from the job type, so a planned
+   outage was orange (--outage) and read as a fault on a job that was perfectly
+   fine, while "needs equipment" was purple (--equipment) and read as nothing at
+   all. The ribbon view (.booking-span) already coloured by readiness, so the
+   two views of the same board disagreed. */
+.tl-bar.st-confirmed, .tl-row.st-confirmed .tl-rowhead { --tl-accent: var(--confirmed); --tl-dot: var(--confirmed); }
+.tl-bar.st-onhire,    .tl-row.st-onhire    .tl-rowhead { --tl-accent: #2563eb;          --tl-dot: #2563eb; }
+.tl-bar.st-duration,  .tl-row.st-duration  .tl-rowhead { --tl-accent: var(--duration);  --tl-dot: var(--duration); }
+.tl-bar.st-equipment, .tl-row.st-equipment .tl-rowhead { --tl-accent: var(--duration);  --tl-dot: var(--duration); }
+.tl-bar.st-review,    .tl-row.st-review    .tl-rowhead { --tl-accent: var(--review);    --tl-dot: var(--review); }
+.tl-bar.st-completed, .tl-row.st-completed .tl-rowhead { --tl-accent: var(--completed); --tl-dot: var(--completed); }
+.tl-bar.st-cancelled, .tl-row.st-cancelled .tl-rowhead { --tl-accent: var(--cancelled); --tl-dot: var(--cancelled); }
+.tl-bar.st-prospective,.tl-row.st-prospective .tl-rowhead { --tl-accent: var(--muted);  --tl-dot: var(--muted); }
 
-/* status = the dot colour + texture */
-.tl-bar.st-confirmed, .tl-row.st-confirmed .tl-rowhead { --tl-dot: var(--confirmed); }
-.tl-bar.st-onhire,    .tl-row.st-onhire    .tl-rowhead { --tl-dot: #2563eb; }
-.tl-bar.st-duration,  .tl-row.st-duration  .tl-rowhead { --tl-dot: var(--duration); }
-.tl-bar.st-equipment, .tl-row.st-equipment .tl-rowhead { --tl-dot: var(--equipment); }
-.tl-bar.st-review,    .tl-row.st-review    .tl-rowhead { --tl-dot: var(--review); }
-.tl-bar.st-completed, .tl-row.st-completed .tl-rowhead { --tl-dot: var(--completed); }
-.tl-bar.st-prospective,.tl-row.st-prospective .tl-rowhead { --tl-dot: var(--muted); }
+/* type = the icon's colour, so the mark still reads at a glance */
+.tl-bar.jt-general,  .tl-row.jt-general  .tl-rowhead { --tl-type: var(--general); }
+.tl-bar.jt-outage,   .tl-row.jt-outage   .tl-rowhead { --tl-type: var(--outage); }
+.tl-bar.jt-emergency,.tl-row.jt-emergency .tl-rowhead { --tl-type: var(--emergency); }
+
+.tl-bar-type { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; color: var(--tl-type, var(--general)); }
+.tl-bar-type svg { width: 14px; height: 14px; }
+
+/* An emergency is the one type that must still shout, whatever its readiness. */
+.tl-bar.jt-emergency { border-left-color: var(--emergency); border-left-width: 5px; }
 
 /* readiness texture: needs-* get a dashed attention ring; completed fades;
    prospective is hatched + dashed (tentative). */

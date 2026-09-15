@@ -95,8 +95,12 @@ test("openModal routes an event to its own editor, where Delete lives", () => {
  * work, with one grey dot to say otherwise.
  */
 const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
-const prospectiveBar = css.slice(css.indexOf(".tl-bar.is-prospective {"),
-                                 css.indexOf(".tl-bar.st-cancelled"));
+// Read the rule's own block, not "everything up to the next mention of
+// st-cancelled" - a later edit added a .tl-bar.st-cancelled rule ABOVE this
+// one, so indexOf ran backwards and the slice came back empty. An empty
+// string fails every assertion, which looked like a regression in the code.
+const pbStart = css.indexOf(".tl-bar.is-prospective {");
+const prospectiveBar = css.slice(pbStart, css.indexOf("}", pbStart) + 1);
 
 test("a tentative timeline bar overrides the job-type accent, not just the dot", () => {
   assert.match(prospectiveBar, /--tl-accent:\s*var\(--muted\)/,

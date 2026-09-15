@@ -1092,7 +1092,7 @@ function buildTimelineBar(b, sm, tm, seg) {
   var hasStaffConflict = STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)];
   var days = durationDays(b);
 
-  var left = seg.contLeft ? '<span class="tl-chev" aria-hidden="true">‹</span>' : '<span class="tl-bar-dot"></span>';
+  var left = seg.contLeft ? '<span class="tl-chev" aria-hidden="true">‹</span>' : typeMark(tm);
   var miles = "";
   if (!seg.contLeft) {
     miles += milestoneDot("delivery", "Delivery to site");
@@ -1120,7 +1120,9 @@ function buildTimelineBar(b, sm, tm, seg) {
   bar.setAttribute("data-deal-id", b.pipedriveDealId);
   bar.setAttribute("aria-label",
     (b.customer || "Unknown customer") + ", " + (b.suburb || b.site || "") + ", " +
-    fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) + ", " + sm.label);
+    fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) + ", " + tm.label + ", " + sm.label);
+  // The colour now means readiness, so say which readiness on hover.
+  bar.title = (b.customer || "") + " \u2014 " + tm.label + " \u2014 " + sm.label;
 
   var open = function () { if (b.isGroup) { openGroupModal(b); return; } if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
   bar.addEventListener("click", function (e) {
@@ -1329,6 +1331,20 @@ var MS_SVG = {
   refuel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15"/><path d="M3 20h12"/><path d="M13 9h3l2 2v6a2 2 0 0 0 4 0v-8l-3-3"/></svg>',
   offhire: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h12l-2 4 2 4H5"/></svg>'
 };
+/* JOB TYPE, as a mark rather than a colour.
+   The bar's colour says whether the job is READY; type is what the icon says.
+   It used to be the other way round, and a planned outage — orange, because
+   --outage is orange — read as a fault on a job that was fine. */
+var JT_SVG = {
+  "jt-outage": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg>',
+  "jt-emergency": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 9v5"/><path d="M12 17.5v.01"/></svg>',
+  "jt-general": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M7 7V5h10v2"/><path d="M8 12h8"/></svg>'
+};
+function typeMark(tm) {
+  var svg = JT_SVG[tm.cls] || JT_SVG["jt-general"];
+  return '<span class="tl-bar-type" title="' + tm.label + '" aria-label="' + tm.label + '">' + svg + '</span>';
+}
+
 function milestoneDot(kind, title) {
   return '<span class="bs-ms bs-ms-' + kind + '" title="' + title + '" aria-label="' + title + '">' + (MS_SVG[kind] || "") + '</span>';
 }
