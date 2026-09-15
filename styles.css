@@ -2766,11 +2766,19 @@ html.nx-embedded .side-rail .tab.active {
 }
 .tl-bar.st-completed { opacity: .6; }
 .tl-bar.is-prospective {
+  /* A tl-bar takes its colour from --tl-accent, which is the JOB TYPE, while
+     status only drives the 8px dot. So a tentative hire rendered in the same
+     blue as a won one — AMS Constructions read as approved work on the board.
+     Tentative overrides the accent outright, the way .booking-span already
+     does, so the whole bar goes grey and the hatch reads against it. */
+  --tl-accent: var(--muted);
+  --tl-dot: var(--muted);
   opacity: .82;
   border-style: dashed; border-left-style: solid;
   background-image: repeating-linear-gradient(135deg,
-    color-mix(in srgb, var(--muted) 14%, transparent) 0 6px, transparent 6px 12px);
+    color-mix(in srgb, var(--text) 12%, transparent) 0 6px, transparent 6px 12px);
 }
+.tl-bar.is-prospective .tl-bar-lbl { font-style: italic; }
 .tl-bar.st-cancelled .tl-bar-lbl { text-decoration: line-through; }
 
 /* empty state */

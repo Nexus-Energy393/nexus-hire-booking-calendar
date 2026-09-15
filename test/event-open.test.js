@@ -87,3 +87,29 @@ test("openModal routes an event to its own editor, where Delete lives", () => {
   assert.match(appJs, /b\.kind === "event" && window\.NexusEvents/);
   assert.match(eventsJs, /ev-del/);
 });
+
+/* ---------------------------------------------- a tentative bar is not blue
+ * A .tl-bar takes its colour from --tl-accent, which is set by the JOB TYPE
+ * (jt-general etc). Status only drives --tl-dot, the 8px dot. So AMS
+ * Constructions — a hire not yet approved — rendered in the same blue as won
+ * work, with one grey dot to say otherwise.
+ */
+const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+const prospectiveBar = css.slice(css.indexOf(".tl-bar.is-prospective {"),
+                                 css.indexOf(".tl-bar.st-cancelled"));
+
+test("a tentative timeline bar overrides the job-type accent, not just the dot", () => {
+  assert.match(prospectiveBar, /--tl-accent:\s*var\(--muted\)/,
+    "without this the bar is still the job type's colour");
+});
+
+test("the accent is what colours the bar, so the override is the thing that matters", () => {
+  const base = css.slice(css.indexOf(".tl-bar {"), css.indexOf(".tl-bar.cont-left"));
+  assert.match(base, /background: color-mix\(in srgb, var\(--tl-accent/);
+  assert.match(base, /border-left: 4px solid var\(--tl-accent/);
+});
+
+test("the hatch reads against the grey it now sits on", () => {
+  assert.match(prospectiveBar, /var\(--text\) 12%/,
+    "a muted hatch on a muted bar is invisible");
+});
