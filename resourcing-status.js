@@ -162,6 +162,22 @@
      marked source:"crm" and given no allocation_id, because there is no board
      row to tick Picked against or to release. The UI renders it read-only and
      says where it came from. */
+  /* Nexy's label for a unit already starts with its fleet number:
+     "#1201 \u00b7 Himoinsa HYW-125 T5 \u00b7 120 kVA". A board row's asset_name
+     is just the machine, and the picking list prints "#" + fleet_number itself,
+     so passing the label through unchanged rendered "#1201 #1201 \u00b7 Himoinsa
+     ...". Strip the leading fleet token so both sources arrive in the same
+     shape. Falls back to the original if stripping would leave nothing. */
+  function stripFleetPrefix(label, fleet) {
+    var s = String(label == null ? "" : label).trim();
+    if (!s || !fleet) return s;
+    var safe = String(fleet).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // (?![0-9A-Za-z]) or "#12010 - Other unit" would strip against fleet 1201
+    // and leave "0 - Other unit".
+    var out = s.replace(new RegExp("^#?" + safe + "(?![0-9A-Za-z])\\s*[\u00b7\u2022|:\\-\u2013\u2014]?\\s*", "i"), "").trim();
+    return out || s;
+  }
+
   function crmUnits(booking) {
     var out = [];
     ((booking && booking.allocatedUnits) || []).forEach(function (u) {
@@ -172,13 +188,13 @@
         source: "crm",
         asset_id: "crm:" + fleet,
         fleet_number: fleet,
-        asset_name: u.label || "",
+        asset_name: stripFleetPrefix(u.label, fleet),
         generator_size_kva: u.kva != null ? u.kva : null,
         allocation_status: "allocated",
         dispatch_status: "",
         hire_start: u.start || null,
         hire_end: u.end || null,
-        asset: { fleet_number: fleet, asset_name: u.label || "", generator_size_kva: u.kva != null ? u.kva : null }
+        asset: { fleet_number: fleet, asset_name: stripFleetPrefix(u.label, fleet), generator_size_kva: u.kva != null ? u.kva : null }
       });
     });
     return out;

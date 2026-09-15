@@ -912,9 +912,15 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         pickedCell = (a && a.allocation_id)
           ? '<input type="checkbox" class="js-chk" data-act="pick" data-alloc="' + esc(a.allocation_id) + '"' +
             (picked ? " checked" : "") + (can ? "" : " disabled") + ' aria-label="Picked" />'
-          : (a && a.source === "crm"
-              ? '<span class="js-box" title="Allocate this unit on the board before it can be picked"></span>'
-              : '<span class="js-box"></span>');
+          : (a && a.source === "crm" && can
+              // Nexy says this unit is on the job, but pick state is recorded
+              // against a BOARD allocation and a CRM unit has none. Making the
+              // picker go and press "Allocate on board" first is a step that
+              // tells them nothing they did not already know, so the tick does
+              // it: create the board row for the unit Nexy named, then mark it
+              // picked. One action, because to the person in the yard it is one.
+              ? '<input type="checkbox" class="js-chk" data-act="pick-crm" data-fleet="' + esc(a.fleet_number || (a.asset && a.asset.fleet_number) || "") + '" title="Picks this unit and records the allocation on the board" aria-label="Picked" />'
+              : '<span class="js-box"' + (a && a.source === "crm" ? ' title="Allocate this unit on the board before it can be picked"' : "") + "></span>");
         var noteLine = "";
         if (a && a.allocation_status === "cross_hire_required") {
           var xn = (a.override_note || a.notes || "").trim();
@@ -1018,6 +1024,53 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
             if (!r.body.ok) { alert(r.body.error || "Failed to release allocation"); return; }
             reopenJobsheet(booking);
           }).catch(function (err) { alert(err.message); });
+      }
+      else if (act === "pick-crm") {
+        /* The unit is booked in Nexy but has no board allocation to hold the
+           pick. Create it from the fleet number Nexy gave us, then pick it.
+           The asset id is resolved from /availability rather than guessed:
+           a CRM unit's asset_id is the synthetic "crm:<fleet>", which is not
+           a real row. If the board has never heard of the unit there is
+           nothing to allocate, and that is said plainly rather than failing
+           with a foreign key error. */
+        if (!ensureToken()) { t.checked = false; return; }
+        if (!t.checked) { t.checked = false; return; }   // nothing to un-pick yet
+        var fleet = String(t.getAttribute("data-fleet") || "").replace(/^#+/, "").trim();
+        if (!fleet) { alert("Nexy did not give a fleet number for this unit, so it cannot be matched to a board asset."); t.checked = false; return; }
+        t.disabled = true;
+        var norm = function (v) { return String(v == null ? "" : v).replace(/^#+/, "").trim().toLowerCase(); };
+        var want = norm(fleet);
+        apiGet("/availability?start=" + encodeURIComponent(booking.startDate || "") + "&end=" + encodeURIComponent(booking.endDate || ""))
+          .then(function (r) {
+            var b = r.body || {};
+            var hit = null;
+            (b.available || []).forEach(function (x) { if (!hit && norm(x.fleet_number) === want) hit = x; });
+            // Also the conflicted list: the thing blocking it is usually this
+            // very deal's own Nexy booking, so it is exactly the unit we want.
+            (b.conflicted || []).forEach(function (c) {
+              var x = c.asset || c;
+              if (!hit && norm(x.fleet_number) === want) hit = x;
+            });
+            if (!hit || !hit.asset_id) throw new Error("#" + fleet + " is booked in Nexy but the board has no asset with that fleet number. Run a fleet sync, or allocate a board unit instead.");
+            return apiSend("POST", "/allocations", {
+              pipedrive_deal_id: booking.pipedriveDealId,
+              booking_title: booking.customer || "",
+              asset_id: hit.asset_id,
+              hire_start: booking.startDate || null,
+              hire_end: booking.endDate || null
+            });
+          })
+          .then(function (r) {
+            if (!r.body.ok) throw new Error(r.body.error || "Could not allocate this unit on the board.");
+            var rec = r.body.allocation || {};
+            if (!rec.allocation_id) throw new Error("The board allocation was created but returned no id, so it could not be marked picked.");
+            return apiSend("PATCH", "/allocations?id=" + encodeURIComponent(rec.allocation_id), { dispatch_status: "picked" });
+          })
+          .then(function (r) {
+            if (!r.body.ok) throw new Error(r.body.error || "Allocated on the board, but marking it picked failed.");
+            reopenJobsheet(booking);
+          })
+          .catch(function (err) { alert(err.message); t.checked = false; t.disabled = false; });
       }
       else if (act === "pick") {
         if (!ensureToken()) { t.checked = !t.checked; return; }

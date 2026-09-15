@@ -146,3 +146,101 @@ test("a busy-but-live unit is not marked retired", () => {
   assert.equal(r.available.length, 0);
   assert.equal(r.conflicted[0].retired, false);
 });
+
+/* --------------------------------------------- the label is not printed twice
+ * Nexy's label for a unit already begins with its fleet number. The picking
+ * list prints "#" + fleet_number itself, so passing the label through unchanged
+ * rendered "#1201 #1201 · Himoinsa HYW-125 T5 · 120 kVA" on NEX-1493.
+ */
+test("the fleet number is not repeated in the allocated label", () => {
+  const st = R.computeJobStatus(B1493(), [], HOURS);
+  const gen = st.requirements.find((r) => r.kind === "generator");
+  // BOTH copies. crmUnits sets the name twice - once on the row and once on
+  // its .asset - and the first version of this test only checked .asset, so
+  // reintroducing the bug on the row itself left the suite green.
+  for (const [where, name] of [["alloc.asset_name", gen.alloc.asset_name],
+                               ["alloc.asset.asset_name", gen.alloc.asset.asset_name]]) {
+    assert.equal(name, "Himoinsa HYW-125 T5 \u00b7 120 kVA", where);
+    assert.ok(!/^#?1201/.test(name), where + " still starts with the fleet number");
+  }
+});
+
+test("a label that is only the fleet number is left alone rather than emptied", () => {
+  const b = B1493();
+  b.allocatedUnits[0].label = "#1201";
+  const gen = R.computeJobStatus(b, [], HOURS).requirements.find((r) => r.kind === "generator");
+  assert.equal(gen.alloc.asset.asset_name, "#1201");
+});
+
+test("a label with no fleet prefix is untouched", () => {
+  const b = B1493();
+  b.allocatedUnits[0].label = "Himoinsa HYW-125 T5";
+  const gen = R.computeJobStatus(b, [], HOURS).requirements.find((r) => r.kind === "generator");
+  assert.equal(gen.alloc.asset.asset_name, "Himoinsa HYW-125 T5");
+});
+
+test("a longer fleet number is not stripped against a shorter one", () => {
+  const b = B1493();
+  b.allocatedUnits[0].fleetNumber = "1201";
+  b.allocatedUnits[0].label = "#12010 · Some other unit";
+  const gen = R.computeJobStatus(b, [], HOURS).requirements.find((r) => r.kind === "generator");
+  assert.equal(gen.alloc.asset.asset_name, "#12010 · Some other unit");
+});
+
+test("a named unit strips its prefix too", () => {
+  const b = B1493();
+  b.allocatedUnits[0].fleetNumber = "MELBGEN1";
+  b.allocatedUnits[0].label = "MELBGEN1 · Named unit";
+  const gen = R.computeJobStatus(b, [], HOURS).requirements.find((r) => r.kind === "generator");
+  assert.equal(gen.alloc.asset.asset_name, "Named unit");
+});
+
+/* ------------------------------------------------- picking a Nexy-booked unit
+ * Pick state lives on a BOARD allocation and a CRM unit has none, so the tick
+ * used to be a dead box telling the picker to go and press another button. It
+ * now creates the board row from the fleet number Nexy gave, then picks it.
+ */
+const fs = require("node:fs");
+const fleetJs = fs.readFileSync(path.join(__dirname, "..", "fleet.js"), "utf8");
+
+test("a Nexy-sourced row gets a real, tickable checkbox", () => {
+  assert.match(fleetJs, /data-act="pick-crm"/);
+  const cell = fleetJs.slice(fleetJs.indexOf("pickedCell = (a && a.allocation_id)"), fleetJs.indexOf("var noteLine"));
+  assert.match(cell, /<input type="checkbox"[^>]*data-act="pick-crm"/);
+});
+
+test("it is only tickable when the user can write", () => {
+  const cell = fleetJs.slice(fleetJs.indexOf("pickedCell = (a && a.allocation_id)"), fleetJs.indexOf("var noteLine"));
+  assert.match(cell, /a\.source === "crm" && can/, "read-only users must still get the dead box");
+});
+
+test("the handler allocates and then picks, in that order", () => {
+  const h = fleetJs.slice(fleetJs.indexOf('act === "pick-crm"'), fleetJs.indexOf('else if (act === "pick")'));
+  const post = h.indexOf('apiSend("POST", "/allocations"');
+  const patch = h.indexOf('dispatch_status: "picked"');
+  assert.ok(post > -1, "it must create the board allocation");
+  assert.ok(patch > -1, "it must mark it picked");
+  assert.ok(post < patch, "the allocation must exist before it is picked");
+});
+
+test("the asset id is resolved from the board, never the synthetic crm: id", () => {
+  const h = fleetJs.slice(fleetJs.indexOf('act === "pick-crm"'), fleetJs.indexOf('else if (act === "pick")'));
+  assert.match(h, /apiGet\("\/availability/, "it must look the unit up on the board");
+  // Not a bare indexOf("crm:") — that string also appears in the comment
+  // explaining why, so the test failed on correct code. What matters is which
+  // id reaches the POST body.
+  assert.match(h, /asset_id: hit\.asset_id/, "the posted id must be the one found on the board");
+  const code = h.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.ok(code.indexOf("crm:") === -1, "the synthetic crm: id must not appear in executable code");
+  assert.ok(code.indexOf("a.asset_id") === -1, "the CRM row's own asset_id must never be posted");
+});
+
+test("an unknown fleet number is explained, not thrown as a foreign key error", () => {
+  const h = fleetJs.slice(fleetJs.indexOf('act === "pick-crm"'), fleetJs.indexOf('else if (act === "pick")'));
+  assert.match(h, /the board has no asset with that fleet number/);
+});
+
+test("a failure puts the tick back rather than leaving a lie on screen", () => {
+  const h = fleetJs.slice(fleetJs.indexOf('act === "pick-crm"'), fleetJs.indexOf('else if (act === "pick")'));
+  assert.match(h, /\.catch\(function \(err\) \{ alert\(err\.message\); t\.checked = false; t\.disabled = false; \}\)/);
+});
