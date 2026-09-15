@@ -277,9 +277,17 @@ function applyResourcingStatuses() {
   STATE.bookings.forEach(function (b) {
     b.resourcingStatus = null; b.resourcing = null;
     if (b.status === "cancelled" || b.status === "completed" || b.prospective) return;
-    var allocs = byDeal[String(b.pipedriveDealId)];
-    if (!allocs || !allocs.length) return;
-    var st = window.NexusResourcing.computeJobStatus(b, allocs, hoursByDeal[String(b.pipedriveDealId)] || []);
+    // A job with NO board allocation can still be resourced: the unit may be
+    // booked against the deal in Nexy, which computeJobStatus folds in. This
+    // returned early on an empty board list, so the calendar never saw the
+    // CRM units at all and NEX-1493 stayed orange on the board while its
+    // jobsheet said Allocated.
+    var allocs = byDeal[String(b.pipedriveDealId)] || [];
+    var crmUnits = ((b.allocatedUnits || []).length > 0);
+    if (!allocs.length && !crmUnits) return;
+    // acksFor too: a dismissed size warning has to stop colouring the tile,
+    // or "make it stick" only ever held inside the open jobsheet.
+    var st = window.NexusResourcing.computeJobStatus(b, allocs, hoursByDeal[String(b.pipedriveDealId)] || [], acksFor(b));
     b.resourcing = st;
     b.resourcingStatus = st.key;
     b.refuellingRequired = !!st.refuellingRequired;
@@ -629,6 +637,11 @@ function loadAcknowledgements() {
         (by[k] = by[k] || []).push(row);
       });
       STATE.acks = by;
+      // Recompute, not just re-render. The tile colour is read from
+      // b.resourcingStatus, which was worked out before the acknowledgements
+      // arrived, so an accepted warning kept colouring the calendar even
+      // though the open jobsheet agreed it was settled.
+      applyResourcingStatuses();
     })
     .catch(function () { STATE.acks = STATE.acks || {}; });
 }

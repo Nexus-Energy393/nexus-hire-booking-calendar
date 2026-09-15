@@ -244,3 +244,47 @@ test("a failure puts the tick back rather than leaving a lie on screen", () => {
   const h = fleetJs.slice(fleetJs.indexOf('act === "pick-crm"'), fleetJs.indexOf('else if (act === "pick")'));
   assert.match(h, /\.catch\(function \(err\) \{ alert\(err\.message\); t\.checked = false; t\.disabled = false; \}\)/);
 });
+
+/* ------------------------------------------- the CALENDAR, not just the sheet
+ * The jobsheet said "Allocated" while NEX-1493's bar on the board stayed
+ * orange. applyResourcingStatuses() returned early when the deal had no BOARD
+ * allocation, so computeJobStatus was never called and the CRM units it now
+ * folds in were never seen. The tile fell back to the feed's own status.
+ */
+const appJs = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+const applyFn = appJs.slice(appJs.indexOf("function applyResourcingStatuses()"),
+                            appJs.indexOf("function loadAllocationSummary()"));
+
+test("a deal with no board allocation is not skipped when Nexy has units", () => {
+  assert.match(applyFn, /var crmUnits = \(\(b\.allocatedUnits \|\| \[\]\)\.length > 0\)/);
+  assert.match(applyFn, /if \(!allocs\.length && !crmUnits\) return;/);
+  assert.ok(!/if \(!allocs \|\| !allocs\.length\) return;/.test(applyFn),
+    "the old unconditional early return is still there");
+});
+
+test("the calendar computes status with acknowledgements, like the jobsheet", () => {
+  assert.match(applyFn, /computeJobStatus\(b, allocs, hoursByDeal\[String\(b\.pipedriveDealId\)\] \|\| \[\], acksFor\(b\)\)/);
+});
+
+test("loading acknowledgements recomputes the statuses, not just the view", () => {
+  const load = appJs.slice(appJs.indexOf("function loadAcknowledgements()"), appJs.indexOf("function acksFor(b)"));
+  const set = load.indexOf("STATE.acks = by;");
+  const recompute = load.indexOf("applyResourcingStatuses();");
+  assert.ok(set > -1, "STATE.acks assignment moved — re-anchor this test");
+  assert.ok(recompute > -1, "an accepted warning will keep colouring the calendar");
+  assert.ok(set < recompute, "the statuses must be recomputed after the acks land");
+});
+
+/* And the behaviour underneath it: with nothing on the board but a unit booked
+   in Nexy, the job must not read as needing equipment. */
+test("NEX-1493 with only a Nexy unit reads as allocated, so the bar is not orange", () => {
+  const st = R.computeJobStatus(B1493(), [], HOURS);
+  // "allocated" maps to st-confirmed in JS_STATUS_CLS; needs-equipment and
+  // cross-hire are the two that paint the tile orange.
+  assert.equal(st.key, "allocated");
+  assert.ok(!(st.missing || []).some((m) => /not allocated/i.test(m)),
+    "it still claims the generator is unallocated: " + JSON.stringify(st.missing));
+  // "allocated but not yet picked" is correct and must stay - the unit is on
+  // the job, nobody has picked it off the shelf yet.
+  assert.ok((st.missing || []).some((m) => /not yet picked/i.test(m)));
+});
