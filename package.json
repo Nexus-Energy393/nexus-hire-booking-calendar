@@ -4,10 +4,11 @@
   "private": true,
   "description": "Operational booking board for Nexus Energy generator hire and planned outage jobs. Static front-end plus Vercel serverless API that reads won deals from the Nexy CRM Hire Operations feed (read-only).",
   "scripts": {
-    "test": "TZ=Australia/Melbourne node --test test/resourcing-status.test.js test/pdf-colours.test.js test/fuel.test.js test/sync-view.test.js test/crm-allocations.test.js test/crm-reconcile.test.js test/fleet-cleanup.test.js test/event-open.test.js test/electrical-ack.test.js test/bar-colour.test.js test/repair-2026-09.test.js",
+    "test": "node scripts/run-tests.js",
     "migrate": "node scripts/migrate.js",
     "seed-staff": "node scripts/seed-staff.js",
-    "fleet-cleanup": "node scripts/cleanup-fleet-duplicates.js"
+    "fleet-cleanup": "node scripts/cleanup-fleet-duplicates.js",
+    "test:e2e": "node test/e2e/jobsheet-quick-add.e2e.js"
   },
   "engines": {
     "node": ">=18"

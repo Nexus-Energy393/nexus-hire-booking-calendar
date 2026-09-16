@@ -31,3 +31,8 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Scratch files from in-place edits. A zero-byte store-staff.js.tmp was
+# committed once by accident; this stops the next one.
+*.tmp
+*.chk

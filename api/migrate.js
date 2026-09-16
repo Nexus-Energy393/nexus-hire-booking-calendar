@@ -126,10 +126,28 @@ MIGRATIONS["007_fuel_columns"] = [
 
 /* Proof, per migration, that the thing actually exists now — so the caller gets
    a definitive "it worked" instead of an optimistic 200. */
+MIGRATIONS["008_staff_licence"] = [
+  `ALTER TABLE staff ADD COLUMN IF NOT EXISTS license_number TEXT`,
+  `ALTER TABLE staff ADD COLUMN IF NOT EXISTS location TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_staff_license ON staff (license_number)`,
+];
+
 const VERIFY = {
   "006_events": async function () {
     const [{ count }] = await db.query("SELECT count(*)::int AS count FROM events", []);
     return { eventsTableExists: true, eventsRowCount: count };
+  },
+  "008_staff_licence": async function () {
+    const cols = await db.query(
+      "SELECT column_name, is_nullable FROM information_schema.columns " +
+      "WHERE table_name = 'staff' AND column_name IN ('license_number','location')", []);
+    /* Nullable is the whole point: staff already in the table have neither,
+       and a NOT NULL column would have had to invent a licence for each of
+       them. If this ever comes back 'NO', something re-ran a different 008. */
+    return {
+      columns: cols.map(function (c) { return c.column_name; }).sort(),
+      nullable: cols.every(function (c) { return c.is_nullable === "YES"; }),
+    };
   },
   "007_fuel_columns": async function () {
     const cols = await db.query(

@@ -2916,6 +2916,10 @@ function jsRenderStaffAllocations(holder, booking, opts) {
 
   function reload(o) { jsRenderStaffAllocations(holder, booking, o || {}); }
   function isInspectorRole(role) { return !!(role && /inspector/i.test(role)); }
+  /* The dropdown value that means "this person is not on the list yet". Not a
+     real staff_id, so every code path that would send it to the server has to
+     branch on it deliberately. */
+  var NEW_PERSON = "__new__";
 
   holder.innerHTML = '<div class="js-staff-placeholder">Loading staff…</div>';
 
@@ -3047,6 +3051,39 @@ function jsRenderStaffAllocations(holder, booking, opts) {
       var startLabel = isInspector ? "Time Booked" : "Start";
       var endField = isInspector ? "" :
         '<label class="js-alloc-lbl">End<input type="datetime-local" class="js-alloc-input jsAllocEnd"></label>';
+      /* Somebody who is not on the resourcing list yet. The board files people
+         into the Labour and Inspector tables by whether their role matches
+         /inspector/i, so the role default is not cosmetic - it is what decides
+         which of these two sections they come back in. */
+      var licenceFields = isInspector
+        ? '<label class="js-alloc-lbl">Licence number' +
+            '<input type="text" class="js-alloc-input jsNewLicence" inputmode="text" autocapitalize="characters" placeholder="e.g. LEI-12345"></label>' +
+          '<label class="js-alloc-lbl">Location' +
+            '<input type="text" class="js-alloc-input jsNewLocation" placeholder="e.g. Dandenong"></label>'
+        : "";
+      var newPersonFields =
+        '<div class="js-alloc-new" hidden>' +
+          '<div class="js-alloc-new-title">New ' + (isInspector ? "inspector" : "staff member") +
+            ' \u2014 saved to the resourcing list</div>' +
+          '<div class="js-alloc-row">' +
+            '<label class="js-alloc-lbl">Name' +
+              '<input type="text" class="js-alloc-input jsNewName" autocomplete="name" placeholder="Full name"></label>' +
+            '<label class="js-alloc-lbl">Role' +
+              '<input type="text" class="js-alloc-input jsNewRole" value="' +
+                (isInspector ? "Electrical Inspector" : "") + '" placeholder="' +
+                (isInspector ? "must contain \u201cinspector\u201d" : "e.g. Technician") + '"></label>' +
+          '</div>' +
+          '<div class="js-alloc-row">' +
+            '<label class="js-alloc-lbl">Type' +
+              '<select class="js-alloc-select jsNewType">' +
+                '<option value="employee">Employee</option>' +
+                '<option value="contractor"' + (isInspector ? " selected" : "") + '>Contractor</option>' +
+              '</select></label>' +
+            '<label class="js-alloc-lbl">Email (optional)' +
+              '<input type="email" class="js-alloc-input jsNewEmail" autocomplete="email" placeholder="name@example.com"></label>' +
+            licenceFields +
+          '</div>' +
+        '</div>';
       form.innerHTML =
         '<div class="js-alloc-row">' +
           '<label class="js-alloc-lbl">' + (isInspector ? "Inspector" : "Staff member") +
@@ -3061,6 +3098,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
           endField +
           '<label class="js-alloc-lbl" style="flex:2">Notes (optional)<input type="text" class="js-alloc-input jsAllocNotes" placeholder="' + (isInspector ? "e.g. compliance inspection" : "e.g. site supervisor") + '"></label>' +
         '</div>' +
+        newPersonFields +
         '<div class="js-alloc-actions">' +
           '<button class="js-alloc-save btn-primary">Save</button>' +
           '<button class="js-alloc-cancel">Cancel</button>' +
@@ -3085,23 +3123,50 @@ function jsRenderStaffAllocations(holder, booking, opts) {
 
       var sel = form.querySelector(".jsAllocStaff");
       var pickable = staffList.filter(function(s){ return isInspector ? isInspectorRole(s.role) : !isInspectorRole(s.role); });
-      if (pickable.length) {
-        sel.innerHTML = '<option value="">— select ' + (isInspector ? "inspector" : "staff member") + " —</option>";
-        pickable.forEach(function(s) {
-          var opt = document.createElement("option");
-          opt.value = s.staff_id;
-          var licTxt = (isInspector && s.license_number) ? " — " + s.license_number : "";
-          var locTxt = (isInspector && s.location) ? " · " + s.location : "";
-          opt.textContent = s.name + (s.role ? " (" + s.role + ")" : "") + (s.staff_type === "contractor" ? " [C]" : "") + licTxt + locTxt;
-          sel.appendChild(opt);
-        });
-      } else {
-        sel.innerHTML = '<option value="">' + (isInspector ? "No inspectors in resourcing list" : "No staff in resourcing list") + "</option>";
+      sel.innerHTML = "";
+      var firstOpt = document.createElement("option");
+      firstOpt.value = "";
+      firstOpt.textContent = pickable.length
+        ? ("— select " + (isInspector ? "inspector" : "staff member") + " —")
+        : (isInspector ? "No inspectors on the resourcing list yet" : "No staff on the resourcing list yet");
+      sel.appendChild(firstOpt);
+      pickable.forEach(function(s) {
+        var opt = document.createElement("option");
+        opt.value = s.staff_id;
+        var licTxt = (isInspector && s.license_number) ? " — " + s.license_number : "";
+        var locTxt = (isInspector && s.location) ? " · " + s.location : "";
+        opt.textContent = s.name + (s.role ? " (" + s.role + ")" : "") + (s.staff_type === "contractor" ? " [C]" : "") + licTxt + locTxt;
+        sel.appendChild(opt);
+      });
+      /* Always offered, including when the list is empty. Before this, an empty
+         resourcing list meant the Inspector panel was a dropdown with nothing
+         in it and a Save button that answered "Select an inspector." - a dead
+         end on a phone, in the field, with the job waiting. */
+      var newOpt = document.createElement("option");
+      newOpt.value = NEW_PERSON;
+      newOpt.textContent = isInspector ? "+ Add a new inspector…" : "+ Add a new staff member…";
+      sel.appendChild(newOpt);
+      // Nothing to pick: open on the form that can actually be completed.
+      if (!pickable.length) sel.value = NEW_PERSON;
+
+      var newBlock = form.querySelector(".js-alloc-new");
+      function syncNewBlock(focusIt) {
+        var on = sel.value === NEW_PERSON;
+        newBlock.hidden = !on;
+        if (on && focusIt) {
+          var n = newBlock.querySelector(".jsNewName");
+          if (n) n.focus();
+        }
       }
+      sel.addEventListener("change", function(){ syncNewBlock(true); });
+      syncNewBlock(false);
 
       addBtn.addEventListener("click", function() {
         form.hidden = !form.hidden;
         addBtn.textContent = form.hidden ? (isInspector ? "+ Add inspector" : "+ Add staff") : "− Cancel";
+        // The block's visibility is decided by the dropdown, which may have
+        // been defaulted to NEW_PERSON before the form was ever shown.
+        if (!form.hidden) syncNewBlock(false);
       });
       form.querySelector(".js-alloc-cancel").addEventListener("click", function() {
         form.hidden = true;
@@ -3120,7 +3185,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
         var notes    = form.querySelector(".jsAllocNotes").value.trim();
         var errEl    = form.querySelector(".js-alloc-err");
         errEl.textContent = "";
-        if (!staffId) { errEl.textContent = "Select " + (isInspector ? "an inspector." : "a staff member."); return; }
+        if (!staffId) { errEl.textContent = "Select " + (isInspector ? "an inspector, or add a new one." : "a staff member, or add a new one."); return; }
         if (!start)   { errEl.textContent = isInspector ? "Time booked is required." : "Start and end are required."; return; }
         if (!hours || hours <= 0) { errEl.textContent = "Enter hours > 0."; return; }
         var startISO = new Date(start).toISOString();
@@ -3132,10 +3197,76 @@ function jsRenderStaffAllocations(holder, booking, opts) {
           if (new Date(end) <= new Date(start)) { errEl.textContent = "End must be after start."; return; }
           endISO = new Date(end).toISOString();
         }
+        /* A person who is not on the list yet. Validated before anything is
+           sent, so a bad role never results in a staff record created and an
+           allocation refused. */
+        var newPerson = null;
+        if (staffId === NEW_PERSON) {
+          var nv = function(cls) {
+            var e2 = form.querySelector(cls);
+            return e2 ? e2.value.trim() : "";
+          };
+          var nName = nv(".jsNewName");
+          var nRole = nv(".jsNewRole");
+          if (!nName) {
+            errEl.textContent = "Enter a name for the new " + (isInspector ? "inspector." : "staff member.");
+            return;
+          }
+          /* The two tables on this sheet are split by role, not by a type
+             column - store-staff.js also excludes inspectors from labour
+             conflict detection the same way. Saving the wrong one files the
+             person under the other heading and quietly changes whether they
+             are checked for double-booking, so it is refused rather than
+             corrected behind their back. */
+          if (isInspector && !isInspectorRole(nRole)) {
+            errEl.textContent = "An inspector's role must contain the word \u201cinspector\u201d — that is how the board files them into this table.";
+            return;
+          }
+          if (!isInspector && isInspectorRole(nRole)) {
+            errEl.textContent = "That role contains \u201cinspector\u201d, which would file them under Inspector instead of Labour allocation.";
+            return;
+          }
+          newPerson = {
+            name: nName,
+            role: nRole || null,
+            staff_type: nv(".jsNewType") || "employee",
+            email: nv(".jsNewEmail") || null
+          };
+          if (isInspector) {
+            newPerson.license_number = nv(".jsNewLicence") || null;
+            newPerson.location       = nv(".jsNewLocation") || null;
+          }
+        }
+
         var saveBtn = form.querySelector(".js-alloc-save");
-        saveBtn.disabled = true; saveBtn.textContent = "Saving…";
+        saveBtn.disabled = true; saveBtn.textContent = newPerson ? "Adding…" : "Saving…";
+
+        /* Create first, then allocate. If the create succeeds and the
+           allocation does not, the person IS on the list - say so, because
+           "it failed" would send somebody to add them a second time. */
+        var createdName = null;
+        var resolveStaffId = newPerson
+          ? fetch(jsStaffApiBase() + "/staff?action=create-staff", {
+              method: "POST", headers: jsStaffAuthHeaders(), body: JSON.stringify(newPerson)
+            })
+              .then(function(r) { return r.json().then(function(j){ return {s:r.status,b:j}; }); })
+              .then(function(res) {
+                if (res.s >= 400 || res.b.ok === false) throw new Error(res.b.error || "Could not add them to the resourcing list (" + res.s + ").");
+                var m = res.b.staff;
+                if (!m || !m.staff_id) throw new Error("The server did not return the new record.");
+                createdName = m.name || newPerson.name;
+                if (res.b.existing) {
+                  evToast(createdName + " was already on the resourcing list — using that record.", true);
+                } else {
+                  evToast(createdName + " added to the resourcing list.", true);
+                }
+                return String(m.staff_id);
+              })
+          : Promise.resolve(staffId);
+
+        resolveStaffId.then(function(realStaffId) {
         var payload = {
-          staff_id: staffId,
+          staff_id: realStaffId,
           pipedrive_deal_id: String(booking.pipedriveDealId),
           booking_title: booking.title || booking.customerName || "",
           allocation_start: startISO,
@@ -3146,7 +3277,7 @@ function jsRenderStaffAllocations(holder, booking, opts) {
           status: "allocated",
           notes: notes || null
         };
-        fetch(jsStaffApiBase() + "/staff?action=create-allocation", {
+        return fetch(jsStaffApiBase() + "/staff?action=create-allocation", {
           method: "POST", headers: jsStaffAuthHeaders(), body: JSON.stringify(payload)
         }).then(function(r) { return r.json().then(function(j){ return {s:r.status,b:j}; }); })
           .then(function(res) {
@@ -3154,9 +3285,11 @@ function jsRenderStaffAllocations(holder, booking, opts) {
             var conflictMsg = (!isInspector && res.b.conflict && res.b.conflict_with && res.b.conflict_with.length)
               ? res.b.conflict_with.join(", ") : null;
             reload({ conflictMsg: conflictMsg });
-          })
+          });
+        })
           .catch(function(e) {
-            errEl.textContent = e.message || "Failed to save.";
+            errEl.textContent = (e.message || "Failed to save.") +
+              (createdName ? "  " + createdName + " IS on the resourcing list — pick them from the dropdown and try the allocation again." : "");
             saveBtn.disabled = false; saveBtn.textContent = "Save";
           });
       });

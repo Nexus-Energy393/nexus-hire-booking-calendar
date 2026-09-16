@@ -20,6 +20,28 @@ const store = require("../lib/store-staff");
 const auth = require("../lib/auth");
 const http = require("../lib/http");
 
+/* Trim the text fields and turn "" into null, so an untouched optional input
+   stores as absent rather than as an empty string - which reads back as a
+   value and renders as a blank cell instead of a dash. Length caps are there
+   so a paste accident cannot put a page of text in a licence field. */
+const LIMITS = { name: 120, email: 200, role: 80, license_number: 60, location: 120, notes: 2000 };
+
+function tidyStaff(body) {
+  const out = {};
+  Object.keys(body || {}).forEach(function (k) { out[k] = body[k]; });
+  Object.keys(LIMITS).forEach(function (k) {
+    if (!Object.prototype.hasOwnProperty.call(out, k)) return;
+    if (out[k] == null) { out[k] = null; return; }
+    const v = String(out[k]).trim().slice(0, LIMITS[k]);
+    out[k] = v === "" ? null : v;
+  });
+  /* Deliberately NOT defaulting name to "": update-staff sends only the fields
+     it is changing, and a `name: ""` added here would be a SET that wipes the
+     name off anybody edited without one. The create path checks for undefined
+     itself. */
+  return out;
+}
+
 module.exports = async function handler(req, res) {
   http.cors(res, "GET, POST, PATCH, OPTIONS");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
@@ -79,15 +101,28 @@ module.exports = async function handler(req, res) {
       const action = q.action || body.action || "";
 
       if (action === "create-staff" || (!action && body.name && !body.staff_id)) {
-        if (!body.name) { res.status(400).json({ ok: false, error: "name is required" }); return; }
-        const member = await store.upsertStaff(body);
+        /* Trimmed here rather than in the browser: the jobsheet is not the only
+           caller, and a name that is a single space passes `if (!body.name)`
+           and then renders as an empty row nobody can identify. */
+        const clean = tidyStaff(body);
+        if (!clean.name) { res.status(400).json({ ok: false, error: "name is required" }); return; }
+        const dup = await store.findStaffByName(clean.name);
+        if (dup && !body.allow_duplicate) {
+          /* Not an error - the caller usually wants the person who already
+             exists. Hand them back with a flag so the jobsheet can say
+             "already on the list" instead of quietly creating a second
+             record that splits their utilisation in half. */
+          res.status(200).json({ ok: true, staff: dup, existing: true });
+          return;
+        }
+        const member = await store.upsertStaff(clean);
         res.status(201).json({ ok: true, staff: member });
         return;
       }
 
       if (action === "update-staff") {
         if (!body.staff_id) { res.status(400).json({ ok: false, error: "staff_id required" }); return; }
-        const member = await store.upsertStaff(body);
+        const member = await store.upsertStaff(tidyStaff(body));
         res.status(200).json({ ok: true, staff: member });
         return;
       }
