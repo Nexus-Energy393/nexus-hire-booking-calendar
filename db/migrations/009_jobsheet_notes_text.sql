@@ -1,0 +1,27 @@
+-- ---------------------------------------------------------------------
+-- 009_jobsheet_notes_text.sql | jobsheet_notes missed migration 005
+--
+-- 005 cast pipedrive_deal_id from BIGINT to TEXT on allocations,
+-- engine_hour_records, staff_allocations and refuel_events, because deal
+-- ids from the Nexy CRM are cuids ("cmu6gtvex0005128ybpih40n3"), not
+-- Pipedrive integers. jobsheet_notes was created later and never got the
+-- same treatment, so the live column is still BIGINT.
+--
+-- api/notes.js declares the column TEXT, but its CREATE TABLE IF NOT
+-- EXISTS is a no-op against a table that already exists, so the mismatch
+-- has simply sat there. Every note on a CRM-created deal failed with
+--   invalid input syntax for type bigint: "cmu6gtvex0005128ybpih40n3"
+-- and the jobsheet showed the field red. A legacy numeric deal saved
+-- fine, which is why this looked intermittent rather than broken.
+--
+-- BIGINT -> TEXT keeps every existing numeric value as its own digits, so
+-- legacy Pipedrive notes keep matching. Idempotent: re-running the cast on
+-- an already-TEXT column is a no-op.
+--
+-- Reversal: ALTER TABLE jobsheet_notes ALTER COLUMN pipedrive_deal_id
+-- TYPE BIGINT USING pipedrive_deal_id::BIGINT. That succeeds only while
+-- every row is still numeric - once a CRM deal has saved a note, going
+-- back means deleting those rows first. Say so out loud rather than
+-- calling this reversible without qualification.
+-- ---------------------------------------------------------------------
+ALTER TABLE jobsheet_notes ALTER COLUMN pipedrive_deal_id TYPE TEXT USING pipedrive_deal_id::TEXT;

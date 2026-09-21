@@ -25,7 +25,14 @@ const http = require("../lib/http");
  *
  * Additive and reversible: CREATE TABLE IF NOT EXISTS cannot destroy data, and
  * DROP TABLE jobsheet_notes puts it back exactly as it was. The unique index
- * is what the ON CONFLICT below needs to be an upsert rather than a duplicate. */
+ * is what the ON CONFLICT below needs to be an upsert rather than a duplicate.
+ *
+ * `text`, and it has to be: deal ids from the CRM are cuids, not Pipedrive
+ * integers. Note that IF NOT EXISTS does nothing to a table that is already
+ * there - the live table predated this block with a BIGINT column, and every
+ * note on a CRM deal failed with `invalid input syntax for type bigint` until
+ * migration 009 cast it. A fresh database gets it right from here; an existing
+ * one needs 009. */
 async function ensureTable() {
   await db.query(
     "CREATE TABLE IF NOT EXISTS jobsheet_notes (" +

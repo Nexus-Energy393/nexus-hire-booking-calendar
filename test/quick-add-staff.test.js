@@ -22,6 +22,38 @@ const code = (f) =>
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 
+/**
+ * The statements registered for one migration in api/migrate.js.
+ *
+ * Slicing to `const VERIFY` reads fine with one migration at the end of the
+ * list and silently swallows every later one - which is how adding 009 broke
+ * a test about 008. Stop at the next MIGRATIONS[...] instead.
+ */
+function migrationBlock(src, name) {
+  const start = src.indexOf('MIGRATIONS["' + name + '"]');
+  if (start < 0) return "";
+  const rest = src.slice(start + 1);
+  const nextReg = rest.indexOf("MIGRATIONS[");
+  const verify = rest.indexOf("const VERIFY");
+  const ends = [nextReg, verify].filter((i) => i >= 0);
+  return rest.slice(0, ends.length ? Math.min.apply(null, ends) : rest.length);
+}
+
+/**
+ * One VERIFY function's body, and nothing after it.
+ *
+ * Taking a fixed number of characters from the start of a function runs into
+ * the NEXT function, which here uses the same words - so a 009 assertion kept
+ * passing on 008's query after 009's had been changed. Stop at the sibling.
+ */
+function verifyBlock(src, name) {
+  const start = src.indexOf('"' + name + '": async function');
+  if (start < 0) return "";
+  const rest = src.slice(start + 1);
+  const next = rest.search(/"[0-9a-z_]+": async function/);
+  return next >= 0 ? rest.slice(0, next) : rest;
+}
+
 // ───────────────────────── the migration ─────────────────────────
 
 test("008 adds licence and location without touching anything that exists", () => {
@@ -54,9 +86,16 @@ test("008 is re-runnable and documents its own reversal", () => {
   assert.match(sql, /DROP COLUMN location/);
 });
 
-test("the migration comes after 007 and nothing was renumbered", () => {
+test("the migrations are numbered in an unbroken run, and 008 is still 008", () => {
+  /* This used to assert the last two filenames, which meant adding a 009 -
+     an ordinary thing to do - failed a test about renumbering. What it is
+     really guarding is that nobody reuses or skips a number, because the
+     runner applies them in sorted order. */
   const files = fs.readdirSync(root("db/migrations")).filter((f) => f.endsWith(".sql")).sort();
-  assert.deepEqual(files.slice(-2), ["007_fuel_columns.sql", "008_staff_licence.sql"]);
+  const nums = files.map((f) => Number(f.slice(0, 3)));
+  assert.deepEqual(nums, nums.map((_, i) => i + 1),
+    "migration numbers have a gap or a duplicate: " + files.join(", "));
+  assert.ok(files.includes("008_staff_licence.sql"), "008 has been renamed or renumbered");
 });
 
 test("the copy inlined in api/migrate.js says the same thing as the .sql", () => {
@@ -65,8 +104,7 @@ test("the copy inlined in api/migrate.js says the same thing as the .sql", () =>
      of the same schema change is exactly the arrangement that drifts - and the
      one that drifts is the one that actually runs in production. */
   const inlined = code("api/migrate.js");
-  const block = inlined.slice(inlined.indexOf('MIGRATIONS["008_staff_licence"]'),
-                              inlined.indexOf("const VERIFY"));
+  const block = migrationBlock(inlined, "008_staff_licence");
   assert.ok(block, "008 is not registered with the migration runner - the button will not apply it");
   const norm = (t) => t.replace(/\s+/g, " ").replace(/`|;/g, "").trim().toLowerCase();
   const fromSql = read("db/migrations/008_staff_licence.sql")
@@ -377,4 +415,48 @@ test("the new-person block starts closed", () => {
   assert.match(src, /newBlock\.hidden = !on/, "nothing opens or closes it");
   assert.match(read("styles.css"), /\.js-alloc-new\[hidden\] \{ display: none; \}/,
     "the block has a display rule that overrides [hidden]");
+});
+
+// ───────────────── 009: the notes column that missed 005 ─────────────────
+
+test("009 casts the job-sheet notes deal id to text", () => {
+  /* CRM deal ids are cuids. The column was BIGINT, so every shared note on a
+     CRM deal failed with `invalid input syntax for type bigint` and the field
+     turned red. A legacy numeric deal saved fine, which made it look random. */
+  const sql = read("db/migrations/009_jobsheet_notes_text.sql");
+  assert.match(sql, /ALTER TABLE jobsheet_notes ALTER COLUMN pipedrive_deal_id TYPE TEXT USING pipedrive_deal_id::TEXT/);
+});
+
+test("009 says out loud that the reversal has a condition", () => {
+  /* BIGINT -> TEXT is lossless. TEXT -> BIGINT is not, once a cuid is in
+     there. A migration that claims to be reversible without saying when is
+     worse than one that admits it. */
+  const sql = read("db/migrations/009_jobsheet_notes_text.sql");
+  assert.match(sql, /Reversal:/);
+  assert.match(sql, /only while/i, "the reversal is described as unconditional");
+});
+
+test("009's inlined copy says the same thing as its .sql", () => {
+  const block = migrationBlock(code("api/migrate.js"), "009_jobsheet_notes_text");
+  assert.ok(block, "009 is not registered with the runner - the migrate button will not apply it");
+  const norm = (t) => t.replace(/\s+/g, " ").replace(/`|;/g, "").trim().toLowerCase();
+  const fromSql = read("db/migrations/009_jobsheet_notes_text.sql")
+    .replace(/--[^\n]*/g, "").split(";").map(norm).filter(Boolean);
+  const fromJs = (block.match(/`[^`]+`/g) || []).map(norm);
+  assert.deepEqual(fromJs, fromSql, "the inlined 009 and its .sql have drifted apart");
+});
+
+test("009 verifies the column actually ended up text", () => {
+  /* Reporting that the ALTER ran is not the same as reporting the type. */
+  const v = verifyBlock(code("api/migrate.js"), "009_jobsheet_notes_text");
+  assert.ok(v.length > 80, "009 has no VERIFY - the runner cannot say whether it worked");
+  assert.match(v, /information_schema\.columns/, "009's VERIFY does not read the column type");
+  assert.match(v, /data_type === "text"|isText/, "009's VERIFY does not report whether it is text");
+});
+
+test("the notes API still declares the column text for a fresh database", () => {
+  /* The migration repairs an existing database. A brand new one is created by
+     ensureTable, and it has to be right there too or 009 is needed forever. */
+  const src = read("api/notes.js");
+  assert.match(src, /pipedrive_deal_id text NOT NULL/);
 });

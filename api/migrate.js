@@ -132,10 +132,35 @@ MIGRATIONS["008_staff_licence"] = [
   `CREATE INDEX IF NOT EXISTS idx_staff_license ON staff (license_number)`,
 ];
 
+/* jobsheet_notes missed 005.
+ *
+ * 005 cast pipedrive_deal_id to TEXT on the four tables that existed then,
+ * because CRM deal ids are cuids, not Pipedrive integers. jobsheet_notes was
+ * added afterwards and kept a BIGINT column, so every shared job-sheet note on
+ * a CRM deal failed with `invalid input syntax for type bigint` and the field
+ * went red. A legacy numeric deal saved fine, which made it look intermittent.
+ *
+ * api/notes.js already declares the column TEXT - but its CREATE TABLE IF NOT
+ * EXISTS does nothing to a table that is already there, so the mismatch never
+ * corrected itself. */
+MIGRATIONS["009_jobsheet_notes_text"] = [
+  `ALTER TABLE jobsheet_notes ALTER COLUMN pipedrive_deal_id TYPE TEXT USING pipedrive_deal_id::TEXT`,
+];
+
 const VERIFY = {
   "006_events": async function () {
     const [{ count }] = await db.query("SELECT count(*)::int AS count FROM events", []);
     return { eventsTableExists: true, eventsRowCount: count };
+  },
+  "009_jobsheet_notes_text": async function () {
+    const cols = await db.query(
+      "SELECT data_type FROM information_schema.columns " +
+      "WHERE table_name = 'jobsheet_notes' AND column_name = 'pipedrive_deal_id'", []);
+    /* The whole point of the migration is this one word. Asserting the cast
+       ran is not the same as asserting the column ended up TEXT. */
+    const type = cols.length ? cols[0].data_type : null;
+    const [{ count }] = await db.query("SELECT count(*)::int AS count FROM jobsheet_notes", []);
+    return { columnType: type, isText: type === "text", noteRows: count };
   },
   "008_staff_licence": async function () {
     const cols = await db.query(
