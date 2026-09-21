@@ -1211,7 +1211,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
 
   function fmtConflict(c) {
     function d(v) { return v ? String(v).slice(0, 10) : "?"; }
-    return "on hire to deal #" + esc(c.pipedrive_deal_id) + " (" + d(c.hire_start) + " &rarr; " + d(c.hire_end) + ")";
+    return "on hire to " + esc(window.NexusJobRef ? window.NexusJobRef(c.pipedrive_deal_id) : (c.booking_title || c.pipedrive_deal_id)) + " (" + d(c.hire_start) + " &rarr; " + d(c.hire_end) + ")";
   }
 
   function openAllocateModal(booking, replaceId) {
@@ -1227,7 +1227,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
              "&end=" + encodeURIComponent(booking.endDate || "") +
              "&dealId=" + encodeURIComponent(booking.pipedriveDealId == null ? "" : booking.pipedriveDealId) +
              (replaceId ? "&ignore=" + encodeURIComponent(replaceId) : "");
-    var m = openModal((replaceId ? "Change generator - deal #" : "Allocate generator - deal #") + booking.pipedriveDealId,
+    var m = openModal((replaceId ? "Change generator - " : "Allocate generator - ") + jobLabel(booking),
       '<p class="subtle">Required size: <strong>' + esc(booking.generatorSize || "TBC") + "</strong> &middot; " + esc(booking.startDate || "?") + " &rarr; " + esc(booking.endDate || "?") + "</p>" +
       '<div id="allocList">Loading available generators&hellip;</div>');
     apiGet(qs).then(function (r) {
@@ -1348,12 +1348,20 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     }).catch(function (e) { alert(e.message); });
   }
 
+  /* The job as people say it: "NEX-1521 - Acme", never the raw deal cuid. */
+  function jobLabel(booking) {
+    var id = booking && booking.pipedriveDealId;
+    var ref = window.NexusJobRef ? window.NexusJobRef(id)
+      : (booking && booking.jobNumber) || ("JOB-" + (String(id || "").replace(/[^A-Za-z0-9]/g, "").slice(-6).toUpperCase() || "NEW"));
+    return booking && booking.customer ? ref + " - " + booking.customer : ref;
+  }
+
   /* Allocate a non-serialised stock quantity against the booking. */
   function openAllocateStockModal(booking, reqIdx, st) {
     if (!ensureToken()) return;
     var req = (st && st.requirements || [])[reqIdx] || null;
     var existing = req && req.alloc;
-    var m = openModal("Allocate stock - deal #" + booking.pipedriveDealId,
+    var m = openModal("Allocate stock - " + jobLabel(booking),
       '<p class="subtle">' + (req ? "Requirement: <strong>" + esc(req.label) + "</strong>" : "Add a stock item to this job") + "</p>" +
       '<div id="stockAllocBody">Loading stock&hellip;</div>');
     apiGet("/stock").then(function (r) {

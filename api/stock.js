@@ -13,6 +13,7 @@ const db = require("../lib/db");
 const store = require("../lib/store-fleet");
 const auth = require("../lib/auth");
 const http = require("../lib/http");
+const stockSync = require("../lib/stock-sync");
 
 module.exports = async function handler(req, res) {
   http.cors(res);
@@ -34,6 +35,9 @@ module.exports = async function handler(req, res) {
         res.status(200).json({ ok: true, dbConfigured: true, item: item });
         return;
       }
+      // Items added in the CRM's Bulk stock register land here first, so a
+      // job sheet's Allocate stock list is never missing one.
+      try { await stockSync.maybeReconcile(); } catch (e) { /* best-effort CRM stock mirror */ }
       // With _allocated/_available attached, so the table stops inventing them.
       const stock = await store.listStockWithAllocated({ category: req.query && req.query.category });
       res.status(200).json({ ok: true, dbConfigured: true, writesEnabled: auth.configured(), count: stock.length, stock: stock });
