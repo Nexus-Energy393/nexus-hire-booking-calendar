@@ -2,6 +2,7 @@
  * api/stock.js (Vercel serverless)
  * Non-serialised stock items (cable sets, ramps, etc.) tracked by quantity.
  *   GET    /api/stock                   -> list (?category=)
+ *   GET    /api/stock?from=&to=&ignore= -> list + _free for those dates (ignore = allocation being edited)
  *   GET    /api/stock?id=UUID           -> single item
  *   GET    /api/stock?id=UUID&detail=1  -> detail bundle (item + allocations + history)
  *   POST   /api/stock                   -> create (admin)
@@ -39,7 +40,13 @@ module.exports = async function handler(req, res) {
       // job sheet's Allocate stock list is never missing one.
       try { await stockSync.maybeReconcile(); } catch (e) { /* best-effort CRM stock mirror */ }
       // With _allocated/_available attached, so the table stops inventing them.
-      const stock = await store.listStockWithAllocated({ category: req.query && req.query.category });
+      let stock = await store.listStockWithAllocated({ category: req.query && req.query.category });
+      // ?from=&to= : what is free for one job's dates (the Allocate stock list).
+      const q = req.query || {};
+      if (/^\d{4}-\d{2}-\d{2}/.test(String(q.from || ""))) {
+        const to = /^\d{4}-\d{2}-\d{2}/.test(String(q.to || "")) ? String(q.to).slice(0, 10) : String(q.from).slice(0, 10);
+        stock = await store.stockFreeForWindow(stock, { hire_start: String(q.from).slice(0, 10), hire_end: to }, q.ignore || null);
+      }
       res.status(200).json({ ok: true, dbConfigured: true, writesEnabled: auth.configured(), count: stock.length, stock: stock });
       return;
     }

@@ -579,6 +579,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     var isEdit = !!s;
     s = s || {};
     var m = openModal((isEdit ? "Edit stock item" : "Add non-serialised stock item"),
+      /* The CRM's Bulk stock register owns the list and the counts; this board
+         follows it within a minute. Say so here, or a count changed on the
+         board quietly springs back and looks like a bug. */
+      '<p class="subtle" style="margin:0 0 10px">Counts follow the CRM\u2019s Bulk stock register (Equipment &rarr; Bulk stock). Change a count or add an item there and it lands here within a minute.</p>' +
       '<div class="fm-grid">' +
         '<label>Item name *<input id="sfName" type="text" value="' + esc(s.item_name || "") + '" placeholder="e.g. 95mm x 50m CU Cable Set" /></label>' +
         '<label>Category *<input id="sfCat" type="text" value="' + esc(s.category || "Cable") + '" placeholder="Cable / Cable protection / Distribution&hellip;" /></label>' +
@@ -1356,45 +1360,108 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     return booking && booking.customer ? ref + " - " + booking.customer : ref;
   }
 
-  /* Allocate a non-serialised stock quantity against the booking. */
+  /* Allocate a non-serialised stock quantity against the booking.
+     The list says what is FREE for this job's dates, not just what we own,
+     using the same rule the save uses to decide cross-hire - so "1 free" in
+     the list is never followed by "cross-hire required" on save. */
   function openAllocateStockModal(booking, reqIdx, st) {
     if (!ensureToken()) return;
     var req = (st && st.requirements || [])[reqIdx] || null;
     var existing = req && req.alloc;
+    var from = String(booking.startDate || "").slice(0, 10);
+    var to = String(booking.endDate || booking.startDate || "").slice(0, 10);
+    var fmt = function (iso) {
+      if (!iso) return "?";
+      var p = iso.split("-");
+      var mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(p[1]) - 1] || "";
+      return Number(p[2]) + " " + mon;
+    };
+    var window_ = from ? (from === to ? fmt(from) : fmt(from) + " to " + fmt(to)) : "no dates yet";
     var m = openModal("Allocate stock - " + jobLabel(booking),
-      '<p class="subtle">' + (req ? "Requirement: <strong>" + esc(req.label) + "</strong>" : "Add a stock item to this job") + "</p>" +
+      '<p class="subtle">' + (req ? "Requirement: <strong>" + esc(req.label) + "</strong> &middot; " : "Add a stock item to this job &middot; ") + esc(window_) + "</p>" +
       '<div id="stockAllocBody">Loading stock&hellip;</div>');
-    apiGet("/stock").then(function (r) {
+    var qs = "/stock" + (from ? "?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
+      (existing && existing.allocation_id ? "&ignore=" + encodeURIComponent(existing.allocation_id) : "") : "");
+    apiGet(qs).then(function (r) {
       var body = m.body.querySelector("#stockAllocBody");
+      if (!r.body || r.body.ok === false) { body.innerHTML = '<p style="color:var(--danger)">Could not load stock: ' + esc((r.body && r.body.error) || "the server did not answer") + ". Close and try again.</p>"; return; }
       var items = (r.body.stock || r.body.items || []).filter(function (s) { return (s.status || "").toLowerCase() !== "retired"; });
-      if (!items.length) { body.innerHTML = "No stock items in the database yet. Add them in the Fleet control centre."; return; }
+      if (!items.length) { body.innerHTML = "No stock items yet. Add them in the CRM's Bulk stock register (Equipment &rarr; Bulk stock) and they appear here within a minute."; return; }
+      var free = function (s) { return s._free != null ? Number(s._free) : (s._available != null ? Number(s._available) : Number(s.total_quantity) || 0); };
+
       var match = null;
       if (req) {
         var want = req.label.toLowerCase();
         items.forEach(function (s) { if (!match && want.indexOf(String(s.item_name || "").toLowerCase()) !== -1) match = s; });
         if (!match) items.forEach(function (s) { if (!match && String(s.item_name || "").toLowerCase().split(" ")[0] && want.indexOf(String(s.item_name || "").toLowerCase().split(" ")[0]) !== -1) match = s; });
       }
-      var opts = items.map(function (s) {
+      if (existing && existing.stock_item_id) items.forEach(function (s) { if (s.stock_item_id === existing.stock_item_id) match = s; });
+
+      // Group by category; within a group, what is free first, then by name.
+      var groups = {};
+      items.forEach(function (s) { var c = s.category || "Other"; (groups[c] = groups[c] || []).push(s); });
+      var opt = function (s) {
+        var f = free(s), own = Number(s.total_quantity) || 0;
+        var tag = from ? (f > 0 ? f + " free of " + own : "none free, cross-hire") : "own " + own;
         return '<option value="' + esc(s.stock_item_id) + '"' + (match && match.stock_item_id === s.stock_item_id ? " selected" : "") + ">" +
-               esc(s.item_name) + " (own " + esc(s.total_quantity) + ")</option>";
+               esc(s.item_name) + " · " + esc(tag) + "</option>";
+      };
+      var opts = Object.keys(groups).sort().map(function (c) {
+        var list = groups[c].slice().sort(function (a, b) { return (free(b) > 0) - (free(a) > 0) || String(a.item_name).localeCompare(String(b.item_name)); });
+        return '<optgroup label="' + esc(c) + '">' + list.map(opt).join("") + "</optgroup>";
       }).join("");
-      body.innerHTML = '<div class="fm-row"><label>Stock item</label><select id="saItem">' + opts + "</select></div>" +
-        '<div class="fm-row"><label>Quantity</label><input type="number" id="saQty" min="1" value="' + esc(existing ? existing.quantity_required : (req ? req.qtyRequired : 1)) + '" /></div>' +
+
+      body.innerHTML =
+        '<div class="fm-row"><label>Stock item</label><select id="saItem">' + opts + "</select></div>" +
+        '<div class="fm-row"><label>Quantity</label><input type="number" id="saQty" min="1" inputmode="numeric" value="' + esc(existing ? existing.quantity_required : (req ? req.qtyRequired : 1)) + '" /></div>' +
+        '<div id="saHint" class="subtle" style="margin:-4px 0 10px;font-size:13px"></div>' +
         '<div class="fm-row"><label>Cross-hire supplier / item notes <span class="fm-optional">(required if stock is short)</span></label>' +
-        '<input type="text" id="saNotes" placeholder="e.g. Coates Eltham — 95mm set x1" value="' + esc(existing && existing.notes ? existing.notes : "") + '" /></div>' +
+        '<input type="text" id="saNotes" placeholder="e.g. Coates Eltham, 95mm set x1" value="' + esc(existing && existing.notes ? existing.notes : "") + '" /></div>' +
         '<button class="fleet-btn primary" id="saGo">Allocate quantity</button>';
-      body.querySelector("#saGo").addEventListener("click", function () {
-        var qty = Number(body.querySelector("#saQty").value) || 1;
-        var notesVal = (body.querySelector("#saNotes").value || "").trim();
-        var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "",
-                        stock_item_id: body.querySelector("#saItem").value,
+
+      var byId = {};
+      items.forEach(function (s) { byId[s.stock_item_id] = s; });
+      var sel = body.querySelector("#saItem"), qtyEl = body.querySelector("#saQty"), hint = body.querySelector("#saHint"), notesEl = body.querySelector("#saNotes");
+      function refreshHint() {
+        var s = byId[sel.value]; if (!s) { hint.textContent = ""; return; }
+        var f = free(s), need = Math.max(1, Number(qtyEl.value) || 1), own = Number(s.total_quantity) || 0;
+        if (!from) { hint.textContent = "This job has no dates yet, so availability cannot be checked. We own " + own + "."; hint.style.color = ""; return; }
+        if (need <= f) {
+          hint.textContent = "✓ " + f + " of " + own + " free for " + window_ + ".";
+          hint.style.color = "var(--success, #20a052)";
+          notesEl.placeholder = "e.g. Bay 3, spare lugs";
+        } else {
+          hint.textContent = "Short " + (need - f) + " for " + window_ + " (" + f + " of " + own + " free). Put the cross-hire supplier in the notes.";
+          hint.style.color = "var(--warning, #e8920c)";
+          notesEl.placeholder = "e.g. Coates Eltham, " + String(s.item_name) + " x" + (need - f);
+        }
+      }
+      sel.addEventListener("change", refreshHint);
+      qtyEl.addEventListener("input", refreshHint);
+      refreshHint();
+
+      var go = body.querySelector("#saGo");
+      go.addEventListener("click", function () {
+        var qty = Number(qtyEl.value) || 0;
+        if (qty < 1) { hint.textContent = "Quantity must be at least 1."; hint.style.color = "var(--danger, #dc2626)"; qtyEl.focus(); return; }
+        var notesVal = (notesEl.value || "").trim();
+        var s = byId[sel.value];
+        if (from && s && qty > free(s) && !notesVal) {
+          hint.textContent = "Short " + (qty - free(s)) + ". Add the cross-hire supplier in the notes first.";
+          hint.style.color = "var(--danger, #dc2626)";
+          notesEl.focus();
+          return;
+        }
+        go.disabled = true; go.textContent = "Allocating…";
+        var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: [booking.jobNumber, booking.customer].filter(Boolean).join(" "),
+                        stock_item_id: sel.value,
                         quantity_required: qty, quantity_allocated: qty, notes: notesVal || null,
                         hire_start: booking.startDate || null, hire_end: booking.endDate || null };
         var p = existing
           ? apiSend("PATCH", "/allocations?id=" + encodeURIComponent(existing.allocation_id), payload)
           : apiSend("POST", "/allocations", payload);
         p.then(function (r2) {
-          if (!r2.body.ok) { alert(r2.body.error || "Allocation failed"); return; }
+          if (!r2.body.ok) { go.disabled = false; go.textContent = "Allocate quantity"; hint.textContent = r2.body.error || "Allocation failed."; hint.style.color = "var(--danger, #dc2626)"; return; }
           var rec = r2.body.allocation;
           if (rec && rec.allocation_status === "cross_hire_required" && !notesVal) {
             var supplier = window.prompt("Not enough Nexus stock for these dates (shortage " + rec.cross_hire_qty + ").\nEnter the cross-hire supplier name + notes:", "");
@@ -1407,8 +1474,11 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           }
           m.close();
           reopenJobsheet(booking);
-        }).catch(function (e2) { alert(e2.message); });
+        }).catch(function (e2) { go.disabled = false; go.textContent = "Allocate quantity"; hint.textContent = e2.message; hint.style.color = "var(--danger, #dc2626)"; });
       });
+    }).catch(function (e) {
+      var body = m.body.querySelector("#stockAllocBody");
+      if (body) body.innerHTML = '<p style="color:var(--danger)">Could not load stock: ' + esc(e.message) + ". Close and try again.</p>";
     });
   }
 
