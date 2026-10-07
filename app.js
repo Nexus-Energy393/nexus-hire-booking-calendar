@@ -663,10 +663,20 @@ function jsSetWho(name) {
 
    The acceptance is keyed to the exact fact (see undersizeKey), so swapping
    the unit or changing what was sold brings the warning straight back. */
+/* Reads are numbered as they start, and an answer is only used if nothing
+   newer is already held: a later read's answer, or a save made on this screen
+   (see setLocalAck). This is no longer only run at start-up and after a save -
+   opening a jobsheet re-reads too - so a slow read can land AFTER the one that
+   followed a save. Unnumbered, it would put back a list from before the save
+   and the notice would go from confirmed back to required on its own. */
+var ACK_READS = 0, ACK_HELD = 0;
 function loadAcknowledgements() {
+  var read = ++ACK_READS;
   return fetch(groupsApiBase() + "/acknowledgements", { headers: { Accept: "application/json" } })
     .then(function (r) { return r.json(); })
     .then(function (d) {
+      if (read <= ACK_HELD) return;
+      ACK_HELD = read;
       var by = {};
       ((d && d.acknowledgements) || []).forEach(function (row) {
         var k = String(row.deal_id);
@@ -724,6 +734,118 @@ function unackWarning(b, key) {
     .then(function (res) { if (!res.ok) throw new Error(res.error || "Could not undo"); return loadAcknowledgements(); })
     .then(function () { jsUpdateStatusUI(b); render(); })
     .catch(function (e) { alert(e.message); });
+}
+
+/* The saved acknowledgement for one key on this job, or null.
+
+   Rows are held exactly as the API sends them: warning_key, acknowledged_by,
+   acknowledged_at. The electrical card used to look for `key`, `by` and `at`.
+   Those are the names computeJobStatus gives a row AFTER it has reshaped it
+   for the hero; nothing that came off the wire has ever carried them. So a
+   confirmation saved, with a name and a time against it, and the card could
+   not find it: the amber notice stayed up on jobs that had been confirmed,
+   however many times Confirm was pressed. */
+function ackRowFor(b, key) {
+  var hit = null;
+  acksFor(b).forEach(function (a) { if (a && String(a.warning_key) === String(key)) hit = a; });
+  return hit;
+}
+
+/* Put one row into STATE.acks, or take it out (row = null), the moment the
+   server says the write went through.
+
+   loadAcknowledgements swallows its own failures. On a phone that got the save
+   through and then lost the re-read, the sheet repainted from the list it had
+   before and looked exactly as if nothing had been saved. */
+function setLocalAck(b, key, row) {
+  ACK_HELD = ACK_READS;   /* every read already on its way was asked before this */
+  var by = STATE.acks = STATE.acks || {};
+  [String(b.pipedriveDealId), String(b.crmDealId)].forEach(function (k) {
+    if (by[k]) by[k] = by[k].filter(function (a) { return String(a.warning_key) !== String(key); });
+  });
+  if (row) {
+    var mine = String(b.pipedriveDealId);
+    (by[mine] = by[mine] || []).push(row);
+  }
+}
+
+/* What to tell somebody when the save did not happen. fetch reports no signal
+   in the browser's own words ("Failed to fetch", "Load failed"), and none of
+   them mean anything to the person holding the phone. */
+function ackFailure(e) {
+  var m = String((e && e.message) || "");
+  if (/failed to fetch|load failed|networkerror/i.test(m)) return "Could not reach the board. Check the connection and try again.";
+  return m || "Try again.";
+}
+
+/* What a confirmation is recorded as. The same words the rows already saved
+   carry, so old and new read as one list. */
+var ELEC_ACK_TEXT = "Electrical connection \u2014 electrician, isolation plan and inspection confirmed";
+
+/* Confirm the electrical notice, or take the confirmation back. One click each
+   way.
+
+   It used to go through ackWarning, the size warnings' path, which asks "Accept
+   this warning and stop it blocking dispatch? ... Why is it acceptable?". That
+   question is right for an undersized generator, where accepting overrides a
+   dispatch check. It was wrong here in every clause: this notice has never
+   blocked dispatch, nothing about it comes back when a unit is swapped, and the
+   button already says Confirm. A second question about the same click is one
+   people learn to click through.
+
+   Still signed. The admin token and a name are required, and the name and the
+   time are what the green notice then shows. Undo sits where Confirm was. */
+function setElectricalConfirmed(b, btn, confirmed) {
+  if (!groupsAuthHeaders()["x-fleet-admin-token"]) {
+    alert("Enter the Fleet admin token (Sync view) to " + (confirmed ? "confirm this." : "change this."));
+    return;
+  }
+  var who = "";
+  if (confirmed) {
+    who = jsWho({ ask: true });
+    if (!who) { alert("Enter your name first - a confirmation has to have somebody against it."); return; }
+  }
+  var dealId = String(b.pipedriveDealId);
+  var key = btn.getAttribute(confirmed ? "data-ack-key" : "data-unack-key");
+  /* Say it is happening, and take the button away while it is: on a slow
+     connection a second tap would be a second save. data-saving keeps
+     jsPaintElecNotice from putting the button back early. */
+  var holder = btn.closest("#jsElecHolder");
+  if (holder) holder.setAttribute("data-saving", "1");
+  function saved() { if (holder) holder.removeAttribute("data-saving"); jsPaintElecNotice(b); }
+  btn.disabled = true;
+  btn.textContent = "Saving\u2026";
+  var sent = confirmed
+    ? fetch(groupsApiBase() + "/acknowledgements", {
+        method: "POST", headers: groupsAuthHeaders(),
+        body: JSON.stringify({ dealId: dealId, key: key, text: ELEC_ACK_TEXT, note: null, by: who })
+      })
+    : fetch(groupsApiBase() + "/acknowledgements?dealId=" + encodeURIComponent(dealId) +
+            "&key=" + encodeURIComponent(key), { method: "DELETE", headers: groupsAuthHeaders() });
+  sent
+    .then(function (r) {
+      /* An error page is not JSON. Say which error, not "Unexpected token <". */
+      return r.json().catch(function () { throw new Error("The board returned an error (HTTP " + r.status + "). Try again."); });
+    })
+    .then(function (res) {
+      if (!res.ok) throw new Error(res.error || "The board did not accept it. Try again.");
+      /* The API answers a save with the row it stored: its clock, not this
+         device's. The stand-in is only for an answer that came back without. */
+      setLocalAck(b, key, confirmed
+        ? (res.acknowledgement || { deal_id: dealId, warning_key: key, warning_text: ELEC_ACK_TEXT, note: null,
+                                    acknowledged_by: who, acknowledged_at: new Date().toISOString() })
+        : null);
+      return loadAcknowledgements();
+    })
+    .then(saved)
+    .catch(function (e) {
+      /* Put the button back first, so the sheet is usable behind the alert,
+         then ask the server what it actually holds: a save whose answer was
+         lost on the way back did happen, and the notice should say so. */
+      saved();
+      loadAcknowledgements().then(function () { jsPaintElecNotice(b); });
+      alert((confirmed ? "The confirmation was not saved.\n\n" : "The confirmation was not removed.\n\n") + ackFailure(e));
+    });
 }
 
 function groupOfBooking(b) {
@@ -2343,6 +2465,22 @@ function jsFmtAckDate(v) {
   if (isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 }
+/* When a confirmation was given, to the minute: "7 Oct, 12:54 pm". In
+   Melbourne time whatever clock the device is on. It is a record of when the
+   business did something, not of where somebody happened to be reading it. */
+function jsFmtAckWhen(v) {
+  var d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  function fmt(zone) {
+    var day = { day: "numeric", month: "short" }, time = { hour: "numeric", minute: "2-digit" };
+    if (zone) { day.timeZone = zone; time.timeZone = zone; }
+    return d.toLocaleDateString("en-AU", day) + ", " + d.toLocaleTimeString("en-AU", time);
+  }
+  /* A browser with no time zone data throws on a named zone, and this runs
+     while the sheet is being built: a throw here is a jobsheet that will not
+     open. The device's own clock is better than that. */
+  try { return fmt("Australia/Melbourne"); } catch (e) { return fmt(null); }
+}
 function jsFmtKva(s) { return s ? String(s).replace(/(\d)\s*kva/ig, "$1 kVA") : s; }
 function jsFmtCable(s) {
   if (!s) return s;
@@ -2419,6 +2557,58 @@ function jsCard(title, cls, bodyHtml) {
    confirmation does not carry over to it. */
 function elecKey(b) {
   return "elec:" + (b.electricalConnectionRequired ? 1 : 0) + ":" + (b.electricalInspectionRequired ? 1 : 0);
+}
+
+/* The notice at the top of the electrical card: required, confirmed, or the
+   plain "not required" line.
+
+   It used to be a notice nothing could ever clear. It rendered the same the
+   day the sparky was booked as the day the deal was won, so the only way to
+   work with it was to stop reading it, which is the worst thing a safety
+   notice can teach. It was then made confirmable, through the same
+   server-side acknowledgements the size warnings use, so it holds across
+   devices with a name and a time against it. The key carries what was
+   confirmed (see elecKey), so adding an inspection requirement to the deal
+   brings the notice back rather than inheriting a tick given for a simpler job.
+
+   And then it still never cleared: see ackRowFor for why the card could not
+   read what it had saved. It is its own function now so it can also be
+   repainted in place. Built once inside renderJobSheet, even a confirmation
+   the card could read would not have shown until the sheet was closed and
+   opened again. */
+function jsElecNotice(b) {
+  if (b.electricalConnectionRequired) {
+    var key = elecKey(b);
+    var ack = ackRowFor(b, key);
+    if (ack) {
+      var by = ack.acknowledged_by ? " by " + ack.acknowledged_by : "";
+      var when = ack.acknowledged_at ? jsFmtAckWhen(ack.acknowledged_at) : "";
+      return jsAlertBox("ok", '<div class="js-elec-row"><div class="js-elec-msg">' +
+        '<strong>Electrical connection confirmed.</strong> Electrician booking, isolation plan and inspection requirements checked' +
+        escapeHtml(by + (when ? (by ? ", " : " ") + when : "")) + '.' +
+        (ack.note ? '<span class="js-elec-note">' + escapeHtml(ack.note) + '</span>' : '') + '</div>' +
+        '<button type="button" class="js-elec-unack" data-unack-key="' + escapeHtml(key) + '" title="Put this notice back">\u21ba Undo</button></div>');
+    }
+    return jsAlertBox("warn", '<div class="js-elec-row"><div class="js-elec-msg">' +
+      '<strong>Electrical connection required.</strong> Confirm electrician booking, isolation plan and inspection requirements before dispatch.</div>' +
+      '<button type="button" class="js-elec-ack" data-ack-key="' + escapeHtml(key) + '">Confirm</button></div>');
+  }
+  if (b.electricalConnectionRequired === false) return '<p class="js-elec-none">Electrical connection not required.</p>';
+  return "";
+}
+
+/* Repaint that notice in an open jobsheet from what is saved now.
+
+   Only into a sheet still showing THIS job: a save that lands after somebody
+   has moved on to the next job must not paint its answer onto that one. And
+   not while a save is on its way: a read landing in that moment would put
+   "Confirm" back under the thumb that had just pressed it, and the save
+   repaints when it is done anyway. */
+function jsPaintElecNotice(b) {
+  var holder = document.getElementById("jsElecHolder");
+  if (!holder || holder.getAttribute("data-deal") !== String(b.pipedriveDealId)) return;
+  if (holder.getAttribute("data-saving")) return;
+  holder.innerHTML = jsElecNotice(b);
 }
 
 function jsAlertBox(kind, inner) { return '<div class="js-alertbox js-alertbox-' + kind + '">' + inner + '</div>'; }
@@ -2679,37 +2869,13 @@ function renderJobSheet(b) {
     jsCrmAllocatedBlock(b) +
     '<div id="jsEquipmentHolder" class="js-picking">' + jsStaticEquipmentTable(b, st) + '</div>');
 
-  /* 4. ELECTRICAL CONNECT / DISCONNECT */
-  var elecBody = '';
-  if (b.electricalConnectionRequired) {
-    /* This used to be a notice nothing could ever clear. It rendered the same
-       the day the sparky was booked as the day the deal was won, so the only
-       way to work with it was to stop reading it — which is the worst thing a
-       safety notice can teach. It is confirmable now, through the same
-       acknowledgements the size warnings use: server-side, so it holds across
-       devices and the office screen, with a name and a time against it.
-
-       The key carries what was confirmed, so adding an inspection requirement
-       to the deal brings the notice back rather than inheriting a tick that
-       was given for a simpler job. */
-    var elecAckKey = elecKey(b);
-    var elecAck = null;
-    acksFor(b).forEach(function (a) { if (String(a.key) === elecAckKey) elecAck = a; });
-    if (elecAck) {
-      var ewhen = [elecAck.by || null, elecAck.at ? jsFmtAckDate(elecAck.at) : null].filter(Boolean).join(", ");
-      elecBody += jsAlertBox("ok",
-        '<strong>Electrical connection confirmed.</strong> Electrician booking, isolation plan and inspection requirements checked' +
-        (ewhen ? ' \u2014 ' + escapeHtml(ewhen) : '') +
-        (elecAck.note ? '<span class="js-elec-note">' + escapeHtml(elecAck.note) + '</span>' : '') +
-        '<button type="button" class="js-elec-unack" data-unack-key="' + escapeHtml(elecAckKey) + '" title="Put this notice back">\u21ba Undo</button>');
-    } else {
-      elecBody += jsAlertBox("warn",
-        '<strong>Electrical connection required.</strong> Confirm electrician booking, isolation plan and inspection requirements before dispatch.' +
-        '<button type="button" class="js-elec-ack" data-ack-key="' + escapeHtml(elecAckKey) + '">Confirm</button>');
-    }
-  } else if (b.electricalConnectionRequired === false) {
-    elecBody += '<p class="js-elec-none">Electrical connection not required.</p>';
-  }
+  /* 4. ELECTRICAL CONNECT / DISCONNECT
+     The notice sits in a holder of its own (see jsElecNotice) so a confirmation
+     can repaint it in place, and so its buttons have something to be delegated
+     from that is rebuilt with the sheet - see jsWire. data-deal says whose
+     sheet this is, for jsPaintElecNotice. */
+  var elecBody = '<div id="jsElecHolder" data-deal="' + escapeHtml(String(dealId)) + '" aria-live="polite">' +
+    jsElecNotice(b) + '</div>';
   elecBody += '<div class="js-grid js-grid-2">' +
     jsField("Connect / disconnect required", jsYesLabel(b.electricalConnectionRequired)) +
     jsField("Electrical inspection required", jsYesLabel(b.electricalInspectionRequired)) +
@@ -2764,6 +2930,11 @@ function renderJobSheet(b) {
   document.title = jsDocumentTitle(b);
   jsWire(m, b);
   jsUpdateStatusUI(b);
+  /* Ask again as the sheet opens. Acknowledgements were only ever read at
+     start-up and after a save made on THIS screen, so a job confirmed in the
+     office still said "required" on a tablet that had been open in the yard
+     since the morning. */
+  if (b.electricalConnectionRequired) loadAcknowledgements().then(function () { jsPaintElecNotice(b); });
   if (window.NexusFleet && CONFIG.apiBase) {
     var holder = document.getElementById("jsEquipmentHolder");
     if (holder) window.NexusFleet.renderResourcing(holder, b);
@@ -3316,22 +3487,28 @@ function jsWire(m, b) {
     if (un) { e.stopPropagation(); unackWarning(b, un.getAttribute("data-unack-key")); return; }
   });
 
-  /* Delegated from the modal, not the buttons: the electrical card is rebuilt
-     whenever the sheet re-renders.
+  /* Delegated from the electrical notice's holder, not the buttons: the notice
+     is repainted in place whenever a confirmation is given or taken back.
 
-     `m` is the #bookingModal DIV itself (app.js:2570), not fleet.js's
-     openModal() object - a div has no .body, so the original `if (m && m.body)`
-     was always false and these buttons were dead from the day they shipped.
-     The test that was supposed to cover this asserted the source TEXT of the
-     listener existed, which it did; it never checked that m.body was a real
-     thing. Bind to the element. */
-  if (m) m.addEventListener("click", function (e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    var ok = t.closest(".js-elec-ack");
-    if (ok) { e.stopPropagation(); ackWarning(b, ok.getAttribute("data-ack-key"), "Electrical connection \u2014 electrician, isolation plan and inspection confirmed"); return; }
-    var no = t.closest(".js-elec-unack");
-    if (no) { e.stopPropagation(); unackWarning(b, no.getAttribute("data-unack-key")); return; }
+     Not from `m`, which is where this was bound twice before. First as
+     `if (m && m.body)`: `m` is the #bookingModal DIV itself, a div has no
+     .body, so the buttons were dead from the day they shipped. Then on the
+     div directly, which made them work and hid a worse fault. That div
+     outlives every jobsheet, and jsWire runs for each one opened, so every
+     sheet opened added another listener to it, each still holding the job it
+     was opened for. Open three jobs, press Confirm on the third, and the
+     question was asked three times, once for each job. Answer them all and
+     the first two were saved as confirmed too: a name and a time against
+     electrical checks on jobs nobody was looking at.
+
+     The holder is rebuilt with the sheet, the same as the hero's above, so
+     there is only ever the one listener and it only ever knows this job. */
+  var elecHolder = document.getElementById("jsElecHolder");
+  if (elecHolder) elecHolder.addEventListener("click", function (e) {
+    var btn = e.target && e.target.closest && e.target.closest(".js-elec-ack, .js-elec-unack");
+    if (!btn || btn.disabled) return;
+    e.stopPropagation();
+    setElectricalConfirmed(b, btn, btn.classList.contains("js-elec-ack"));
   });
 
   jsLoadNotes(b.pipedriveDealId);

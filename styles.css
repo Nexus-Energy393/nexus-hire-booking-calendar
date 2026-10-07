@@ -1948,6 +1948,22 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .js-elec-unack { background: transparent; border: 1px solid currentColor; color: inherit; opacity: .75; }
 .js-elec-unack:hover { opacity: 1; }
 .js-elec-note { display: block; margin-top: 4px; font-style: italic; opacity: .85; }
+/* Thumb-sized on a touchscreen. 23px was a mouse target, on the one button in
+   this card that gets pressed standing in a yard. The same 44px floor
+   tablet.css gives every other button. */
+@media (any-pointer: coarse) {
+  .js-elec-ack, .js-elec-unack { min-height: 44px; padding: 10px 18px; font-size: 14px; touch-action: manipulation; }
+}
+/* The notice and its one action, side by side. The action used to be inline
+   at the end of the sentence, so on a long line it dropped to a row of its own
+   with a 10px indent and nothing to line up with. */
+.js-elec-row { display: flex; align-items: center; gap: 12px; }
+.js-elec-msg { flex: 0 1 auto; min-width: 0; }
+.js-elec-row .js-elec-ack, .js-elec-row .js-elec-unack { flex: 0 0 auto; margin-left: 0; }
+@media (max-width: 640px) {
+  .js-elec-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .js-elec-row .js-elec-unack { align-self: flex-start; }
+}
 .js-alertbox strong { color: #5a3a00; }
 .js-elec-none { margin: 0 0 4px; color: #6b7280; font-style: italic; }
 .js-elec-sentence { margin: 9px 0 2px; font-size: 13px; color: #1f2733; }
@@ -1985,7 +2001,7 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 
 @media print {
   @page { size: A4 portrait; margin: 12mm 12mm 14mm; }
-  .js-toolbar, .modal-close, .js-btn { display: none !important; }
+  .js-toolbar, .modal-close, .js-btn, .js-elec-ack, .js-elec-unack { display: none !important; }
   .side-rail, .app-header, .toolbar, .app-footer, .conflict-banner, .calendar-root, .app-search, .app-shell > *:not(#modalBackdrop) { display: none !important; }
   .modal-backdrop { position: static !important; background: none !important; display: block !important; }
   .modal.jobsheet-modal { position: static !important; box-shadow: none !important; border: none !important;
@@ -2001,7 +2017,8 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 /* hide all interactive controls while exporting to PDF (clean document) */
 .js-exporting .js-toolbar, .js-exporting .fleet-btn, .js-exporting .js-staff-add-btn,
 .js-exporting .js-staff-del, .js-exporting .js-staff-del-cell, .js-exporting .js-alloc-form,
-.js-exporting .modal-close, .js-exporting .rs-head .fleet-btn { display: none !important; }
+.js-exporting .modal-close, .js-exporting .rs-head .fleet-btn,
+.js-exporting .js-elec-ack, .js-exporting .js-elec-unack { display: none !important; }
 
 /* jobsheet engine-hours/fuel: single save button below both rows (clear it saves both) */
 .rs-save-row { display: flex; align-items: center; justify-content: flex-end; gap: 12px;
@@ -3090,6 +3107,10 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
 .js-alertbox-crit, .rs-alert.crit { background: var(--danger-bg) !important; border-color: color-mix(in srgb, var(--danger) 50%, transparent) !important; color: var(--text) !important; }
 .js-alertbox-ok { background: var(--success-bg) !important; border-color: color-mix(in srgb, var(--confirmed) 50%, transparent) !important; border-left-color: var(--confirmed) !important; color: var(--text) !important; }
 .js-alertbox-ok strong { color: var(--text) !important; }
+/* The headline of an amber or red box kept its light-theme brown (#5a3a00) in
+   dark, on a dark ground: the two words that matter most were the two nobody
+   could read. Light is left exactly as it was. */
+html.dark .js-alertbox-warn strong, html.dark .js-alertbox-crit strong { color: var(--text) !important; }
 .rs-alert.warn { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 50%, transparent) !important; color: var(--text) !important; }
 .js-sitewarn { background: var(--warning-bg) !important; border-color: color-mix(in srgb, var(--warning) 45%, transparent) !important; }
 .js-sitewarn-title, .js-sitewarn-item { color: var(--text) !important; }
