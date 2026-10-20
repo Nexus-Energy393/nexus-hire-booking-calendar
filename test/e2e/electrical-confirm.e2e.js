@@ -564,31 +564,47 @@ const alerts = (s) => s.dialogs.filter((d) => d.type === "alert");
     const undersized = { allocation_id: "al-1", pipedrive_deal_id: E.pipedriveDealId, asset_id: "as-602",
       allocation_status: "allocated", dispatch_status: "", generator_size_kva: 60, quantity_required: 1, quantity_allocated: 1,
       asset: { fleet_number: "602", asset_name: "60 kVA Diesel Generator - Trailer Mounted", generator_size_kva: 60 } };
+    const SIZE_KEY = "undersize:al-1:60v100";
+    const SIZE_TEXT = "Allocated #602 60 kVA is smaller than the 100 kVA sold";
+
     reset({ allocations: [undersized] });
     s = await screen(browser);
-    s.answer = (d) => (d.type === "prompt" ? "deal line is out of date" : undefined);
     await openSheet(s, E);
-    await s.page.waitForSelector("#jsHeroHolder .jh-ack", { timeout: 6000 });
-    await step("accepting an undersized generator still asks why, in the same words", async () => {
-      await s.page.click("#jsHeroHolder .jh-ack");
-      await s.page.waitForSelector("#jsHeroHolder .jh-unack", { timeout: 6000 });
-      assert.equal(prompts(s).length, 1);
-      assert.match(prompts(s)[0].message, /Accept this warning and stop it blocking dispatch\?/);
-      assert.match(prompts(s)[0].message, /Why is it acceptable\?/);
-      assert.equal(writes("POST")[0].body.note, "deal line is out of date");
-      assert.equal(writes("POST")[0].body.key, "undersize:al-1:60v100");
+    await step("a smaller unit is a substitution now, so there is no X on it", async () => {
+      const hero = await s.page.evaluate(() => document.getElementById("jsHeroHolder").textContent.replace(/\s+/g, " "));
+      assert.match(hero, /Substitution/);
+      assert.match(hero, /60 kVA is smaller than the 100 kVA sold/);
+      assert.equal(await s.page.$("#jsHeroHolder .jh-ack"), null, "a non-blocking note does not get an accept button");
     });
-    await step("confirming the electrical notice on that job leaves the acceptance alone", async () => {
+    await done(s);
+
+    /* The point of this section: the two stores share one table, keyed. An
+       acceptance signed back when an undersize blocked dispatch is still a
+       record of a decision, and confirming the electrical notice on the same
+       job must not touch it. */
+    reset({ allocations: [undersized], acks: [row(E.pipedriveDealId, SIZE_KEY, { warning_text: SIZE_TEXT })] });
+    s = await screen(browser);
+    await openSheet(s, E);
+    await step("a size decision signed earlier still shows, with the name on it", async () => {
+      await s.page.waitForSelector("#jsHeroHolder .jh-unack", { timeout: 6000 });
+      const hero = await s.page.evaluate(() => document.getElementById("jsHeroHolder").textContent.replace(/\s+/g, " "));
+      assert.match(hero, /Accepted/);
+      assert.match(hero, /Justin Mace/);
+    });
+    await step("confirming the electrical notice on that job leaves it alone", async () => {
       await s.page.click(CONFIRM);
       await becomes(s, "confirmed");
-      assert.deepEqual(acks.map((r) => r.warning_key).sort(), ["elec:1:0", "undersize:al-1:60v100"]);
+      assert.deepEqual(acks.map((r) => r.warning_key).sort(), ["elec:1:0", SIZE_KEY]);
       assert.ok(await s.page.$("#jsHeroHolder .jh-unack"));
     });
-    await step("and putting the size warning back leaves the confirmation alone", async () => {
+    await step("and putting it back leaves the confirmation alone", async () => {
       await s.page.click("#jsHeroHolder .jh-unack");
-      await s.page.waitForSelector("#jsHeroHolder .jh-ack", { timeout: 6000 });
+      await s.page.waitForTimeout(800);
       assert.deepEqual(acks.map((r) => r.warning_key), ["elec:1:0"]);
       assert.equal((await notice(s)).state, "confirmed");
+      const hero = await s.page.evaluate(() => document.getElementById("jsHeroHolder").textContent.replace(/\s+/g, " "));
+      assert.match(hero, /Substitution/, "it comes back as a substitution, not a blocker");
+      assert.equal(await s.page.$("#jsHeroHolder .jh-ack"), null);
     });
     await done(s);
 
