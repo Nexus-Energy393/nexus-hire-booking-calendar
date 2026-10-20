@@ -112,26 +112,46 @@ test("a released allocation cannot raise an undersize blocker either", () => {
   assert.equal(R.undersizeWarnings(b, [GEN()]).length, 1);
 });
 
-// -------------------------------------------------------- the undersize trap
-test("a unit smaller than the one sold is a blocker, not a footnote", () => {
+// ------------------------------------------------ a size that is not the sale
+// 21 Oct 2026: "allow any generator to be selected, ie: hire job calls for
+// 100kVA but a 60kVA is allocated. This is a normal operational activity."
+// So a different size is reported and never refused. The board does not know
+// what the site needs; the person standing at the truck does.
+test("a smaller unit is a substitution, not a blocker", () => {
   const b = BOOKING({ generatorLines: ["100kVA Generator Hire - 12hr - Daily Rate"] });
-  const m = missing(b, [GEN()], [HOURS()]);
-  assert.equal(m.length, 1);
-  assert.equal(m[0], "Allocated #602 60 kVA is smaller than the 100 kVA sold");
-  assert.equal(R.computeJobStatus(b, [GEN()], [HOURS()]).dispatchReady, false);
+  const st = R.computeJobStatus(b, [GEN()], [HOURS()]);
+  assert.deepEqual(st.missing, [], "nothing outstanding: the 60 is what is going");
+  assert.equal(st.dispatchReady, true);
+  assert.equal(st.substitutions.length, 1);
+  assert.equal(st.substitutions[0].text, "Allocated #602 60 kVA is smaller than the 100 kVA sold");
 });
 
-test("a bigger unit is fine — over-delivering is not a fault", () => {
+test("a bigger unit is the same kind of fact", () => {
   const b = BOOKING({ generatorSize: "60kVA" });
-  assert.deepEqual(missing(b, [GEN({ generator_size_kva: 100 })], [HOURS()]), []);
+  const st = R.computeJobStatus(b, [GEN({ generator_size_kva: 100 })], [HOURS()]);
+  assert.deepEqual(st.missing, []);
+  assert.equal(st.substitutions.length, 1);
+  assert.match(st.substitutions[0].text, /100 kVA allocated against a 60 kVA sale/);
 });
 
-test("an exact match is fine", () => {
+test("an exact match says nothing at all", () => {
   const b = BOOKING({ generatorSize: "60kVA" });
-  assert.deepEqual(missing(b, [GEN()], [HOURS()]), []);
+  const st = R.computeJobStatus(b, [GEN()], [HOURS()]);
+  assert.deepEqual(st.missing, []);
+  assert.deepEqual(st.substitutions, []);
 });
 
-test("no sold size means no undersize claim — we do not invent a standard", () => {
+test("the sheet still names the unit, the size and the sale", () => {
+  // Dropping the blocker must not drop the sentence. This line is what the
+  // driver reads on paper.
+  const b = BOOKING({ generatorLines: ["100kVA Generator Hire - 12hr - Daily Rate"] });
+  const st = R.computeJobStatus(b, [GEN()], [HOURS()]);
+  assert.match(st.substitutions[0].text, /#602/);
+  assert.match(st.substitutions[0].text, /60 kVA/);
+  assert.match(st.substitutions[0].text, /100 kVA sold/);
+});
+
+test("no sold size means no claim — we do not invent a standard", () => {
   assert.deepEqual(R.undersizeWarnings(BOOKING(), [GEN()]), []);
 });
 
@@ -151,26 +171,31 @@ test("with nothing sold recorded, the row names the unit allocated", () => {
   assert.equal(reqs[0].label, "Generator 60 kVA");
 });
 
-test("marking a job ready does not clear an undersize unit", () => {
+test("marking a job ready keeps saying which unit is going", () => {
   const b = BOOKING({ generatorLines: ["100kVA Generator Hire - 12hr - Daily Rate"] });
   const st = R.computeJobStatus(b, [GEN({ dispatch_status: "ready" })], [HOURS()]);
-  assert.equal(st.key, "ready", "the job is still marked ready");
-  assert.equal(st.missing.length, 1, "and the mismatch is still reported");
-  assert.equal(st.dispatchReady, false);
+  assert.equal(st.key, "ready");
+  assert.equal(st.substitutions.length, 1, "the sheet must not go quiet about the swap");
 });
 
-// ------------------------------------------------ accepting a judgement call
+// --------------------------------------------- the record of a size decision
 const SOLD100 = () => BOOKING({ generatorLines: ["100kVA Generator Hire - 12hr - Daily Rate"] });
 const keyFor = (b, a) => R.undersizeWarnings(b, [a])[0].key;
 
-test("an accepted undersize stops blocking dispatch", () => {
-  const b = SOLD100(), g = GEN();
-  const st = R.computeJobStatus(b, [g], [HOURS()], [keyFor(b, g)]);
-  assert.deepEqual(st.missing, []);
-  assert.equal(st.dispatchReady, true);
+test("nothing on the outstanding list can be clicked away any more", () => {
+  const b = SOLD100();
+  const st = R.computeJobStatus(b, [GEN({ dispatch_status: "" })], [HOURS({ hours_out: null, notes: "" })]);
+  assert.deepEqual(st.acknowledgeable, [], "an X on a non-blocking note is theatre");
+  // The real gaps are still reported, and they are all facts.
+  assert.ok(st.missing.some((m) => /not yet picked/.test(m)));
+  assert.ok(st.missing.some((m) => /Engine hours out/.test(m)));
+  assert.ok(st.missing.some((m) => /Fuel level/.test(m)));
+  assert.ok(!st.missing.some((m) => /is smaller than/.test(m)), "a substitution is not an outstanding item");
 });
 
-test("accepting does not erase it — it moves, with whoever accepted it", () => {
+test("a size decision somebody signed for keeps their name", () => {
+  // These were accepted back when an undersize blocked. The record outlives
+  // the rule it was made under.
   const b = SOLD100(), g = GEN();
   const st = R.computeJobStatus(b, [g], [HOURS()], [
     { warning_key: keyFor(b, g), acknowledged_by: "Justin", acknowledged_at: "2026-09-10T00:00:00Z", note: "deal line out of date" },
@@ -181,72 +206,46 @@ test("accepting does not erase it — it moves, with whoever accepted it", () =>
   assert.match(st.accepted[0].text, /60 kVA is smaller than the 100 kVA sold/);
 });
 
-// The whole safety of a dismissible safety warning lives in these three.
-test("swapping to a DIFFERENT undersized unit brings the warning back", () => {
+// The key still names the exact fact, so an old signature cannot cover a new
+// machine. It no longer gates anything, but it must not mislabel history.
+test("swapping to a DIFFERENT unit is a different fact", () => {
   const b = SOLD100(), g = GEN();
   const accepted = [keyFor(b, g)];
   const swapped = GEN({ allocation_id: "a2", fleet_number: "607", generator_size_kva: 20, asset_name: "20 kVA Diesel Generator" });
   const st = R.computeJobStatus(b, [swapped], [HOURS()], accepted);
-  assert.equal(st.missing.length, 1);
-  assert.equal(st.dispatchReady, false);
+  assert.deepEqual(st.accepted, [], "Justin signed for #602, not #607");
+  assert.equal(st.substitutions.length, 1);
 });
 
-test("the same unit downgraded brings the warning back", () => {
+test("the same unit downgraded is a different fact", () => {
   const b = SOLD100(), g = GEN();
-  const accepted = [keyFor(b, g)];
-  const st = R.computeJobStatus(b, [GEN({ generator_size_kva: 20, asset_name: "20 kVA Diesel Generator" })], [HOURS()], accepted);
-  assert.equal(st.missing.length, 1, "a 20 kVA is not what was accepted");
+  const st = R.computeJobStatus(b, [GEN({ generator_size_kva: 20, asset_name: "20 kVA Diesel Generator" })], [HOURS()], [keyFor(b, g)]);
+  assert.deepEqual(st.accepted, []);
+  assert.match(st.substitutions[0].text, /20 kVA is smaller than the 100 kVA sold/);
 });
 
-test("reselling the job at a bigger size brings the warning back", () => {
+test("reselling the job at a bigger size is a different fact", () => {
   const b = SOLD100(), g = GEN();
-  const accepted = [keyFor(b, g)];
   const resold = BOOKING({ generatorLines: ["150kVA Generator Hire"] });
-  const st = R.computeJobStatus(resold, [g], [HOURS()], accepted);
-  assert.equal(st.missing.length, 1, "accepting 60-against-100 is not accepting 60-against-150");
-});
-
-test("an acceptance for one job does not travel to another", () => {
-  const b = SOLD100();
-  const other = GEN({ allocation_id: "different-job-alloc" });
-  const st = R.computeJobStatus(b, [other], [HOURS()], [keyFor(b, GEN())]);
-  assert.equal(st.missing.length, 1);
-});
-
-test("facts cannot be clicked away — only the judgement call carries a key", () => {
-  const b = SOLD100();
-  const st = R.computeJobStatus(b, [GEN({ dispatch_status: "" })], [HOURS({ hours_out: null, notes: "" })]);
-  const ackableText = (st.acknowledgeable || []).map((w) => w.text);
-
-  // Three real gaps are reported, and none of them is dismissible.
-  assert.ok(st.missing.some((m) => /not yet picked/.test(m)));
-  assert.ok(st.missing.some((m) => /Engine hours out/.test(m)));
-  assert.ok(st.missing.some((m) => /Fuel level/.test(m)));
-  for (const m of st.missing) {
-    if (/is smaller than/.test(m)) continue;
-    assert.ok(!ackableText.includes(m), "should not be dismissible: " + m);
-  }
-
-  // The undersize is, and accepting it leaves the other three standing.
-  assert.equal(ackableText.length, 1);
-  assert.match(ackableText[0], /is smaller than/);
-  const after = R.computeJobStatus(b, [GEN({ dispatch_status: "" })], [HOURS({ hours_out: null, notes: "" })], [st.acknowledgeable[0].key]);
-  assert.equal(after.missing.length, 3);
-  assert.equal(after.dispatchReady, false);
+  const st = R.computeJobStatus(resold, [g], [HOURS()], [keyFor(b, g)]);
+  assert.deepEqual(st.accepted, []);
+  assert.match(st.substitutions[0].text, /60 kVA is smaller than the 150 kVA sold/);
 });
 
 test("acceptances are read from a Set, a key list or full rows alike", () => {
   const b = SOLD100(), g = GEN(), k = keyFor(b, g);
   for (const acks of [new Set([k]), [k], [{ warning_key: k }]]) {
-    assert.deepEqual(R.computeJobStatus(b, [g], [HOURS()], acks).missing, [], String(acks));
+    assert.equal(R.computeJobStatus(b, [g], [HOURS()], acks).accepted.length, 1, String(acks));
   }
 });
 
-test("no acceptances at all behaves exactly as before", () => {
+test("no acceptances at all is the ordinary case", () => {
   const b = SOLD100(), g = GEN();
-  assert.equal(R.computeJobStatus(b, [g], [HOURS()]).missing.length, 1);
-  assert.equal(R.computeJobStatus(b, [g], [HOURS()], null).missing.length, 1);
-  assert.equal(R.computeJobStatus(b, [g], [HOURS()], []).missing.length, 1);
+  for (const acks of [undefined, null, []]) {
+    const st = R.computeJobStatus(b, [g], [HOURS()], acks);
+    assert.deepEqual(st.missing, []);
+    assert.equal(st.substitutions.length, 1);
+  }
 });
 
 // ------------------------------------------- the half that is not pure logic
@@ -264,6 +263,131 @@ test("the hero is redrawn when the status changes", () => {
 
 test("the hero has a holder to be redrawn into", () => {
   assert.match(appJs, /id="jsHeroHolder"/);
+});
+
+// ------------- the allocated-size FIELD, and the sheet that outlives it ----
+// 21 Oct 2026, United Stud Park. The sheet was opened while #602 sat released,
+// so the field was born reading the size SOLD: "Generator size allocated
+// 100 kVA". #602 was then allocated from that same sheet. The hero, the chips
+// and the picking list all repainted and said 60; this field, and the PDF
+// built from it, still said 100. Two answers to one question on one page.
+const LIFT = (name) => {
+  const m = new RegExp("function " + name + "\\([\\s\\S]*?\\n\\}").exec(appJs);
+  assert.ok(m, name + " not found in app.js");
+  return m[0];
+};
+const SHEET = new Function(
+  LIFT("escapeHtml") + "\n" +
+  "function jsVal(v) { return (v == null || v === \"\") ? null : v; }\n" +
+  LIFT("jsField") + "\n" + LIFT("jsGenAllocField") + "\n" +
+  "return { jsField: jsField, jsGenAllocField: jsGenAllocField };")();
+
+test("the field carries a handle, so something can repaint it", () => {
+  const html = SHEET.jsGenAllocField({ generatorSize: "60 kVA", undersize: [] });
+  assert.match(html, /id="jsGenAllocField"/);
+  assert.match(html, />60 kVA</);
+});
+
+test("the size on the field is the size on the truck", () => {
+  const st = R.computeJobStatus(BOOKING({ generatorSize: "100kVA" }), [GEN()], [HOURS()]);
+  assert.equal(st.generatorSize, "60 kVA");
+  assert.match(SHEET.jsGenAllocField(st), />60 kVA</);
+  // And it reads red, because on paper this line is the only place the driver
+  // sees it - the hero is hidden in print.
+  assert.match(SHEET.jsGenAllocField(st), /class="v sub"/);
+});
+
+test("a size that matches the sale is not dressed up as a fault", () => {
+  const st = R.computeJobStatus(BOOKING({ generatorSize: "60kVA" }), [GEN()], [HOURS()]);
+  assert.equal(st.generatorSize, "60 kVA");
+  assert.match(SHEET.jsGenAllocField(st), /class="v"/);
+});
+
+test("nothing allocated anywhere still renders the row", () => {
+  const html = SHEET.jsGenAllocField({ generatorSize: null, undersize: [] });
+  assert.match(html, /Generator size allocated/);
+  // An em dash, not MISSING: nobody has allocated yet, which is not a fault.
+  assert.ok(html.indexOf(String.fromCharCode(0x2014)) > -1, "no em dash placeholder");
+  assert.ok(!/MISSING/.test(html));
+});
+
+test("the allocated-size field is repainted with the rest of the status", () => {
+  const fn = /function jsUpdateStatusUI\(b\)\s*\{[\s\S]*?\n\}/.exec(appJs);
+  assert.ok(fn);
+  assert.match(fn[0], /getElementById\("jsGenAllocField"\)/,
+    "the field goes stale again the moment an allocation changes");
+  assert.match(fn[0], /jsGenAllocField\(st\)/);
+});
+
+test("the sheet and the repaint build that field the same way", () => {
+  // Two copies of the markup is how the two drift apart again.
+  assert.equal((appJs.match(/jsField\("Generator size allocated"/g) || []).length, 1);
+  assert.match(appJs, /jsGenAllocField\(st\) \+/);
+});
+
+test("a dispatch with items outstanding is not refused, and not queried", () => {
+  // "remove the hard stop if info is incomplete". The yard knows things this
+  // board does not. And it cannot ASK either: window.confirm is silently
+  // blocked in the CRM iframe (events.js builds its own confirm bar because
+  // of it), so a dialog here would answer no by itself and the button would
+  // look dead - the very hard stop this removes, only harder to diagnose.
+  const fn = /readyBtn\.addEventListener\("click"[\s\S]*?\n  \}\);/.exec(appJs);
+  assert.ok(fn);
+  assert.ok(!/Cannot mark ready/.test(fn[0]), "the hard stop is back");
+  assert.ok(!/window\.confirm/.test(fn[0]), "a confirm in the iframe is a silent no");
+  assert.match(fn[0], /setDispatchReady/);
+});
+
+test("the button does not call itself blocked", () => {
+  const fn = /function jsSetReadyState\(btn, st\)\s*\{[\s\S]*?\n\}/.exec(appJs);
+  assert.ok(fn);
+  assert.ok(!/"Blocked/.test(fn[0]));
+  assert.match(fn[0], /you can still mark it ready/);
+});
+
+test("a size difference is amber on the sheet, not red", () => {
+  // It is a thing to read, not a fault.
+  assert.match(appJs, /\(st\.substitutions \|\| st\.undersize \|\| \[\]\)\.length \? "warn"/);
+  const css = readFileSync(path.join(ROOT, "styles.css"), "utf8");
+  assert.match(css, /\.jobsheet \.js-field \.v\.sub \{ color: var\(--warning\)/);
+});
+
+test("an overdue machine can still be marked ready from inside the CRM", () => {
+  // window.prompt is blocked in the iframe too, and a null answer read as
+  // "cancelled" - so from the CRM an overdue unit could never be marked ready
+  // and nothing on screen said why. Framed, the decision is recorded instead.
+  const fleetJs = readFileSync(path.join(ROOT, "fleet.js"), "utf8");
+  const fn = /function setDispatchReady\(booking, makeReady, done\)[\s\S]*?\n  \}/.exec(fleetJs);
+  assert.ok(fn);
+  assert.match(fn[0], /window\.top === window\.self/);
+  assert.match(fn[0], /Marked ready with service overdue/);
+  // A person who CAN be asked and says no is still a no.
+  assert.match(fn[0], /if \(!note \|\| !note\.trim\(\)\) return;/);
+});
+
+test("a job going out on a cross-hire can be marked ready", () => {
+  // The flag lives on the generator's allocation row, and this looked only
+  // for an asset_id - so a job whose unit comes from a supplier had no row to
+  // carry it and the button answered "Allocate a generator first" for ever.
+  const fleetJs = readFileSync(path.join(ROOT, "fleet.js"), "utf8");
+  const fn = /function setDispatchReady\(booking, makeReady, done\)[\s\S]*?\n  \}/.exec(fleetJs);
+  assert.ok(fn);
+  assert.match(fn[0], /allocation_status === "cross_hire_required"/);
+  assert.ok(!/Allocate a generator first/.test(fn[0]));
+});
+
+test("picking another size does not stop to ask", () => {
+  const fleetJs = readFileSync(path.join(ROOT, "fleet.js"), "utf8");
+  const fn = /var subKva = b\.getAttribute\("data-sub-kva"\);[\s\S]{0,600}?\n          \}/.exec(fleetJs);
+  assert.ok(fn);
+  assert.ok(!/window\.confirm/.test(fn[0]), "allocating another size is ordinary work");
+  assert.match(fn[0], /Size substitution: /, "but it is still recorded against the allocation");
+});
+
+test("the substituted size has a colour of its own", () => {
+  const css = readFileSync(path.join(ROOT, "styles.css"), "utf8");
+  assert.match(css, /\.js-field \.v\.sub \{/);
+  assert.match(css, /\.jobsheet \.js-field \.v\.sub \{/, "the printed sheet uses the jobsheet scope");
 });
 
 test("the tile asks the status for the size, not the raw booking field", () => {

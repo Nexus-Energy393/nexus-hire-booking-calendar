@@ -2269,6 +2269,11 @@ function jsUpdateStatusUI(b) {
     if (st.missing.length) { warn.hidden = false; warn.innerHTML = jsWarningInner(st); }
     else { warn.hidden = true; warn.innerHTML = ""; }
   }
+  /* The allocated-size field is not part of the hero, and the hero was the
+     only thing being repainted, so this line kept the size it was born with.
+     See jsGenAllocField. */
+  var genField = document.getElementById("jsGenAllocField");
+  if (genField) genField.outerHTML = jsGenAllocField(st);
   var ready = document.getElementById("jsReadyBtn");
   if (ready) jsSetReadyState(ready, st);
   return st;
@@ -2289,13 +2294,15 @@ function jsSetReadyState(btn, st) {
     btn.classList.remove("on");
     btn.title = "Equipment allocated + picked, hours and fuel recorded — mark ready";
   } else {
-    btn.disabled = false; /* clickable so it can EXPLAIN what's missing */
+    /* Amber, not barred. It says what is still open and marks the job ready
+       anyway if that is what the person wants. */
+    btn.disabled = false;
     btn.textContent = "Mark ready for dispatch";
     btn.classList.remove("on");
     btn.classList.add("blocked");
-    btn.title = "Blocked — " + (st.missing.join("; ") || "equipment requirements incomplete");
+    btn.title = (st.missing.join("; ") || "equipment requirements incomplete") + " \u2014 you can still mark it ready";
   }
-  if (st.key === "conflict") btn.title = "Blocked — resolve the generator conflict (choose another fleet # or cross-hire) first";
+  if (st.key === "conflict") btn.title = "The allocated generator clashes with another booking \u2014 change the fleet # or cross-hire; you can still mark it ready";
 }
 
 function jsYesNo(v) { return v ? "Yes" : "No"; }
@@ -2308,9 +2315,29 @@ function jsField(label, value, opts) {
   var has = jsVal(value) != null;
   if (!has && !opts.required) return "";
   var cls = "js-field" + (opts.full ? " full" : "");
-  var v = has ? '<span class="v">' + escapeHtml(String(value)) + "</span>"
+  /* opts.id: a field repainted after the sheet is built needs a handle to be
+     repainted by. opts.vcls: the value carries its own state, so the size
+     going out reads amber when it is not the size that was sold. */
+  var vcls = "v" + (opts.vcls ? " " + opts.vcls : "");
+  var v = has ? '<span class="' + vcls + '">' + escapeHtml(String(value)) + "</span>"
               : '<span class="v missing">MISSING</span>';
-  return '<div class="' + cls + '"><span class="k">' + escapeHtml(label) + "</span>" + v + "</div>";
+  return '<div class="' + cls + '"' + (opts.id ? ' id="' + escapeHtml(opts.id) + '"' : "") +
+    '><span class="k">' + escapeHtml(label) + "</span>" + v + "</div>";
+}
+
+/* The size actually going on the truck, as a field.
+
+   Built in two places on purpose: once when the sheet is drawn, and again by
+   jsUpdateStatusUI every time the allocation changes. Allocating #602 against
+   a 100 kVA sale repainted the hero, the chips and the picking list and left
+   this field reading the size SOLD, so the sheet showed "Generator size
+   allocated 100 kVA" one line above a blocker reading "Allocated #602 60 kVA
+   is smaller than the 100 kVA sold", and the printed copy carried the wrong
+   one of the two. */
+function jsGenAllocField(st) {
+  var sub = ((st && (st.substitutions || st.undersize)) || []).length > 0;
+  return jsField("Generator size allocated", (st && st.generatorSize) ? st.generatorSize : "\u2014",
+    { id: "jsGenAllocField", vcls: sub ? "sub" : "" });
 }
 
 /* ---------- electrical-install helpers ---------- */
@@ -2690,11 +2717,11 @@ function jsHero(b, st) {
   var need = function (v) { return v === true ? "Required" : (v === false ? "Not needed" : "—"); };
   /* The size on the truck, not the size on the field that nobody filled in.
      st.generatorSize resolves the allocated unit first (see resourcing-status
-     .js) so an allocated #602 stops reading "Size TBC" in red. It goes amber
-     only when nothing anywhere knows the size, and hot when the allocated unit
-     is smaller than the one we sold. */
+     .js) so an allocated #602 stops reading "Size TBC" in red. Amber when the
+     unit going is not the size sold, and amber when nothing anywhere knows
+     the size. */
   var genSize = st.generatorSize || jsFmtKva(b.generatorSize) || "";
-  var genTone = genSize ? (st.undersize && st.undersize.length ? "hot" : "") : "warn";
+  var genTone = genSize ? ((st.substitutions || st.undersize || []).length ? "warn" : "") : "warn";
   var tiles =
     tile("gen", "Generator", genSize || "Size TBC", genTone) +
     tile("clock", "Duration", jsFmtDuration(b.durationDays) || "TBC") +
@@ -2706,9 +2733,10 @@ function jsHero(b, st) {
     return '<span class="jh-alert ' + al.cls + '">' + al.icon + " " + escapeHtml(al.text) + "</span>";
   }).join("");
 
-  /* Chips. A judgement call (an undersize unit against a deal line nobody
-     updated) carries an X so somebody who knows can accept it. Everything else
-     is a fact, and facts do not get an X. */
+  /* Chips. These are the things still outstanding on the job. None of them
+     stops anybody marking it ready: the button asks, it does not refuse. An
+     item only carries an X if the status says it is a judgement call, and
+     since a size difference stopped being one, nothing does. */
   var ackable = {};
   (st.acknowledgeable || []).forEach(function (w) { ackable[w.text] = w.key; });
   var missing = st.missing.length
@@ -2724,11 +2752,14 @@ function jsHero(b, st) {
   /* Accepted ones are not deleted. They sit quietly with a name against them,
      and one click puts them back. A warning somebody waved away without trace
      is how the next person repeats the mistake. */
-  /* A size-up substitution. Stated plainly, never as a fault — it is what the
-     yard does when the exact size is out, and blocking it would be wrong. */
-  var oversizeRow = (st.oversize || []).length
+  /* A substitution, either way. Stated plainly, never as a fault: sending a
+     different size is what the yard does when the exact unit is out, or when
+     the job needs less than the deal line says. The sheet says which unit is
+     going; it does not argue about it. */
+  var subs = (st.substitutions || st.oversize || []);
+  var oversizeRow = subs.length
     ? '<div class="jh-accepted jh-note"><span class="jh-accepted-k">Substitution</span>' +
-      st.oversize.map(function (w) { return '<span class="jh-accepted-i">' + escapeHtml(w.text) + '</span>'; }).join("") + '</div>'
+      subs.map(function (w) { return '<span class="jh-accepted-i">' + escapeHtml(w.text) + '</span>'; }).join("") + '</div>'
     : "";
 
   var acceptedRow = (st.accepted || []).length
@@ -2861,7 +2892,7 @@ function renderJobSheet(b) {
          screen, and the hero is hidden in print and in the PDF - so the paper
          the driver was handed showed only the size SOLD. Allocate a 60 against
          a 100 kVA sale and the screen said 60 while the printout said 100. */
-      jsField("Generator size allocated", (st && st.generatorSize) ? st.generatorSize : "\u2014") +
+      jsGenAllocField(st) +
       jsField("Cable set required", jsFmtCable(b.cableSet)) +
       jsField("Additional equipment required", b.additionalEquipment, {full:true}) +
       jsField("Safety items required", b.safetyItems, {full:true}) +
@@ -3549,11 +3580,19 @@ function jsWire(m, b) {
   if (readyBtn) readyBtn.addEventListener("click", function () {
     var st = jsComputeStatus(b);
     var dbMode = readyBtn.getAttribute("data-mode") === "db" && window.NexusFleet && window.NexusFleet.setDispatchReady;
-    if (st.key === "conflict") { alert("Cannot mark ready: the allocated generator conflicts with another booking. Choose another fleet # or record a cross-hire."); return; }
-    if (!st.dispatchReady && st.key !== "ready") {
-      alert("Cannot mark ready for dispatch yet. Outstanding:\n• " + (st.missing.length ? st.missing.join("\n• ") : "items must be allocated + picked, with engine hours out and fuel level recorded"));
-      return;
-    }
+    /* Nothing here refuses, and nothing here asks.
+
+       The yard is standing at the truck and knows things this board does not:
+       a 60 on a 100 kVA sale because that is what the site needs, hours the
+       driver will read on the way out, a phone number the customer has not
+       given us. Refusing only moved the job somewhere this sheet never sees.
+
+       It does not ask either, and that is not laziness: window.confirm is
+       silently blocked inside the CRM iframe (see the in-page confirm in
+       events.js), so a dialog here would answer "no" on its own and the
+       button would appear dead. What is outstanding stays where it can be
+       read - the chips on the hero, and the badge, which says "Marked ready,
+       2 items outstanding" for as long as they are. */
     if (dbMode) {
       window.NexusFleet.setDispatchReady(b, st.key !== "ready", function () { jsUpdateStatusUI(b); });
     } else {

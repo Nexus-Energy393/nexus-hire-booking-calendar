@@ -1307,11 +1307,12 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           return;
         }
         if (b) {
-          // Different-size allocation: confirm and record the substitution so
-          // the jobsheet trail shows what was actually sent vs requested.
+          // Different-size allocation: nothing to confirm, because sending
+          // another size is ordinary yard work. The substitution is RECORDED
+          // against the allocation instead, so the jobsheet trail still shows
+          // what actually went against what was sold.
           var subKva = b.getAttribute("data-sub-kva");
           if (subKva) {
-            if (!window.confirm("Allocate a " + subKva + " kVA unit against a " + (booking.generatorSize || "?") + " request?")) return;
             doAllocate(booking, b.getAttribute("data-alloc"), "Size substitution: " + subKva + " kVA allocated (requested " + (booking.generatorSize || "unspecified") + ")", m, false, replaceId);
             return;
           }
@@ -1501,15 +1502,33 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
   function setDispatchReady(booking, makeReady, done) {
     if (!ensureToken()) return;
     var cache = (STATE.jobsheet || {})[booking.pipedriveDealId] || {};
+    /* The ready flag is stored ON the generator's allocation row, so there
+       has to be one. A cross-hire row counts: the unit is coming from a
+       supplier and has no asset of ours, and a job on a cross-hire could not
+       be marked ready at all while this looked only for an asset_id. */
     var genAlloc = (cache.allocations || []).filter(function (a) {
-      return a.asset_id && isLiveAlloc(a);
+      return (a.asset_id || a.allocation_status === "cross_hire_required") && isLiveAlloc(a);
     })[0];
-    if (!genAlloc) { alert("Allocate a generator first."); return; }
+    if (!genAlloc) { alert("Nothing is allocated to this job yet, so there is nothing to mark ready. Allocate a generator, or record a cross-hire, first."); return; }
     var patch = { dispatch_status: makeReady ? "ready" : "picked" };
     if (makeReady && genAlloc.service && genAlloc.service.state === "overdue") {
-      var note = window.prompt("This generator is service OVERDUE. Enter an override note to confirm dispatch readiness:", genAlloc.override_note || "");
-      if (!note || !note.trim()) return;
-      patch.override_note = note.trim();
+      /* An overdue machine still goes out sometimes, and the note is how that
+         decision gets a name against it. Asking only works where a dialog
+         works: window.prompt is silently blocked in the CRM iframe, and a
+         null answer here used to read as "cancelled", so from inside the CRM
+         an overdue unit could never be marked ready and nothing said why.
+         Framed, we record the decision instead of losing it. */
+      var canAsk = true;
+      try { canAsk = window.top === window.self; } catch (e) { canAsk = false; }
+      if (canAsk) {
+        var note = window.prompt("This generator is service OVERDUE. Enter an override note to confirm dispatch readiness:", genAlloc.override_note || "");
+        if (!note || !note.trim()) return;   /* a real person said no */
+        patch.override_note = note.trim();
+      } else {
+        var who = window.jsWho ? window.jsWho() : "";
+        patch.override_note = genAlloc.override_note ||
+          ("Marked ready with service overdue" + (who ? " by " + who : "") + " (from the CRM jobsheet)");
+      }
     }
     apiSend("PATCH", "/allocations?id=" + encodeURIComponent(genAlloc.allocation_id), patch).then(function (r) {
       if (!r.body.ok) { alert(r.body.error || "Failed to update dispatch state"); return; }

@@ -257,6 +257,10 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
 .js-field .k { color: var(--muted); flex-shrink: 0; }
 .js-field .v { text-align: right; font-weight: 500; }
 .js-field .v.missing { color: var(--emergency); font-style: italic; font-weight: 600; }
+/* The allocated generator is a different size to the one sold. Amber, not
+   red: a substitution is ordinary, and on paper this line is the only place
+   the driver sees which unit is actually going. */
+.js-field .v.sub { color: var(--outage); font-weight: 700; }
 .js-field.full { grid-column: 1 / -1; }
 .js-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .js-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); border-bottom: 2px solid var(--line); padding: 8px 8px; }
@@ -1270,6 +1274,7 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 44px; }
 .jobsheet .js-field .k { color: var(--muted); flex: 0 0 auto; min-width: 96px; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; }
 .jobsheet .js-field .v { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
 .jobsheet .js-field .v.missing { color: var(--danger); font-weight: 700; }
+.jobsheet .js-field .v.sub { color: var(--warning); font-weight: 700; }
 .jobsheet .js-section { margin: 10px 0; }
 .jobsheet .js-section > h3 { font-size: 12px; letter-spacing: .6px; padding: 5px 10px; margin: 0 0 6px; }
 .jobsheet .js-warning ul { margin: 4px 0 0 18px; padding: 0; }

@@ -88,25 +88,28 @@
     return fmtKva(requiredKva(booking));
   }
 
-  /* An allocated unit smaller than the one sold is a job that fails on site.
+  /* Every size difference carries a key naming the exact fact: this
+     allocation, this size, against this sold size.
 
-     Each shortfall carries a key, and the key is the whole reason accepting
-     one is safe. It names the exact fact accepted - this allocation, this
-     size, against this sold size - so an acceptance cannot outlive the thing
-     it was about. Swap #602 for a 20 kVA, or resell the job at 150 kVA, and
-     the key changes and the warning comes straight back. A dismissal keyed on
-     the job instead of the fact is just a blindfold with an audit trail. */
+     It was built to make accepting one safe, back when an undersize blocked
+     dispatch. Nothing blocks now, but the key still earns its place: swap
+     #602 for a 20 kVA, or resell the job at 150 kVA, and it changes, so a
+     signature against the old fact cannot quietly sit under the new one. */
   function undersizeKey(a, got, need) {
     return "undersize:" + (a.allocation_id || a.asset_id || "?") + ":" + got + "v" + need;
   }
 
   /* Every unit whose size differs from the size sold.
 
-     Under and over are not the same thing. A unit smaller than the sale fails
-     on site, so it blocks. A unit one size UP is a substitution the yard makes
-     every week — worth saying out loud on the sheet, never worth stopping the
-     truck for. Reporting both as faults is how a board teaches people to
-     ignore it. */
+     Neither direction stops the truck. Sending a different size is ordinary
+     yard work: the exact unit is out, the next one up goes instead, or the
+     job genuinely needs less than the deal line says and the 60 goes on a
+     100 kVA sale. The board's job is to SAY which unit is going, loudly and
+     on the printed sheet, not to refuse to dispatch it. Blocking it taught
+     people to click through the warning, which is worse than not having one.
+
+     Under and over are still told apart, because the words differ: one is a
+     smaller unit than we sold, the other is a size up. */
   function sizeWarnings(booking, allocations) {
     var need = requiredKva(booking);
     if (need == null) return [];
@@ -425,18 +428,18 @@
       if (FUEL) return FUEL.readingOf(r).refuel === true;
       return r.ongoing_refuel != null ? !!r.ongoing_refuel : /ongoing refuelling required/i.test(r.notes || "");
     });
-    /* An undersize can be a real fault or a deal line nobody updated. Someone
-       who knows which is which can accept it; until then it blocks. Accepted
-       ones leave the red row but are never erased - they move to `accepted`,
-       which the jobsheet shows quietly with who accepted it. */
+    /* A unit of a different size to the one sold is reported, not refused.
+       Dispatch decides what goes on the truck; the sheet's job is to carry
+       what went. Anything somebody accepted back when this did block keeps
+       its name and date in `accepted`, so that record is not lost. */
     var acked = ackIndex(acks);
+    var oversize = sizeWarnings(booking, allocations).filter(function (w) { return w.kind === "over"; });
     var undersize = [];
     var accepted = [];
     undersizeWarnings(booking, allocations).forEach(function (w) {
       if (acked[w.key]) accepted.push({ key: w.key, text: w.text, by: acked[w.key].acknowledged_by || null, at: acked[w.key].acknowledged_at || null, note: acked[w.key].note || null });
       else undersize.push(w);
     });
-    undersize.forEach(function (w) { missing.push(w.text); });
     if (covered && !hoursOut) missing.push("Engine hours out not recorded");
     if (covered && !fuelRecorded) missing.push("Fuel level not checked / recorded");
     if (!booking.contactPhone && !booking.sitePhone) missing.push("Site contact phone missing");
@@ -480,10 +483,15 @@
       requiredKva: requiredKva(booking),
       undersize: undersize,
       /* Said on the sheet, never blocking: a size-up substitution is routine. */
-      oversize: sizeWarnings(booking, allocations).filter(function (w) { return w.kind === "over"; }),
-      /* The chips that carry an X, keyed. Everything else in `missing` is a
-         fact nobody gets to wave away by clicking. */
-      acknowledgeable: undersize,
+      oversize: oversize,
+      /* Every size difference, in one list, for the Substitution line on the
+         sheet. Both directions, because both are worth reading and neither
+         stops the job. */
+      substitutions: undersize.concat(oversize),
+      /* Nothing in `missing` is a judgement call any more, so nothing carries
+         an X. Size differences are not warnings to be waved away; they are
+         facts about what is going out. */
+      acknowledgeable: [],
       accepted: accepted,
       missing: missing,
       requirements: reqs,
@@ -494,7 +502,10 @@
       hoursInRecorded: hoursIn,
       fuelRecorded: fuelRecorded,
       refuellingRequired: refuellingRequired,
-      dispatchReady: allOk && allPicked && hoursOut && fuelRecorded && undersize.length === 0
+      /* Nothing outstanding. It is what the chip and the button READ, not a
+         permission: a job can be marked ready with items against it, and the
+         sheet keeps showing them. */
+      dispatchReady: allOk && allPicked && hoursOut && fuelRecorded
     };
   }
 
