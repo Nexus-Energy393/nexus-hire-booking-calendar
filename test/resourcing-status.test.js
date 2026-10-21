@@ -338,6 +338,17 @@ test("a dispatch with items outstanding is not refused, and not queried", () => 
   assert.match(fn[0], /setDispatchReady/);
 });
 
+test("the hero does not say nothing is outstanding while a chip says otherwise", () => {
+  // Live on NEX-1585: the equipment was allocated, picked, hours and fuel in,
+  // so dispatchReady was true and the badge read "Cleared, nothing
+  // outstanding" directly above a chip reading "Site contact phone missing".
+  const fn = /var readyTone, readyLabel, readySub;[\s\S]*?\n\n/.exec(appJs);
+  assert.ok(fn);
+  const branch = fn[0].slice(fn[0].indexOf("st.dispatchReady"));
+  assert.match(branch, /nOut \? "warn" : "ok"/);
+  assert.match(branch, /item outstanding/);
+});
+
 test("the button does not call itself blocked", () => {
   const fn = /function jsSetReadyState\(btn, st\)\s*\{[\s\S]*?\n\}/.exec(appJs);
   assert.ok(fn);

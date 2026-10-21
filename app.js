@@ -2706,7 +2706,15 @@ function jsHero(b, st) {
   var nOut = st.missing.length;
   if (st.key === "ready" && !nOut) { readyTone = "ready"; readyLabel = "Ready for dispatch"; readySub = "Cleared to go"; }
   else if (st.key === "ready") { readyTone = "warn"; readyLabel = "Marked ready — " + nOut + (nOut === 1 ? " item outstanding" : " items outstanding"); readySub = "Check before it leaves"; }
-  else if (st.dispatchReady) { readyTone = "ok"; readyLabel = "Cleared — mark ready"; readySub = "Nothing outstanding"; }
+  /* dispatchReady is about the equipment: allocated, picked, hours, fuel. The
+     site contact phone is outstanding without touching it, and this line read
+     "Nothing outstanding" with that chip sitting underneath it. Count what is
+     on the sheet, not what the flag is about. */
+  else if (st.dispatchReady) {
+    readyTone = nOut ? "warn" : "ok";
+    readyLabel = "Cleared — mark ready";
+    readySub = nOut ? (nOut + (nOut === 1 ? " item outstanding" : " items outstanding")) : "Nothing outstanding";
+  }
   else { readyTone = "warn"; readyLabel = (nOut || "Checks") + (nOut ? (nOut === 1 ? " item to sort" : " items to sort") : " pending"); readySub = "Before dispatch"; }
 
   function tile(ico, k, v, tone) {
