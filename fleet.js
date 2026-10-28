@@ -23,6 +23,10 @@
   var CFG = window.NEXUS_CONFIG || {};
   var API = (CFG.apiBase || "/api").replace(/\/$/, "");
   var TOKEN_KEY = "nexusFleetAdminToken";
+  /* Who Nexy's Auto On-Hire records its assumed departures as (hours out from
+     the unit's last return, fuel out full). Must match AUTO_ONHIRE_BY in the
+     CRM's src/lib/hire/auto-onhire-rules.ts. */
+  var AUTO_ONHIRE_BY = "Auto On-Hire";
 
   /* ---------- admin token (write auth) ---------- */
   function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
@@ -989,9 +993,17 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var latestByAsset = {};
       (engineHours || []).forEach(function (r) { if (r.asset_id && !latestByAsset[r.asset_id]) latestByAsset[r.asset_id] = r; });
       var anyRefuel = false;
+      /* Auto On-Hire (Nexy) puts a unit on hire on its start day with the
+         figures the yard would have written: hours out from its last return,
+         fuel out full. Those are assumptions until somebody types over them,
+         so the sheet marks them. Saving the row replaces them, here and in
+         Nexy; the mark goes with them. */
+      var anyAuto = false;
       if (genAllocs.length) {
         var genRows = genAllocs.map(function (a) {
           var L = latestByAsset[a.asset_id] || {};
+          var isAuto = L.hours_in == null && String(L.recorded_by || "").trim().toLowerCase() === AUTO_ONHIRE_BY.toLowerCase();
+          if (isAuto) anyAuto = true;
           /* Columns first, note second, one reader for both (see lib/fuel.js). */
           var fuel = window.NexusFuel ? window.NexusFuel.readingOf(L) : { fuelOut: null, fuelReturn: null, refuel: null };
           var fO = fuel.fuelOut, fR = fuel.fuelReturn;
@@ -1000,8 +1012,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           var kva = a.asset.generator_size_kva != null ? (a.asset.generator_size_kva + " kVA") : "";
           var cur = a.asset.current_engine_hours != null ? a.asset.current_engine_hours : "—";
           var d = can ? "" : " disabled";
-          return '<div class="rs-grow rs-gen" data-asset="' + esc(a.asset_id) + '" data-fleet="' + esc(a.asset.fleet_number || "") + '">' +
-              '<span class="rs-gc rs-gc-unit"><span class="rs-gen-fleet">#' + esc(String(a.asset.fleet_number == null ? "" : a.asset.fleet_number).replace(/^#+/, "")) + '</span>' + (kva ? '<span class="rs-gen-kva">' + esc(kva) + '</span>' : "") + '</span>' +
+          return '<div class="rs-grow rs-gen" data-asset="' + esc(a.asset_id) + '" data-fleet="' + esc(a.asset.fleet_number || "") + '"' +
+              (isAuto ? ' data-auto="1" data-auto-o="' + esc(L.hours_out != null ? L.hours_out : "") + '" data-auto-fo="' + esc(fO != null ? fO : "") + '"' : "") + '>' +
+              '<span class="rs-gc rs-gc-unit"><span class="rs-gen-fleet">#' + esc(String(a.asset.fleet_number == null ? "" : a.asset.fleet_number).replace(/^#+/, "")) + '</span>' + (kva ? '<span class="rs-gen-kva">' + esc(kva) + '</span>' : "") +
+                (isAuto ? '<span class="alloc-badge auto" title="' + esc(L.notes || "Assumed by Auto On-Hire: hours out from the last return, fuel out full.") + '">Auto</span>' : "") + '</span>' +
               '<span class="rs-gc rs-gc-now" data-label="Now">' + esc(cur) + ' h</span>' +
               '<span class="rs-gc" data-label="Hrs out"><input type="number" min="0" inputmode="decimal" class="rsg-out"' + d + ' value="' + esc(L.hours_out != null ? L.hours_out : "") + '" /></span>' +
               '<span class="rs-gc" data-label="Hrs in"><input type="number" min="0" inputmode="decimal" class="rsg-in"' + d + ' value="' + esc(L.hours_in != null ? L.hours_in : "") + '" /></span>' +
@@ -1023,6 +1037,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         html += (can ? '<div class="rs-save-row"><span class="rs-save-hint">Each generator saves its own hours &amp; fuel</span>' +
           '<button class="fleet-btn sm" id="rsHoursSave">Save all hours &amp; fuel</button></div>' : "");
         if (anyRefuel) html += '<div class="rs-alert warn">⛽ Ongoing onsite refuelling required — schedule refuelling visits for this hire.</div>';
+        if (anyAuto) html += '<div class="rs-auto-note">Auto On-Hire put the units marked <span class="alloc-badge auto">Auto</span> on hire on the start day: hours out from each unit\'s last return, fuel out at 100%. Type over them and save if the meter says otherwise.</div>';
       } else {
         html += '<div class="rs-note">Allocate a generator to record engine hours &amp; fuel.</div>';
       }
@@ -1186,9 +1201,24 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       if (!first || first.value === "") return;
       genRowEls.forEach(function (row) { var f = row.querySelector(".rsg-fout"); if (f) f.value = first.value; });
     });
+    /* An Auto On-Hire row nobody has changed is not re-saved by "Save all":
+       saving it would stamp the assumed figures as if somebody had read them
+       off the meter, and drop the Auto mark. Change a figure and it saves. */
+    function untouchedAuto(v) {
+      var el = v.row;
+      if (!el || el.getAttribute("data-auto") !== "1") return false;
+      var o = el.getAttribute("data-auto-o"), fo = el.getAttribute("data-auto-fo");
+      var same = function (x, y) { return (x == null ? "" : String(x)) === (y == null || y === "" ? "" : String(parseFloat(y))); };
+      return same(v.o, o) && same(v.fo, fo) && v.i == null && v.fr == null && !v.refuel;
+    }
     if (saveBtn) saveBtn.addEventListener("click", function () {
-      var rows = genRowEls.map(rowVals).filter(function (v) { return v.hasAny; });
-      if (!rows.length) { alert("Enter hours or fuel for at least one generator."); return; }
+      var rows = genRowEls.map(rowVals).filter(function (v) { return v.hasAny && !untouchedAuto(v); });
+      if (!rows.length) {
+        alert(genRowEls.some(function (el) { return el.getAttribute("data-auto") === "1"; })
+          ? "Nothing changed. The Auto figures stay as they are until you type over them."
+          : "Enter hours or fuel for at least one generator.");
+        return;
+      }
       for (var k = 0; k < rows.length; k++) { if (!validateRow(rows[k])) return; }
       if (!ensureToken()) return;
       saveBtn.disabled = true; saveBtn.textContent = "Saving…";

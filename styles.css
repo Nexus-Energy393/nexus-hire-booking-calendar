@@ -2987,6 +2987,13 @@ body[data-mode="tv"] .tl-dnum { font-size: 17px; }
 .jh-note .jh-accepted-k { color: #8a6d2f; }
 .jh-note .jh-accepted-i { color: #6b5420; background: #fdf6e3; border-color: #e8d9a8; }
 .alloc-badge.crm { background: #eef4ff; color: #2f4d8a; border: 1px solid #c7d8f5; font-size: 10px; padding: 1px 6px; border-radius: 4px; }
+/* Auto On-Hire (Nexy): figures assumed on the start day, hours out from the
+   unit's last return and fuel out full, until somebody types the real ones. */
+.alloc-badge.auto { background: #e8f4fd; color: #1d5f8a; border: 1px solid #bcdcf2; font-size: 10px; padding: 1px 6px; border-radius: 4px; cursor: help; }
+html.dark .alloc-badge.auto { background: rgba(56,152,214,.16); color: #9fd0f2; border-color: #2a4a63; }
+.rs-auto-note { font-size: 12px; line-height: 1.45; color: #1d5f8a; background: #f2f8fd; border: 1px solid #d6e9f7; border-radius: 6px; padding: 7px 10px; margin-top: 8px; }
+.rs-auto-note .alloc-badge.auto { cursor: default; }
+html.dark .rs-auto-note { color: #9fd0f2; background: rgba(56,152,214,.10); border-color: #2a4a63; }
 .js-trading-time { width: 7.5em; }
 .js-trading-normal { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 

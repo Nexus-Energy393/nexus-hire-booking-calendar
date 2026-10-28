@@ -39,6 +39,13 @@ Calendar (month / office screen), List (current + upcoming only), 2 Week (this +
 - No secrets are committed to this public repo. Tokens live only in Vercel env vars.
 - The CRM feed is read-only and can be locked down with `HIRE_FEED_TOKEN` on both sides.
 
+## Auto On-Hire (driven by Nexy)
+
+- Every 15 minutes Nexy's `/api/cron/auto-onhire` puts each generator booked to a won hire job on hire on its start day (Melbourne). It writes the departure here through `POST /api/jobsheet?action=engine-hours` with `recorded_by = "Auto On-Hire"`: hours out = the unit's last return reading (this board's Off Hire hours in, or Nexy's, whichever is later), fuel out = 100%.
+- The jobsheet shows those rows with an **Auto** badge and a note. Typing over the figures and saving replaces them (here and, through the usual mirror, in Nexy). "Save all" deliberately skips an Auto row nobody changed, so the badge stays honest. The constant `AUTO_ONHIRE_BY` in `fleet.js` must match Nexy's `src/lib/hire/auto-onhire-rules.ts`.
+- The Off Hire page still does not call Nexy. Instead the same Nexy sweep reads each live job's allocations and returns any unit this board has off-hired, using the hours in recorded here. Expect up to 15 minutes before Nexy shows a board return.
+- Browser test: `node test/e2e/auto-onhire.e2e.js` (needs Playwright).
+
 ## Outstanding / roadmap
 
 - Many won deals lack a hire **start date**, so they land in Missing Info / needs-review. That is a data-entry task for the team in Nexy, not an app bug.
