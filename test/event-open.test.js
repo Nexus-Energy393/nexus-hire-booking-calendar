@@ -69,11 +69,12 @@ test("a won booking never takes the Nexy branch", () => {
 });
 
 test("every click path uses opensInCrm, not the bare prospective flag", () => {
-  // Four of them: the booking card, the timeline head, the timeline bar and
-  // the month-view bar. The first cut of this asserted three and a multiline
-  // variant that does not exist - all four are single lines.
+  // Five of them: the booking card, the timeline head, the timeline bar, the
+  // month-view bar and (11 Nov 2026) a unit's own lane under its job's bar.
+  // The first cut of this asserted three and a multiline variant that does
+  // not exist - all of them are single lines.
   const hits = (appJs.match(/if \(opensInCrm\(b\)\) \{ window\.open\(dealUrl\(b\)/g) || []).length;
-  assert.equal(hits, 4, "expected all four click paths to be guarded, found " + hits);
+  assert.equal(hits, 5, "expected all five click paths to be guarded, found " + hits);
   assert.ok(!/if \(b\.prospective\) \{ window\.open\(dealUrl\(b\)/.test(appJs),
     "a click path still reads b.prospective directly");
 });
