@@ -126,7 +126,30 @@
      in whichever slot it happened to be listed against. Anything left over
      fills the open slots in order, and sizeWarnings reports it as the
      substitution it is. */
-  function slotPlan(booking, genAllocs) {
+  function slotPlan(booking, allGens) {
+    /* A unit already off-hired fills a slot that is still open (the 60 back
+       early while the 35 stays out), but never ADDS one: on a one-unit job
+       where #H71 came back and #H72 went out in its place, #H71 is history,
+       not a second machine. Live units are seated first; returned units then
+       take any empty slot and the rest are left out. */
+    var back = allGens.filter(isReturned);
+    var genAllocs = back.length ? allGens.filter(function (a) { return !isReturned(a); }) : allGens;
+    var plan = seatUnits(booking, genAllocs);
+    if (!back.length) return plan;
+    var open = [];
+    plan.slots.forEach(function (a, i) { if (!a) open.push(i); });
+    var used = back.map(function () { return false; });
+    open.forEach(function (i) {
+      for (var j = 0; j < back.length; j++) {
+        if (!used[j] && (plan.kvas[i] == null || allocatedKva(back[j]) == null || allocatedKva(back[j]) === plan.kvas[i])) {
+          plan.slots[i] = back[j]; used[j] = true; return;
+        }
+      }
+    });
+    return plan;
+  }
+
+  function seatUnits(booking, genAllocs) {
     var genQty = Math.max(1, Number(booking && booking.generatorQty) || 1);
     var count = Math.max(genQty, genAllocs.length);
     var kvas = soldKvas(booking, count);
@@ -497,6 +520,9 @@
       if (!start && !end && (soldS || soldE)) { start = soldS; end = soldE; source = "quote"; }
       start = start || jobS;
       end = end || jobE;
+      /* A booking that ends before it starts (NEX-1641 had one in Nexy: 15 Nov
+         to 25 Oct) is a typo, not a period. Read it as running to the job's end. */
+      if (start && end && end < start) end = (jobE && jobE >= start) ? jobE : start;
       var returned = !!(a && isReturned(a));
       var returnedOn = returned ? dayOf(a.off_hired_at) : null;
       var plannedEnd = end;
@@ -534,17 +560,24 @@
      ends on its own day, or some are back while others are still out. This is
      what decides whether the calendar draws a lane per unit. One unit on the
      job's own dates never does - nothing would be gained. */
-  function hasOwnDates(booking, periods) {
+  function hasOwnDates(booking, periods, today) {
     var jobS = dayOf(booking && booking.startDate);
     var jobE = dayOf(booking && booking.endDate) || jobS;
     var ps = periods || [];
     if (!ps.length) return false;
+    /* History draws no lanes: a finished job is read from its bar, and the
+       feed no longer carries the Nexy units that came back, so lanes there
+       would show slots as unallocated that were never short. */
+    today = dayOf(today) || melbDay(new Date());
+    if (jobE && jobE < today) return false;
+    /* Booked in Nexy on other dates than it was sold for: draw the lane with
+       its flag, so the calendar shows what the jobsheet says. */
+    if (ps.some(function (p) { return p.mismatch; })) return true;
+    /* One unit is the job: its bar already says everything. */
+    if (ps.length < 2) return false;
     var back = ps.filter(function (p) { return p.state === "returned"; }).length;
     if (back && back < ps.length) return true;
-    /* Booked in Nexy on the job's dates but sold for its own: draw the lane
-       with its flag, so the calendar shows what the jobsheet says. */
-    if (ps.some(function (p) { return p.mismatch; })) return true;
-    return ps.some(function (p) { return p.start !== jobS || p.end !== jobE; });
+    return ps.some(function (p) { return p.start !== jobS || (p.plannedEnd || p.end) !== jobE; });
   }
 
   /* The job's span: from the first unit out to the last unit back, never
