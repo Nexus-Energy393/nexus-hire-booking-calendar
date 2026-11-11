@@ -132,6 +132,38 @@ function allocatedLine(b) {
     return ids && spec ? ids + " \u00b7 " + spec : (ids || spec);
   }).join(" + ");
 }
+/* The size a job SOLD, as one short label. One size: generatorSize exactly as
+   Nexy sends it ("60kVA"). Mixed sizes: every unit ("60 + 35 kVA"), since
+   generatorSize only names the lead unit and NEX-1651 read as a 60 kVA job
+   on the calendar row while its jobsheet said 60 + 35. */
+function soldSizeText(b) {
+  var R = window.NexusResourcing;
+  var mixed = R && R.soldSizeLabel && R.soldSizeLabel(b);
+  /* "60 kVA + 35 kVA" becomes "60 + 35 kVA", short enough to stay whole in a
+     calendar row head. */
+  if (mixed) return mixed.replace(/ kVA(?= \+ )/g, "");
+  return (b && b.generatorSize) || "";
+}
+/* The units on a job for the calendar row head, which has room for about 28
+   characters. One spec: allocatedLine as it always was ("#H71 + #H72 · Honda
+   EU70is · 7 kVA"). Mixed specs: just the fleet numbers ("#602 + #351"), with
+   the sizes on the line above and the full detail in the tooltip. */
+function allocatedShort(b) {
+  var units = (b && b.allocatedUnits) || [];
+  var specs = {};
+  units.forEach(function (u) { specs[String(u.label || "").split(" \u00b7 ").slice(1).join(" \u00b7 ")] = true; });
+  if (Object.keys(specs).length < 2) return allocatedLine(b);
+  return units.map(function (u) { return "#" + String(u.fleetNumber || "").replace(/^#+/, "").trim(); })
+    .filter(function (t) { return t !== "#"; }).join(" + ") || allocatedLine(b);
+}
+/* True when a job sold a unit of the size picked in the size filter, so a
+   60 + 35 job is found under 35 kVA as well as 60 kVA. */
+function soldSizeMatches(b, size) {
+  if (!size || (b && b.generatorSize) === size) return true;
+  var want = /(\d+(?:\.\d+)?)\s*kva/i.exec(String(size)) || /(\d+(?:\.\d+)?)/.exec(String(size));
+  if (!want) return false;
+  return ((b && b.generatorUnits) || []).some(function (u) { return u && Number(u.kva) === Number(want[1]); });
+}
 function allocatedFleetNumbers(b) {
   var out = {};
   function add(v) { v = String(v || "").replace(/^#+/, "").trim().toUpperCase(); if (v) out[v] = true; }
@@ -306,7 +338,7 @@ function applyFilters(bookings) {
     if (b.prospective && STATE.dismissed && STATE.dismissed.has(String(b.pipedriveDealId))) return false;
     if (f.type && b.jobType !== f.type) return false;
     if (f.status && b.status !== f.status) return false;
-    if (f.size && b.generatorSize !== f.size) return false;
+    if (f.size && !soldSizeMatches(b, f.size)) return false;
     if (f.owner && b.dealOwner !== f.owner) return false;
     if (q) {
       var qNum = q.replace(/^(#|job\s*|deal\s*)+/i, ""); /* "#458", "job 458", "deal 458" -> "458" */
@@ -628,7 +660,7 @@ function bookingCard(b, compact) {
   var sm = statusMeta(b), tm = typeMeta(b);
   var card = el("div", "booking-card " + tm.cls + " " + sm.cls + (compact ? " compact" : "") + (b.prospective ? " is-prospective" : ""));
   card.setAttribute("data-id", b.id);
-  var size = allocatedLine(b) || b.generatorSize || "Size TBC";
+  var size = allocatedLine(b) || soldSizeText(b) || "Size TBC";
   // Use the helper, not the raw field: typed events never carry durationDays,
   // so the Day card said "Duration TBC" for a job the List view called 3 days.
   var _dd = durationDays(b);
@@ -1268,13 +1300,13 @@ function timelineRow(b, gridStart, numDays, todayCol) {
     '<span class="tl-rh-main">' +
       '<span class="tl-cust">' + escapeHtml(b.customer || "Unknown customer") + '</span>' +
       '<span class="tl-sub">' + escapeHtml(b.suburb || b.site || "Site TBC") +
-        (b.generatorSize ? '<span class="tl-gen"> · ' + escapeHtml(b.generatorSize) + '</span>' : '') +
+        (soldSizeText(b) ? '<span class="tl-gen"> · ' + escapeHtml(soldSizeText(b)) + '</span>' : '') +
       '</span>' +
-      (machine ? '<span class="tl-unit">' + escapeHtml(machine) + '</span>' : '') +
+      (machine ? '<span class="tl-unit">' + escapeHtml(allocatedShort(b)) + '</span>' : '') +
       (unitsBackText(win.lanes) ? '<span class="tl-unit tl-unit-back">' + escapeHtml(unitsBackText(win.lanes)) + '</span>' : '') +
     '</span>' + job;
   head.title = (b.customer || "Unknown customer") + "\n" + (b.suburb || b.site || "Site TBC") +
-    (b.generatorSize ? " · " + b.generatorSize : "") + (machine ? "\n" + machine : "\nNo unit allocated yet");
+    (soldSizeText(b) ? " · " + soldSizeText(b) : "") + (machine ? "\n" + machine : "\nNo unit allocated yet");
   head.addEventListener("click", function () {
     if (b.isGroup) { openGroupModal(b); return; }
     if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; }
@@ -1831,7 +1863,7 @@ function renderList(root, bookings) {
       '<td>' + dash(b.suburb) + '</td>' +
       '<td class="cell-nowrap">' + when + '</td>' +
       '<td>' + durTxt + '</td>' +
-      '<td>' + escapeHtml(b.generatorSize || "TBC") + '</td>' +
+      '<td>' + escapeHtml(soldSizeText(b) || "TBC") + '</td>' +
       '<td>' + dash(b.equipmentId) + '</td>' +
       '<td>' + escapeHtml(b.dealOwner || "Unassigned") + '</td>' +
       '<td class="cell-actions"><a class="row-link" target="_blank" rel="noopener" href="' + dealUrl(b) + '" data-stop="1">Nexy CRM</a></td>';
@@ -2148,7 +2180,7 @@ function openModal_legacy(b) {
     detailRow("Contact", b.contact) +
     detailRow("Site", b.site) +
     detailRow("Suburb", b.suburb) +
-    detailRow("Generator size", b.generatorSize || "Not allocated") +
+    detailRow("Generator size", soldSizeText(b) || "Not allocated") +
     detailRow("Equipment ID", b.equipmentId || "Not allocated") +
     detailRow("Hire start", fmt(bStart(b))) +
     detailRow("Hire end", fmt(bEnd(b))) +
