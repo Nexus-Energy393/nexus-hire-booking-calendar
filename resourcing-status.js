@@ -76,11 +76,104 @@
     return null;
   }
 
+  /* ---- Mixed sizes on one job ---------------------------------------------
+     A deal can carry more than one size: NEX-1651 is a 60 and a 35. The feed
+     sends generatorUnits, one entry per unit in quote order, each with the
+     size SOLD for it. generatorSize is only the lead unit, and reading it for
+     every slot drew "Generator 60 kVA #1, #2" for a job that needs a 60 and a
+     35. A booking without generatorUnits (an older feed, a single-size job)
+     gets the one size sold for every slot, exactly as before. */
+  function soldKvas(booking, count) {
+    var units = (booking && booking.generatorUnits) || [];
+    var lead = requiredKva(booking);
+    var out = [];
+    for (var i = 0; i < count; i++) {
+      var k = units[i] ? kvaNumber(units[i].kva) : null;
+      out.push(k != null ? k : lead);
+    }
+    return out;
+  }
+
+  function isMixed(kvas) {
+    var seen = null;
+    for (var i = 0; i < kvas.length; i++) {
+      if (kvas[i] == null) continue;
+      if (seen == null) seen = kvas[i];
+      else if (kvas[i] !== seen) return true;
+    }
+    return false;
+  }
+
+  /* "60 kVA + 35 kVA", "2 x 60 kVA + 35 kVA". Order is quote order. */
+  function sizeSummary(kvas) {
+    var order = [];
+    var count = {};
+    kvas.forEach(function (k) {
+      var key = k == null ? "?" : String(k);
+      if (!(key in count)) { order.push(key); count[key] = 0; }
+      count[key]++;
+    });
+    return order.map(function (key) {
+      return (count[key] > 1 ? count[key] + " x " : "") + (key === "?" ? "size TBC" : fmtKva(Number(key)));
+    }).join(" + ");
+  }
+
+  /* Which unit fills which generator slot.
+
+     One size sold: the plain order it has always been, untouched. Mixed sizes:
+     each slot first takes a unit of its own size, so #602 (60 kVA) sits in
+     the 60 slot and the 35 slot reads unallocated, rather than #602 landing
+     in whichever slot it happened to be listed against. Anything left over
+     fills the open slots in order, and sizeWarnings reports it as the
+     substitution it is. */
+  function slotPlan(booking, genAllocs) {
+    var genQty = Math.max(1, Number(booking && booking.generatorQty) || 1);
+    var count = Math.max(genQty, genAllocs.length);
+    var kvas = soldKvas(booking, count);
+    var slots = [];
+    var i;
+    if (!isMixed(kvas)) {
+      for (i = 0; i < count; i++) slots.push(genAllocs[i] || null);
+      return { kvas: kvas, slots: slots, mixed: false };
+    }
+    var used = genAllocs.map(function () { return false; });
+    for (i = 0; i < count; i++) {
+      slots.push(null);
+      if (kvas[i] == null) continue;
+      for (var j = 0; j < genAllocs.length; j++) {
+        if (!used[j] && allocatedKva(genAllocs[j]) === kvas[i]) { slots[i] = genAllocs[j]; used[j] = true; break; }
+      }
+    }
+    var rest = genAllocs.filter(function (_, j) { return !used[j]; });
+    for (i = 0; i < count && rest.length; i++) if (!slots[i]) slots[i] = rest.shift();
+    return { kvas: kvas, slots: slots, mixed: true };
+  }
+
+  /* What the jobsheet's "Generator size sold" field reads on a mixed job;
+     null when one size was sold, so the caller shows that size as it always
+     has. */
+  function soldSizeLabel(booking) {
+    var units = (booking && booking.generatorUnits) || [];
+    if (units.length < 2) return null;
+    var kvas = soldKvas(booking, units.length);
+    return isMixed(kvas) ? sizeSummary(kvas) : null;
+  }
+
   /* What the GENERATOR tile and the crew should read. Allocated wins, because
      that is what goes on the truck; otherwise what we sold; otherwise nothing,
-     and the caller says "Size TBC". */
+     and the caller says "Size TBC". On a mixed job it reads every slot the
+     same way: the unit going if one is, else the size sold for that slot. */
   function generatorSizeLabel(booking, allocations) {
     var gens = (allocations || []).filter(function (a) { return a.asset_id && live(a); });
+    if (soldSizeLabel(booking)) {
+      var plan = slotPlan(booking, mergeCrmUnits(gens, booking));
+      if (plan.mixed) {
+        return sizeSummary(plan.slots.map(function (a, si) {
+          var got = a ? allocatedKva(a) : null;
+          return got != null ? got : plan.kvas[si];
+        }));
+      }
+    }
     for (var i = 0; i < gens.length; i++) {
       var k = allocatedKva(gens[i]);
       if (k != null) return fmtKva(k);
@@ -111,26 +204,45 @@
      Under and over are still told apart, because the words differ: one is a
      smaller unit than we sold, the other is a size up. */
   function sizeWarnings(booking, allocations) {
+    /* A mixed job measures each unit against the size sold for ITS slot, so
+       a 35 going out for the 35 is not "smaller than the 60 sold". */
+    if (soldSizeLabel(booking)) {
+      var plan = slotPlan(booking, mergeCrmUnits((allocations || []).filter(function (a) { return a.asset_id && live(a); }), booking));
+      if (plan.mixed) {
+        var mixedOut = [];
+        plan.slots.forEach(function (a, si) {
+          var w = a ? sizeDiff(a, plan.kvas[si]) : null;
+          if (w) mixedOut.push(w);
+        });
+        return mixedOut;
+      }
+    }
     var need = requiredKva(booking);
     if (need == null) return [];
     var out = [];
     mergeCrmUnits((allocations || []).filter(function (a) { return a.asset_id && live(a); }), booking)
       .forEach(function (a) {
-        var got = allocatedKva(a);
-        if (got == null || got === need) return;
-        var who = (a.asset && a.asset.fleet_number) || a.fleet_number;
-        var tag = who ? "#" + who + " " : "";
-        out.push(got < need ? {
-          kind: "under",
-          key: undersizeKey(a, got, need),
-          text: "Allocated " + tag + fmtKva(got) + " is smaller than the " + fmtKva(need) + " sold"
-        } : {
-          kind: "over",
-          key: undersizeKey(a, got, need),
-          text: tag + fmtKva(got) + " allocated against a " + fmtKva(need) + " sale"
-        });
+        var w = sizeDiff(a, need);
+        if (w) out.push(w);
       });
     return out;
+  }
+
+  function sizeDiff(a, need) {
+    if (need == null) return null;
+    var got = allocatedKva(a);
+    if (got == null || got === need) return null;
+    var who = (a.asset && a.asset.fleet_number) || a.fleet_number;
+    var tag = who ? "#" + who + " " : "";
+    return got < need ? {
+      kind: "under",
+      key: undersizeKey(a, got, need),
+      text: "Allocated " + tag + fmtKva(got) + " is smaller than the " + fmtKva(need) + " sold"
+    } : {
+      kind: "over",
+      key: undersizeKey(a, got, need),
+      text: tag + fmtKva(got) + " allocated against a " + fmtKva(need) + " sale"
+    };
   }
 
   function undersizeWarnings(booking, allocations) {
@@ -242,17 +354,19 @@
     // original Nexy booking (generatorQty, parsed from the deal's hire lines);
     // staff allocate the actual fleet number to each slot. Never fewer than the
     // number already allocated, so an over-allocation is never hidden.
-    var genQty = Math.max(1, Number(booking.generatorQty) || 1);
-    var genSlots = Math.max(genQty, genAllocs.length);
+    // slotPlan also gives each slot the size sold FOR it (a 60 and a 35 on one
+    // job read as a 60 slot and a 35 slot) and seats each unit in its size.
+    var plan = slotPlan(booking, genAllocs);
+    var genSlots = plan.slots.length;
     for (var gi = 0; gi < genSlots; gi++) {
       reqs.push({
         kind: "generator",
         /* The Item column is what was ORDERED; the Allocated column beside it
            is what is going. Falling back to the allocated size keeps the row
            readable when nobody recorded what was sold. */
-        label: "Generator " + (fmtKva(requiredKva(booking)) || fmtKva(allocatedKva(genAllocs[gi])) || "(size TBC)") + (genSlots > 1 ? " #" + (gi + 1) : ""),
+        label: "Generator " + (fmtKva(plan.kvas[gi]) || fmtKva(allocatedKva(plan.slots[gi])) || "(size TBC)") + (genSlots > 1 ? " #" + (gi + 1) : ""),
         qtyRequired: 1,
-        alloc: genAllocs[gi] || null
+        alloc: plan.slots[gi] || null
       });
     }
     var stockAllocs = allocations.filter(function (a) { return a.stock_item_id; });
@@ -511,7 +625,8 @@
 
   var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked, isOnHire: isOnHire,
               generatorSizeLabel: generatorSizeLabel, allocatedKva: allocatedKva, requiredKva: requiredKva, undersizeWarnings: undersizeWarnings, fmtKva: fmtKva,
-              undersizeKey: undersizeKey, ackIndex: ackIndex, sizeWarnings: sizeWarnings, crmUnits: crmUnits };
+              undersizeKey: undersizeKey, ackIndex: ackIndex, sizeWarnings: sizeWarnings, crmUnits: crmUnits,
+              soldSizeLabel: soldSizeLabel, slotPlan: slotPlan };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

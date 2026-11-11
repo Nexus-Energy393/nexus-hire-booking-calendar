@@ -2895,7 +2895,9 @@ function renderJobSheet(b) {
   /* 3. EQUIPMENT REQUIRED & PICKING LIST */
   html += jsCard("Equipment required & picking list", "js-card-alloc",
     '<div class="js-grid js-grid-2">' +
-      jsField("Generator size sold", jsFmtKva(b.generatorSize)) +
+      /* A job sold as a 60 and a 35 reads "60 kVA + 35 kVA" here, not just its
+         lead unit (NEX-1651). One size sold reads exactly as it always did. */
+      jsField("Generator size sold", (window.NexusResourcing && window.NexusResourcing.soldSizeLabel && window.NexusResourcing.soldSizeLabel(b)) || jsFmtKva(b.generatorSize)) +
       /* The size that is actually going on the truck. The hero carries this on
          screen, and the hero is hidden in print and in the PDF - so the paper
          the driver was handed showed only the size SOLD. Allocate a 60 against
