@@ -919,6 +919,22 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       (st.requirements || []).forEach(function (req, idx) {
         var a = req.alloc;
         var allocatedCell, statusCell, pickedCell, actions = "";
+        var back = !!(a && window.NexusResourcing && window.NexusResourcing.isReturned && window.NexusResourcing.isReturned(a));
+        if (req.kind === "generator" && back) {
+          /* Off-hired already: it keeps its slot and says when it came back.
+             Nothing to change or pick. */
+          var fleetNo = (a.asset && a.asset.fleet_number) || a.fleet_number || "";
+          allocatedCell = (fleetNo ? "<strong>#" + esc(fleetNo) + "</strong> " : "") + esc(fmtItem((a.asset && a.asset.asset_name) || a.asset_name || ""));
+          statusCell = '<span class="alloc-badge ab-returned">Returned</span>';   // the date is on the Item line
+          pickedCell = '<span class="js-box is-done" title="Went out and came back" aria-label="Returned">&#10003;</span>';
+          html += '<tr class="is-returned"><td data-label="Item" class="js-td-rich"><div class="js-cell">' + esc(fmtItem(req.label)) + unitPeriodLine(req.period, bk || booking) + "</div></td>" +
+                  '<td class="num" data-label="Req">' + esc(req.qtyRequired) + "</td>" +
+                  '<td data-label="Allocated" class="js-td-rich"><div class="js-cell">' + allocatedCell + "</div></td>" +
+                  '<td data-label="Status">' + statusCell + "</td>" +
+                  '<td class="chk" data-label="Picked">' + pickedCell + "</td>" +
+                  '<td class="js-actions-col" data-label=""></td></tr>';
+          return;
+        }
         if (req.kind === "generator") {
           if (a && a.asset) {
             var svc = a.service || {};
@@ -928,10 +944,16 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
             allocatedCell = "Cross-hire" + (a.override_note ? " — " + esc(a.override_note) : "");
           } else allocatedCell = "&mdash;";
           var boardRow = a && a.allocation_id;   // a CRM unit has none
+          /* A unit that is out can come back on its own day, early or late,
+             while the rest of the job stays on hire. */
+          var isOut = boardRow && a.asset_id && req.period && /^(on-hire|due-back|overdue)$/.test(req.period.state);
+          var offBtn = isOut && window.NexusOffHire && window.NexusOffHire.openReturn
+            ? '<button class="fleet-btn sm primary" data-act="offhire-unit" data-asset="' + esc(a.asset_id) + '" title="Record this unit back: engine hours in and fuel. The rest of the job stays on hire.">Off-hire</button>'
+            : "";
           actions = can
-            ? '<button class="fleet-btn sm" data-act="alloc-gen"' + (boardRow ? ' data-alloc="' + esc(a.allocation_id) + '"' : "") + ">" + (a ? (boardRow ? "Change" : "Allocate on board") : "Allocate generator") + "</button>" +
+            ? offBtn + '<button class="fleet-btn sm" data-act="alloc-gen" data-slot="' + idx + '"' + (boardRow ? ' data-alloc="' + esc(a.allocation_id) + '"' : "") + ">" + (a ? (boardRow ? "Change" : "Allocate on board") : "Allocate generator") + "</button>" +
               (boardRow ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "") +
-              (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen">Cross-hire</button>')
+              (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen" data-slot="' + idx + '">Cross-hire</button>')
             : '<span class="fleet-write-off sm">read-only</span>';
         } else {
           allocatedCell = a ? esc(a.quantity_allocated || 0) : "&mdash;";
@@ -963,9 +985,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         } else if (a && (a.notes || "").trim()) {
           noteLine = '<div class="js-xhire-note">' + esc(a.notes) + "</div>";
         }
-        html += '<tr><td data-label="Item">' + esc(fmtItem(req.label)) + noteLine + '</td>' +
+        var unitLine = req.kind === "generator" ? unitPeriodLine(req.period, bk || booking) : "";
+        html += '<tr><td data-label="Item" class="js-td-rich"><div class="js-cell">' + esc(fmtItem(req.label)) + unitLine + noteLine + '</div></td>' +
                 '<td class="num" data-label="Req">' + esc(req.qtyRequired) + "</td>" +
-                '<td data-label="Allocated">' + allocatedCell + "</td>" +
+                '<td data-label="Allocated" class="js-td-rich"><div class="js-cell">' + allocatedCell + "</div></td>" +
                 '<td data-label="Status">' + statusCell + "</td>" +
                 '<td class="chk" data-label="Picked">' + pickedCell + "</td>" +
                 '<td class="js-actions-col" data-label="">' + actions + "</td></tr>";
@@ -1055,12 +1078,18 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var t = e.target.closest && e.target.closest("[data-act]");
       if (!t) return;
       var act = t.getAttribute("data-act");
-      if (act === "alloc-gen") openAllocateModal(booking, t.getAttribute("data-alloc") || null);
+      /* The slot's own size and dates: allocating the 35 that goes out on the
+         13th checks what is free from the 13th and recommends 35s. */
+      var slot = slotFor(st, t.getAttribute("data-slot"));
+      if (act === "alloc-gen") openAllocateModal(booking, t.getAttribute("data-alloc") || null, slot);
+      else if (act === "offhire-unit") {
+        window.NexusOffHire.openReturn(booking.pipedriveDealId, t.getAttribute("data-asset"), function () { reopenJobsheet(booking); });
+      }
       else if (act === "xhire-gen") {
         if (!ensureToken()) return;
         var note = window.prompt("Cross-hire supplier name + notes (required):", "");
         if (!note || !note.trim()) { alert("Cross-hire needs the supplier name (or a note) so dispatch knows where the unit is coming from."); return; }
-        doAllocate(booking, null, note.trim(), { close: function () {} }, true);
+        doAllocate(booking, null, note.trim(), { close: function () {} }, true, null, slot);
       }
       else if (act === "alloc-stock") openAllocateStockModal(booking, Number(t.getAttribute("data-req")), st);
       else if (act === "release") {
@@ -1233,6 +1262,29 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     });
   }
 
+  /* One generator slot's own hire period, under its Item on the jobsheet:
+       Thu 13 Nov -> Sun 16 Nov · 4 days        [Goes out Thu 13 Nov]
+       Starts 3 days after the job
+       Sold for Thu 13 Nov -> Sun 16 Nov, booked in Nexy from Tue 10 Nov.
+     Only the first line shows when the unit simply runs with the job. */
+  function unitPeriodLine(p, booking) {
+    var RS = window.NexusResourcing;
+    if (!p || !p.start || !RS || !RS.unitRangeText) return "";
+    var html = '<div class="js-unit-dates st-' + esc(p.state) + '">' +
+      '<span class="ud-range">' + esc(RS.unitRangeText(p)) + "</span>" +
+      '<span class="ud-state">' + esc(RS.unitStateText(p)) + "</span></div>";
+    var off = p.state === "returned" ? "" : RS.unitOffsetText(p, booking);
+    if (off) html += '<div class="js-unit-own">' + esc(off) + "</div>";
+    if (p.mismatch && p.sold) {
+      var url = (booking && booking.crmUrl) || "";
+      var sold = RS.unitRangeText({ start: p.sold.start || p.start, end: p.sold.end || p.plannedEnd, days: null });
+      html += '<div class="js-unit-flag">Sold for ' + esc(sold) + ", booked in Nexy " +
+        esc(p.start !== (p.sold.start || p.start) ? "from " + RS.fmtUnitDay(p.start) : "to " + RS.fmtUnitDay(p.plannedEnd)) + "." +
+        (url ? ' <a href="' + esc(url) + '" target="_blank" rel="noopener">Fix in Nexy</a>' : "") + "</div>";
+    }
+    return html;
+  }
+
   function allocBadge(status) {
     var map = {
       allocated: ["Allocated", "ab-ok"], proposed: ["Proposed", "ab-prop"],
@@ -1248,21 +1300,35 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     return "on hire to " + esc(window.NexusJobRef ? window.NexusJobRef(c.pipedrive_deal_id) : (c.booking_title || c.pipedrive_deal_id)) + " (" + d(c.hire_start) + " &rarr; " + d(c.hire_end) + ")";
   }
 
-  function openAllocateModal(booking, replaceId) {
+  /* A generator requirement's size and own dates, for the allocate flow. */
+  function slotFor(st, idx) {
+    if (idx == null || idx === "") return null;
+    var req = ((st && st.requirements) || [])[Number(idx)];
+    if (!req || req.kind !== "generator" || !req.period) return null;
+    return { kva: req.period.kva, start: req.period.start, end: req.period.plannedEnd || req.period.end };
+  }
+
+  function openAllocateModal(booking, replaceId, slot) {
     if (!ensureToken()) return;
-    var size = parseGenSize(booking.generatorSize);
+    var size = (slot && slot.kva) || parseGenSize(booking.generatorSize);
+    var winStart = (slot && slot.start) || booking.startDate || "";
+    var winEnd = (slot && slot.end) || booking.endDate || "";
+    var RSx = window.NexusResourcing;
+    var winText = RSx && RSx.unitRangeText && slot && slot.start
+      ? RSx.unitRangeText({ start: winStart, end: winEnd, days: (RSx.daysBetween(winStart, winEnd) || 0) + 1 })
+      : (booking.startDate || "?") + " \u2192 " + (booking.endDate || "?");
     // Fetch ALL available assets for the window (no size filter) — the
     // requested size is a recommendation, not a hard gate: dispatch can
     // allocate a different unit rather than being forced into a cross-hire.
     /* Send the deal, and the row being replaced when this is a "Change". The
        server needs both to avoid reporting this deal's own unit as a conflict
        with itself. */
-    var qs = "/availability?start=" + encodeURIComponent(booking.startDate || "") +
-             "&end=" + encodeURIComponent(booking.endDate || "") +
+    var qs = "/availability?start=" + encodeURIComponent(winStart) +
+             "&end=" + encodeURIComponent(winEnd) +
              "&dealId=" + encodeURIComponent(booking.pipedriveDealId == null ? "" : booking.pipedriveDealId) +
              (replaceId ? "&ignore=" + encodeURIComponent(replaceId) : "");
     var m = openModal((replaceId ? "Change generator - " : "Allocate generator - ") + jobLabel(booking),
-      '<p class="subtle">Required size: <strong>' + esc(booking.generatorSize || "TBC") + "</strong> &middot; " + esc(booking.startDate || "?") + " &rarr; " + esc(booking.endDate || "?") + "</p>" +
+      '<p class="subtle">Required size: <strong>' + esc(size ? size + " kVA" : (booking.generatorSize || "TBC")) + "</strong> &middot; " + esc(winText) + "</p>" +
       '<div id="allocList">Loading available generators&hellip;</div>');
     apiGet(qs).then(function (r) {
       var listEl = m.body.querySelector("#allocList");
@@ -1343,23 +1409,23 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           // what actually went against what was sold.
           var subKva = b.getAttribute("data-sub-kva");
           if (subKva) {
-            doAllocate(booking, b.getAttribute("data-alloc"), "Size substitution: " + subKva + " kVA allocated (requested " + (booking.generatorSize || "unspecified") + ")", m, false, replaceId);
+            doAllocate(booking, b.getAttribute("data-alloc"), "Size substitution: " + subKva + " kVA allocated (requested " + (size ? size + " kVA" : (booking.generatorSize || "unspecified")) + ")", m, false, replaceId, slot);
             return;
           }
-          doAllocate(booking, b.getAttribute("data-alloc"), null, m, false, replaceId);
+          doAllocate(booking, b.getAttribute("data-alloc"), null, m, false, replaceId, slot);
         }
         else if (x) {
           var note = window.prompt("Cross-hire supplier name + notes (required):", "");
           if (!note || !note.trim()) { alert("Cross-hire needs the supplier name (or a note) so dispatch knows where the unit is coming from."); return; }
-          doAllocate(booking, null, note.trim(), m, true);
+          doAllocate(booking, null, note.trim(), m, true, null, slot);
         }
       });
     });
   }
 
-  function doAllocate(booking, assetId, overrideNote, modal, crossHire, replaceId) {
+  function doAllocate(booking, assetId, overrideNote, modal, crossHire, replaceId, slot) {
     var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "", asset_id: assetId || null,
-      hire_start: booking.startDate || null, hire_end: booking.endDate || null, override_note: overrideNote || null };
+      hire_start: (slot && slot.start) || booking.startDate || null, hire_end: (slot && slot.end) || booking.endDate || null, override_note: overrideNote || null };
     if (crossHire) payload.allocation_status = "cross_hire_required";
     // Change = replace THIS slot's unit (PATCH the row); Allocate / Add = a new
     // row (POST). The DB has no one-per-deal cap, so a deal holds many gensets.

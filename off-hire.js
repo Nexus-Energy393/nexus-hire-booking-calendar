@@ -203,7 +203,9 @@
   }
 
   /* ---------- return / off-hire form ---------- */
-  function openReturnModal(root, dealId, assetId) {
+  /* root: the Off Hire page to refresh after, or null when opened from a
+     jobsheet; onDone runs after a successful return either way. */
+  function openReturnModal(root, dealId, assetId, onDone) {
     var m = openModal("Return & off hire", '<div class="offhire-form-loading">Loading hire&hellip;</div>');
     apiGet("/off-hire?dealId=" + encodeURIComponent(dealId)).then(function (res) {
       var b = res.body || {};
@@ -357,7 +359,12 @@
             elResult.innerHTML = '<span class="ok">Returned to fleet · ' +
               (res.body.runtime_hours != null ? round1(res.body.runtime_hours) + ' hrs runtime · ' : '') +
               round1(res.body.fuel_used_litres || 0) + ' L fuel recorded.</span>';
-            setTimeout(function () { m.close(); render(root); refreshBadge(); }, 900);
+            setTimeout(function () {
+              m.close();
+              if (root) render(root);
+              refreshBadge();
+              if (typeof onDone === "function") onDone(res.body);
+            }, 900);
           } else {
             elSubmit.disabled = false; elSubmit.textContent = "Complete off hire";
             elResult.innerHTML = '<span class="bad">' + esc((res.body && res.body.error) || "Off-hire failed.") + '</span>';
@@ -420,6 +427,13 @@
   /* ---------- public API ---------- */
   window.NexusOffHire = {
     render: render,
+    /* Off-hire ONE unit, on whatever day it actually comes back, from its own
+       row on the jobsheet (Justin, 11 Nov 2026: each unit on and off hire on
+       its own dates). The rest of the job stays on hire. */
+    openReturn: function (dealId, assetId, onDone) {
+      if (!ensureToken()) return;
+      openReturnModal(null, dealId, assetId, onDone);
+    },
     refreshBadge: refreshBadge,
     hasToken: hasToken, setToken: setToken
   };

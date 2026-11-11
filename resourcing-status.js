@@ -132,21 +132,62 @@
     var kvas = soldKvas(booking, count);
     var slots = [];
     var i;
-    if (!isMixed(kvas)) {
+    var byDate = soldDatesVary(booking, count);
+    if (!isMixed(kvas) && !byDate) {
       for (i = 0; i < count; i++) slots.push(genAllocs[i] || null);
       return { kvas: kvas, slots: slots, mixed: false };
     }
+    /* Seat each unit in the slot it belongs to: same size AND the same dates
+       first (two 60s sold for different days each go to their own line), then
+       same size, then whatever is left in order. */
     var used = genAllocs.map(function () { return false; });
-    for (i = 0; i < count; i++) {
-      slots.push(null);
-      if (kvas[i] == null) continue;
+    var sold = (booking && booking.generatorUnits) || [];
+    var take = function (i, ok) {
       for (var j = 0; j < genAllocs.length; j++) {
-        if (!used[j] && allocatedKva(genAllocs[j]) === kvas[i]) { slots[i] = genAllocs[j]; used[j] = true; break; }
+        if (!used[j] && ok(genAllocs[j])) { slots[i] = genAllocs[j]; used[j] = true; return; }
       }
+    };
+    for (i = 0; i < count; i++) slots.push(null);
+    if (byDate) {
+      for (i = 0; i < count; i++) {
+        var su = sold[i];
+        if (!su || (!su.start && !su.end)) continue;
+        var want = { start: dayOf(su.start), end: dayOf(su.end) };
+        take(i, function (a) {
+          var d = unitDatesOf(booking, a);
+          return (kvas[i] == null || allocatedKva(a) == null || allocatedKva(a) === kvas[i]) &&
+            (!want.start || d.start === want.start) && (!want.end || d.end === want.end);
+        });
+      }
+    }
+    for (i = 0; i < count; i++) {
+      if (slots[i] || kvas[i] == null) continue;
+      take(i, function (a) { return allocatedKva(a) === kvas[i]; });
     }
     var rest = genAllocs.filter(function (_, j) { return !used[j]; });
     for (i = 0; i < count && rest.length; i++) if (!slots[i]) slots[i] = rest.shift();
-    return { kvas: kvas, slots: slots, mixed: true };
+    return { kvas: kvas, slots: slots, mixed: isMixed(kvas) };
+  }
+
+  /* True when the quote lines give their units different dates. */
+  function soldDatesVary(booking, count) {
+    var units = (booking && booking.generatorUnits) || [];
+    var seen = null;
+    for (var i = 0; i < Math.min(count, units.length); i++) {
+      var u = units[i];
+      if (!u || (!u.start && !u.end)) continue;
+      var key = (dayOf(u.start) || "") + "|" + (dayOf(u.end) || "");
+      if (seen == null) seen = key;
+      else if (key !== seen) return true;
+    }
+    return false;
+  }
+
+  /* A unit's own dates as it stands: its Nexy booking, else its board row. */
+  function unitDatesOf(booking, a) {
+    var c = crmUnitFor(booking, a);
+    if (c && (c.start || c.end)) return { start: dayOf(c.start), end: dayOf(c.end) };
+    return { start: dayOf(a && a.hire_start), end: dayOf(a && a.hire_end) };
   }
 
   /* What the jobsheet's "Generator size sold" field reads on a mixed job;
@@ -343,6 +384,266 @@
     return genAllocs.concat(extra);
   }
 
+  /* ---- Each unit's own hire period ------------------------------------------
+
+     Justin, 11 Nov 2026: "allow each unit to be on hired and off hired on
+     individual dates". NEX-1651 is a 60 from 10 Nov and a 35 from 13 Nov, and
+     the board drew one bar and gave both units the job's dates.
+
+     Nexy already holds a start, an end and a return per unit (EquipmentBooking).
+     The board flattened all of it: syncAllocationDates wrote the JOB's dates
+     onto every allocation once a minute. So the order of truth for a unit's
+     dates is now:
+       1. the unit's own booking in Nexy (allocatedUnits[].start / end),
+       2. the dates its quote line was sold for (generatorUnits[].start / end),
+          for a unit the board knows about and Nexy does not,
+       3. the job's dates.
+     A unit that has been off-hired ends on the day it came back. */
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  function melbDay(d) {
+    try {
+      var p = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Melbourne", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(p)) return p;
+    } catch (e) { /* no Intl time zones: fall through to local */ }
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+
+  /* Any date the board is handed, as YYYY-MM-DD. A DATE column arrives either
+     as "2026-11-13" or as midnight "2026-11-13T00:00:00.000Z" (JSON), or as a
+     Date at the process's local midnight (pg); all three are that calendar day.
+     Anything with a time of day is a moment, and is read in Melbourne. */
+  function dayOf(v) {
+    if (v == null || v === "") return null;
+    if (v instanceof Date) {
+      if (isNaN(v.getTime())) return null;
+      return v.getFullYear() + "-" + pad2(v.getMonth() + 1) + "-" + pad2(v.getDate());
+    }
+    var s = String(v).trim();
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.0+)?Z?)?$/.exec(s);
+    if (m) return m[1] + "-" + m[2] + "-" + m[3];
+    var d = new Date(s);
+    return isNaN(d.getTime()) ? null : melbDay(d);
+  }
+
+  function daysBetween(a, b) {
+    var pa = /^(\d{4})-(\d{2})-(\d{2})$/.exec(a || ""), pb = /^(\d{4})-(\d{2})-(\d{2})$/.exec(b || "");
+    if (!pa || !pb) return null;
+    return Math.round((Date.UTC(+pb[1], +pb[2] - 1, +pb[3]) - Date.UTC(+pa[1], +pa[2] - 1, +pa[3])) / 86400000);
+  }
+
+  /* Off Hire returns ONE unit: its allocation is released with
+     return_status 'returned' and off_hired_at stamped. A unit released for any
+     other reason (swapped, removed) is not a return. */
+  function isReturned(a) {
+    if (!a || !a.asset_id) return false;
+    return String(a.return_status || "").toLowerCase() === "returned" || !!a.off_hired_at;
+  }
+
+  /* Returned units, minus any that went straight back out on the same job
+     (a live row for the same machine wins, so it is never counted twice). */
+  function returnedGens(all, liveRows) {
+    var liveAssets = {};
+    (liveRows || []).forEach(function (a) { if (a.asset_id) liveAssets[a.asset_id] = true; });
+    var seen = {};
+    return (all || []).filter(function (a) {
+      if (!isReturned(a) || liveAssets[a.asset_id] || seen[a.asset_id]) return false;
+      seen[a.asset_id] = true;
+      return true;
+    });
+  }
+
+  function fleetOf(a) {
+    return String((a && ((a.asset && a.asset.fleet_number) || a.fleet_number)) || "").replace(/^#+/, "").trim();
+  }
+
+  /* The unit's booking in Nexy, if it has one that is still live. */
+  function crmUnitFor(booking, a) {
+    var f = fleetOf(a);
+    if (!f) return null;
+    var units = (booking && booking.allocatedUnits) || [];
+    for (var i = 0; i < units.length; i++) {
+      var u = units[i];
+      if (!CRM_LIVE_UNIT(u)) continue;
+      if (String(u.fleetNumber == null ? "" : u.fleetNumber).replace(/^#+/, "").trim() === f) return u;
+    }
+    return null;
+  }
+
+  /* Every generator slot on the job with its own period:
+       { index, kva, label, fleet, alloc, start, end, plannedEnd, returnedOn,
+         days, state, source, sold:{start,end}|null, mismatch }
+     state: unallocated | upcoming | on-hire | due-back | overdue | returned.
+     mismatch: the unit is booked in Nexy for dates other than its quote line
+     was sold for (the 35 sold from 13 Nov but booked from 10 Nov). Said, not
+     blocked, the same as a size substitution. */
+  function unitPeriods(booking, allocations, today) {
+    booking = booking || {};
+    today = dayOf(today) || melbDay(new Date());
+    var all = allocations || [];
+    var liveGens = all.filter(function (a) { return a.asset_id && live(a) && !isReturned(a); });
+    var plan = slotPlan(booking, mergeCrmUnits(liveGens.concat(returnedGens(all, liveGens)), booking));
+    var jobS = dayOf(booking.startDate);
+    var jobE = dayOf(booking.endDate) || jobS;
+    var sold = booking.generatorUnits || [];
+    return plan.slots.map(function (a, i) {
+      var su = sold[i] || null;
+      var soldS = su ? dayOf(su.start) : null;
+      var soldE = su ? dayOf(su.end) : null;
+      var crm = a ? crmUnitFor(booking, a) : null;
+      var start = null, end = null, source = "job";
+      if (crm && (crm.start || crm.end)) { start = dayOf(crm.start); end = dayOf(crm.end); source = "nexy"; }
+      if (!start && !end && (soldS || soldE)) { start = soldS; end = soldE; source = "quote"; }
+      start = start || jobS;
+      end = end || jobE;
+      var returned = !!(a && isReturned(a));
+      var returnedOn = returned ? dayOf(a.off_hired_at) : null;
+      var plannedEnd = end;
+      if (returnedOn) end = returnedOn;
+      var state;
+      if (returned) state = "returned";
+      else if (!a) state = "unallocated";
+      else if (start && today < start) state = "upcoming";
+      else if (end && today > end) state = "overdue";
+      else if (end && today === end) state = "due-back";
+      else state = "on-hire";
+      var mismatch = !returned && source === "nexy" &&
+        ((soldS && soldS !== start) || (soldE && soldE !== plannedEnd));
+      var span = daysBetween(start, end);
+      return {
+        index: i,
+        kva: plan.kvas[i],
+        label: "Generator " + (fmtKva(plan.kvas[i]) || fmtKva(allocatedKva(a)) || "(size TBC)"),
+        fleet: a ? fleetOf(a) : "",
+        alloc: a || null,
+        start: start,
+        end: end,
+        plannedEnd: plannedEnd,
+        returnedOn: returnedOn,
+        days: span == null ? null : span + 1,
+        state: state,
+        source: source,
+        sold: (soldS || soldE) ? { start: soldS, end: soldE } : null,
+        mismatch: !!mismatch
+      };
+    });
+  }
+
+  /* True when the units do not simply share the job's dates: one starts or
+     ends on its own day, or some are back while others are still out. This is
+     what decides whether the calendar draws a lane per unit. One unit on the
+     job's own dates never does - nothing would be gained. */
+  function hasOwnDates(booking, periods) {
+    var jobS = dayOf(booking && booking.startDate);
+    var jobE = dayOf(booking && booking.endDate) || jobS;
+    var ps = periods || [];
+    if (!ps.length) return false;
+    var back = ps.filter(function (p) { return p.state === "returned"; }).length;
+    if (back && back < ps.length) return true;
+    /* Booked in Nexy on the job's dates but sold for its own: draw the lane
+       with its flag, so the calendar shows what the jobsheet says. */
+    if (ps.some(function (p) { return p.mismatch; })) return true;
+    return ps.some(function (p) { return p.start !== jobS || p.end !== jobE; });
+  }
+
+  /* The job's span: from the first unit out to the last unit back, never
+     narrower than the deal's own dates. */
+  function jobWindow(booking, periods) {
+    var s = dayOf(booking && booking.startDate);
+    var e = dayOf(booking && booking.endDate) || s;
+    (periods || []).forEach(function (p) {
+      if (p.start && (!s || p.start < s)) s = p.start;
+      var pe = p.plannedEnd || p.end;
+      if (pe && (!e || pe > e)) e = pe;
+    });
+    return { start: s, end: e };
+  }
+
+  /* ---- Words for a unit's dates, shared by jobsheet, print and calendar ---- */
+  var DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function fmtUnitDay(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    if (!m) return "";
+    var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return DOW[d.getUTCDay()] + " " + d.getUTCDate() + " " + MON[d.getUTCMonth()];
+  }
+  function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
+
+  /* "Thu 13 Nov → Sun 16 Nov · 4 days" */
+  function unitRangeText(p) {
+    if (!p || !p.start) return "Dates TBC";
+    var out = fmtUnitDay(p.start) + (p.end && p.end !== p.start ? " → " + fmtUnitDay(p.end) : "");
+    return out + (p.days ? " · " + plural(p.days, "day") : "");
+  }
+
+  /* The short state a person acts on. */
+  function unitStateText(p, today) {
+    if (!p) return "";
+    today = dayOf(today) || melbDay(new Date());
+    switch (p.state) {
+      case "returned": return p.returnedOn ? "Returned " + fmtUnitDay(p.returnedOn) : "Returned";
+      case "unallocated": return p.start && p.start > today ? "Needed " + fmtUnitDay(p.start) : "Needed now";
+      case "upcoming": {
+        var n = daysBetween(today, p.start);
+        return "Goes out " + (n === 1 ? "tomorrow" : fmtUnitDay(p.start));
+      }
+      case "due-back": return "Due back today";
+      case "overdue": return "Overdue since " + fmtUnitDay(p.end);
+      default: return "On hire";
+    }
+  }
+
+  /* How a unit's dates sit against the job's, in words; "" when they match. */
+  function unitOffsetText(p, booking) {
+    if (!p || !p.start) return "";
+    var jobS = dayOf(booking && booking.startDate);
+    var jobE = dayOf(booking && booking.endDate) || jobS;
+    var bits = [];
+    var a = daysBetween(jobS, p.start);
+    if (a > 0) bits.push("starts " + plural(a, "day") + " after the job");
+    else if (a < 0) bits.push("starts " + plural(-a, "day") + " before the job");
+    var z = daysBetween(jobE, p.plannedEnd || p.end);
+    if (z < 0) bits.push("due back " + plural(-z, "day") + " before the job ends");
+    else if (z > 0) bits.push("stays " + plural(z, "day") + " past the job's end");
+    if (!bits.length) return "";
+    var s = bits.join(", ");
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  /* The dates every LIVE board allocation on a job should carry, keyed by
+     allocation_id. Used by the server sync that used to stamp the job's dates
+     on all of them. Stock and cross-hire rows take the job's whole span. */
+  function allocationDates(booking, rows) {
+    var out = {};
+    var jobS = dayOf(booking && booking.startDate);
+    if (!jobS) return out;
+    var jobE = dayOf(booking.endDate) || jobS;
+    var liveRows = (rows || []).filter(function (a) { return live(a) && !isReturned(a); });
+    var gens = liveRows.filter(function (a) { return a.asset_id; });
+    var plan = slotPlan(booking, mergeCrmUnits(gens, booking));
+    var sold = booking.generatorUnits || [];
+    var lo = jobS, hi = jobE;
+    plan.slots.forEach(function (a, i) {
+      if (!a || !a.allocation_id) return;            // a Nexy-only unit has no board row
+      var crm = crmUnitFor(booking, a);
+      var s = crm ? dayOf(crm.start) : null;
+      var e = crm ? dayOf(crm.end) : null;
+      if (!s && !e && sold[i]) { s = dayOf(sold[i].start); e = dayOf(sold[i].end); }
+      s = s || jobS;
+      e = e || jobE;
+      if (e < s) e = s;
+      out[a.allocation_id] = { start: s, end: e };
+      if (s < lo) lo = s;
+      if (e > hi) hi = e;
+    });
+    liveRows.forEach(function (a) {
+      if (a.allocation_id && !out[a.allocation_id]) out[a.allocation_id] = { start: lo, end: hi };
+    });
+    return out;
+  }
+
   /* Build the list of equipment requirements for a booking from the Pipedrive
      fields that are actually synced (generator size + cable set). Extra stock
      allocations recorded against the deal are treated as additional
@@ -393,7 +694,10 @@
 
   function reqSatisfied(r) {
     var a = r.alloc;
-    if (!a || !live(a)) return false;
+    if (!a) return false;
+    // A unit off-hired early still did its job: its slot is covered, not open.
+    if (isReturned(a)) return r.kind === "generator";
+    if (!live(a)) return false;
     var st = String(a.allocation_status || "").toLowerCase();
     if (st === "conflict") return false;
     if (st === "cross_hire_required") return true; // covered, but flagged below
@@ -404,6 +708,7 @@
   function reqPicked(r) {
     var a = r.alloc;
     if (!a) return false;
+    if (isReturned(a)) return true;   // it went out; it is back
     var d = String(a.dispatch_status || "").toLowerCase();
     return d === "picked" || d === "ready";
   }
@@ -485,9 +790,17 @@
    * engineHours may be null/[] when only the calendar pill is needed.
    */
   function computeJobStatus(booking, allocations, engineHours, acks) {
-    allocations = (allocations || []).filter(live);
+    var everyAlloc = allocations || [];
+    allocations = everyAlloc.filter(function (a) { return live(a) && !isReturned(a); });
     engineHours = engineHours || [];
-    var reqs = buildRequirements(booking, allocations);
+    /* Units already off-hired keep their slot (read "Returned"), so a job with
+       the 60 back and the 35 still out reads part-returned, not unresourced. */
+    var reqs = buildRequirements(booking, allocations.concat(returnedGens(everyAlloc, allocations)));
+    /* Each generator slot carries its own hire period (same slot order as
+       buildRequirements: both come from slotPlan over the same units). */
+    var periods = unitPeriods(booking, everyAlloc);
+    var genSlotReqs = reqs.filter(function (r) { return r.kind === "generator"; });
+    if (periods.length === genSlotReqs.length) genSlotReqs.forEach(function (r, i) { r.period = periods[i]; });
     var genReq = reqs[0];
     var genAlloc = genReq.alloc;
 
@@ -567,7 +880,11 @@
     var onHire = isOnHire(booking);
 
     var key;
-    if (ended && hoursIn) key = "completed";
+    /* Every unit off-hired is a finished job, whatever date the deal says:
+       an early return completes the hire the day the last unit comes back. */
+    var genReqs = reqs.filter(function (r) { return r.kind === "generator"; });
+    var allBack = genReqs.length > 0 && genReqs.every(function (r) { return r.alloc && isReturned(r.alloc); });
+    if ((ended && hoursIn) || allBack) key = "completed";
     else if (hasConflict) key = "conflict";
     else if (!genAlloc || (!reqSatisfied(genReq))) key = satisfied > 0 ? "part-allocated" : "needs-equipment";
     else if (!covered) key = "part-allocated";
@@ -594,6 +911,11 @@
          wrong. Computed here so the tile, the chip and the picking row can
          never disagree about the same job. */
       generatorSize: generatorSizeLabel(booking, allocations),
+      /* Every generator slot with its own dates and state; staggered says the
+         units do not all share the job's dates (or some are already back). */
+      units: periods,
+      staggered: hasOwnDates(booking, periods),
+      unitsBack: periods.filter(function (p) { return p.state === "returned"; }).length,
       requiredKva: requiredKva(booking),
       undersize: undersize,
       /* Said on the sheet, never blocking: a size-up substitution is routine. */
@@ -626,7 +948,10 @@
   var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked, isOnHire: isOnHire,
               generatorSizeLabel: generatorSizeLabel, allocatedKva: allocatedKva, requiredKva: requiredKva, undersizeWarnings: undersizeWarnings, fmtKva: fmtKva,
               undersizeKey: undersizeKey, ackIndex: ackIndex, sizeWarnings: sizeWarnings, crmUnits: crmUnits,
-              soldSizeLabel: soldSizeLabel, slotPlan: slotPlan };
+              soldSizeLabel: soldSizeLabel, slotPlan: slotPlan,
+              unitPeriods: unitPeriods, hasOwnDates: hasOwnDates, jobWindow: jobWindow, allocationDates: allocationDates,
+              isReturned: isReturned, dayOf: dayOf, daysBetween: daysBetween,
+              fmtUnitDay: fmtUnitDay, unitRangeText: unitRangeText, unitStateText: unitStateText, unitOffsetText: unitOffsetText };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

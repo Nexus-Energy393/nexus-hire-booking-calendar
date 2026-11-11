@@ -295,6 +295,13 @@ body[data-mode="tv"] .fortnight-cell { min-height: 0; }
   .js-table.stackable td:last-child { border-bottom: none; }
   .js-table.stackable td::before { content: attr(data-label); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-weight: 600; }
   .js-table.stackable td.chk { justify-content: flex-start; }
+  /* A cell holding more than one line (the item with its own dates, the unit
+     going) stacks its label above it instead of squeezing beside it, and the
+     action buttons wrap rather than running off the edge of the phone. */
+  .js-table.stackable td.js-td-rich { flex-direction: column; align-items: stretch; gap: 4px; }
+  .js-table.stackable td.js-td-rich > .js-cell { min-width: 0; }
+  .js-table.stackable td.js-actions-col { flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+  .js-table.stackable td.js-actions-col::before { display: none; }
   .js-table input.qty { width: 80px; }
   .js-chk { width: 30px; height: 30px; }
 }
@@ -1498,6 +1505,45 @@ details.js-notes .js-notes-body { font-size: 12.5px; padding: 8px 10px; color: v
 /* cross-hire supplier note under item name */
 .js-xhire-note { font-size: 11px; color: var(--status-needs-text); font-weight: 600; margin-top: 2px; }
 .js-xhire-note.missing { color: var(--danger); }
+/* A generator slot's own dates on the jobsheet: range, a state chip, how it
+   sits against the job, and a flag when Nexy's booking differs from the sale. */
+.js-unit-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 3px; font-size: 11.5px; line-height: 1.35; }
+.js-unit-dates .ud-range { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.js-unit-dates .ud-state {
+  display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; white-space: nowrap;
+  --ud: var(--general);
+  color: color-mix(in srgb, var(--ud) 85%, var(--text));
+  background: color-mix(in srgb, var(--ud) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ud) 40%, transparent);
+}
+.js-unit-dates.st-on-hire .ud-state     { --ud: #2563eb; }
+.js-unit-dates.st-upcoming .ud-state    { --ud: var(--confirmed); }
+.js-unit-dates.st-unallocated .ud-state { --ud: var(--duration); }
+.js-unit-dates.st-due-back .ud-state    { --ud: var(--duration); }
+.js-unit-dates.st-overdue .ud-state     { --ud: var(--review); }
+.js-unit-dates.st-returned .ud-state    { --ud: var(--completed); }
+.js-unit-own { margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--accent); }
+.js-unit-flag {
+  margin-top: 4px; padding: 4px 8px; border-radius: 6px; font-size: 11px; line-height: 1.35;
+  color: var(--status-needs-text, var(--duration));
+  background: color-mix(in srgb, var(--duration) 10%, transparent);
+  border-left: 3px solid var(--duration);
+}
+.js-unit-flag a { font-weight: 700; color: inherit; text-decoration: underline; white-space: nowrap; }
+.alloc-badge.ab-returned { background: var(--completed); }
+tr.is-returned td { color: var(--muted); }
+tr.is-returned td strong { color: var(--muted); }
+.js-box.is-done { display: inline-flex; align-items: center; justify-content: center; font-weight: 800; color: var(--completed); }
+.js-units-list { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.js-units-list li { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; font-size: 12.5px; }
+.js-units-list .ul-tag { font-weight: 700; min-width: 0; }
+.js-units-list .ul-range { color: var(--muted); font-variant-numeric: tabular-nums; }
+@media print {
+  .js-unit-dates, .js-unit-own, .js-unit-flag { font-size: 8.5px; }
+  .js-unit-flag a { display: none; }
+  .js-unit-dates .ud-state { border: 1px solid #999; background: none; color: #000; }
+}
 .fm-optional { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
 @media print { .js-xhire-note { font-size: 8.5px; } }
 
@@ -2802,6 +2848,62 @@ html.nx-embedded .side-rail .tab.active {
 .tl-bar-lbl { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 .tl-bar-dur { font-size: 11px; color: color-mix(in srgb, var(--text) 62%, transparent); white-space: nowrap; flex: 0 0 auto; }
 .tl-chev { font-weight: 800; color: var(--tl-accent, var(--general)); font-size: 15px; line-height: 1; }
+
+/* ---- one lane per unit, under its job's bar (units on their own dates) ----
+   Only drawn when the units do not simply share the job's dates. Colour is the
+   unit's state, outline = not out yet, solid = out, grey tick = back. */
+.tl { --tl-lane-h: 22px; }
+.bs-units {
+  flex: 0 0 auto; margin-left: 6px; padding: 0 6px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; line-height: 15px; white-space: nowrap;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+@media (max-width: 640px) { .bs-units { display: none; } }
+.bc-unit-moves { margin-top: 8px; padding: 6px 9px; border-radius: 8px; font-size: 12.5px; line-height: 1.4;
+  background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
+.bc-unit-moves .um-back { color: var(--status-needs-text, var(--duration)); }
+.tl-row.has-lanes { padding-bottom: 3px; }
+.tl-unit.tl-unit-back { color: var(--accent); font-weight: 600; opacity: 1; }
+.tl-lane {
+  z-index: 1; position: relative; align-self: center;
+  height: 18px; margin: 0 1px; padding: 0 7px 0 6px;
+  display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap;
+  border-radius: 999px; font-size: 10.5px; font-weight: 600; line-height: 1;
+  color: var(--text); cursor: pointer;
+  --ln: var(--general);
+  background: color-mix(in srgb, var(--ln) 16%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--ln) 55%, var(--panel));
+  transition: box-shadow .12s ease, filter .12s ease;
+}
+.tl-lane::before { content: ""; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: var(--ln); }
+.tl-lane:hover, .tl-lane:focus-visible { box-shadow: var(--shadow-sm, 0 1px 3px rgba(16,24,40,.18)); filter: brightness(1.03); outline: none; }
+.tl-lane:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tl-lane.cont-left  { border-top-left-radius: 3px; border-bottom-left-radius: 3px; border-left-style: dashed; }
+.tl-lane.cont-right { border-top-right-radius: 3px; border-bottom-right-radius: 3px; border-right-style: dashed; }
+.tl-lane-tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.tl-lane-st { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: color-mix(in srgb, var(--text) 68%, transparent); }
+.tl-lane-flag {
+  flex: 0 0 auto; margin-left: auto; width: 13px; height: 13px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 800; color: #fff; background: var(--duration);
+}
+.tl-lane.st-on-hire     { --ln: #2563eb; }
+.tl-lane.st-upcoming    { --ln: var(--confirmed); background: var(--panel); border-style: dashed; }
+.tl-lane.st-unallocated { --ln: var(--duration); background: var(--panel); border-style: dashed; }
+.tl-lane.st-due-back    { --ln: var(--duration); }
+.tl-lane.st-overdue     { --ln: var(--review); }
+.tl-lane.st-returned    { --ln: var(--completed); color: var(--muted); }
+.tl-lane.st-returned::before { content: "\2713"; width: auto; height: auto; background: none; color: var(--completed); font-size: 10px; font-weight: 800; }
+.tl-lane.is-mismatch { border-color: var(--duration); }
+@media (max-width: 720px) {
+  .tl { --tl-lane-h: 24px; }
+  .tl-lane { height: 20px; font-size: 11px; }
+  .tl-lane-st { display: none; }
+}
+@media print {
+  .tl-lane { height: 14px; font-size: 8.5px; box-shadow: none !important; }
+}
 .tl-staff-conflict { display: inline-flex; color: var(--danger, #d23f3f); }
 .tl-staff-conflict svg { width: 13px; height: 13px; }
 
@@ -3100,6 +3202,13 @@ html.dark .rs-auto-note { color: #9fd0f2; background: rgba(56,152,214,.10); bord
 .js-table.js-equip { min-width: 560px; }
 .js-actions-col { white-space: nowrap; }
 .js-table.js-equip td:last-child { white-space: nowrap; }
+/* On a phone the rows are cards, not columns: the 560px floor only pushed the
+   status and buttons off the right edge (the "never clip" it was there for is
+   now done by letting the buttons wrap). */
+@media (max-width: 640px) {
+  .js-table.js-equip { min-width: 0; }
+  .js-table.js-equip td:last-child, .js-equip .js-actions-col { white-space: normal; }
+}
 
 /* inputs / outputs → tokens */
 .jobsheet input, .jobsheet textarea, .jobsheet select, .jobsheet output,

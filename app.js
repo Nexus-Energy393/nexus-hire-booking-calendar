@@ -189,8 +189,81 @@ function opensInCrm(b) {
   return !!(b && b.prospective && b.kind !== "event" && dealUrl(b));
 }
 
+/* ---------- each unit on its own dates ----------
+   Justin, 11 Nov 2026: "allow each unit to be on hired and off hired on
+   individual dates and reflect this in the hire calendar". The rule (Nexy's
+   booking per unit, then the quote line's dates, then the job's) lives in
+   resourcing-status.js so the calendar, jobsheet and server sync agree. */
+var UNIT_CACHE = typeof WeakMap === "function" ? new WeakMap() : null;
+var NO_ALLOCS = [];
+function bookingUnits(b) {
+  var RS = window.NexusResourcing;
+  if (!RS || !RS.unitPeriods || !b || b.isGroup || b.kind === "event" || b.prospective) return [];
+  var allocs = (STATE.allocationsByDeal || {})[String(b.pipedriveDealId)] || NO_ALLOCS;
+  if (!(b.generatorQty > 1) && !(b.generatorUnits || []).length && !(b.allocatedUnits || []).length && !allocs.length) return [];
+  /* spansDay asks this for every job on every day of a month, so remember the
+     answer until the job's allocations (or the day) change. */
+  var today = ymdStr(new Date());
+  var hit = UNIT_CACHE && UNIT_CACHE.get(b);
+  if (hit && hit.allocs === allocs && hit.today === today && hit.end === b.endDate && hit.start === b.startDate) return hit.units;
+  var units = RS.unitPeriods(b, allocs);
+  if (UNIT_CACHE) UNIT_CACHE.set(b, { allocs: allocs, today: today, start: b.startDate, end: b.endDate, units: units });
+  return units;
+}
+/* "1 of 2 back" while a job is part-returned; "" otherwise. */
+function unitsBackText(units) {
+  var n = (units || []).length;
+  var back = (units || []).filter(function (p) { return p.state === "returned"; }).length;
+  return back && back < n ? back + " of " + n + " units back" : "";
+}
+/* "#602 · 60 kVA: Tue 10 Nov → Sun 16 Nov · 7 days · On hire", one per line. */
+function unitLinesText(units) {
+  var RS = window.NexusResourcing;
+  return (units || []).map(function (p) {
+    var kva = p.kva != null ? (String(Math.round(p.kva * 10) / 10) + " kVA") : "Size TBC";
+    var tag = p.fleet ? "#" + p.fleet + " \u00b7 " + kva : kva + " (not allocated)";
+    return tag + ": " + RS.unitRangeText(p) + " \u00b7 " + RS.unitStateText(p);
+  }).join("\n");
+}
+/* Units worth a lane each: they do not all simply share the job's dates. */
+function unitLanes(b) {
+  var units = bookingUnits(b);
+  return units.length && window.NexusResourcing.hasOwnDates(b, units) ? units : [];
+}
+/* The job runs from its first unit out to its last unit back. */
+function bookingWindow(b) {
+  var s = bStart(b), e = bEnd(b) || s;
+  var lanes = unitLanes(b);
+  if (lanes.length) {
+    var w = window.NexusResourcing.jobWindow(b, lanes);
+    if (w.start) s = parseDate(w.start) || s;
+    if (w.end) e = parseDate(w.end) || e;
+  }
+  return { s: s, e: e, lanes: lanes };
+}
+
+/* On a staggered job, which units go out or come back on this day:
+   "Out today: 35 kVA (not allocated)" / "Back today: #602 · 60 kVA". */
+function unitMovesOn(b, day) {
+  var lanes = unitLanes(b);
+  if (!lanes.length) return null;
+  var d = ymdStr(day);
+  var tag = function (p) {
+    var kva = p.kva != null ? (String(Math.round(p.kva * 10) / 10) + " kVA") : "Size TBC";
+    return p.fleet ? "#" + p.fleet + " \u00b7 " + kva : kva + " (not allocated)";
+  };
+  var out = lanes.filter(function (p) { return p.start === d; }).map(tag);
+  var back = lanes.filter(function (p) { return (p.state === "returned" ? p.returnedOn : p.plannedEnd) === d; }).map(tag);
+  if (!out.length && !back.length) return null;
+  var box = el("div", "bc-unit-moves");
+  box.innerHTML = (out.length ? '<div class="um-out"><strong>Out today:</strong> ' + escapeHtml(out.join(", ")) + '</div>' : "") +
+    (back.length ? '<div class="um-back"><strong>Back today:</strong> ' + escapeHtml(back.join(", ")) + '</div>' : "");
+  return box;
+}
+
 function spansDay(b, day) {
-  var s = bStart(b), e = bEnd(b);
+  var w = bookingWindow(b);
+  var s = w.s, e = w.e;
   if (!s) return false;
   if (!e) e = s;
   return day.getTime() >= s.getTime() && day.getTime() <= e.getTime();
@@ -1107,8 +1180,9 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
 
   var rows = bookings.filter(function (b) {
     if (b.status === "cancelled") return false;
-    var s = bStart(b); if (!s) return false;
-    var e = startOfDay(bEnd(b) || s);
+    var w = bookingWindow(b);
+    var s = w.s; if (!s) return false;
+    var e = startOfDay(w.e || s);
     if (e.getTime() < today.getTime()) return false; // forward view: a hire already returned is history
     return !(e.getTime() < winStart.getTime() || startOfDay(s).getTime() > winEnd.getTime());
   });
@@ -1172,8 +1246,9 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
 function timelineRow(b, gridStart, numDays, todayCol) {
   var winStart = startOfDay(gridStart);
   var winEnd = startOfDay(addDays(gridStart, numDays - 1));
-  var s = startOfDay(bStart(b));
-  var e = startOfDay(bEnd(b) || bStart(b));
+  var win = bookingWindow(b);
+  var s = startOfDay(win.s);
+  var e = startOfDay(win.e || win.s);
   var segStart = s.getTime() < winStart.getTime() ? winStart : s;
   var segEnd   = e.getTime() > winEnd.getTime()   ? winEnd   : e;
   var startCol = Math.round((segStart.getTime() - winStart.getTime()) / 86400000);
@@ -1196,6 +1271,7 @@ function timelineRow(b, gridStart, numDays, todayCol) {
         (b.generatorSize ? '<span class="tl-gen"> · ' + escapeHtml(b.generatorSize) + '</span>' : '') +
       '</span>' +
       (machine ? '<span class="tl-unit">' + escapeHtml(machine) + '</span>' : '') +
+      (unitsBackText(win.lanes) ? '<span class="tl-unit tl-unit-back">' + escapeHtml(unitsBackText(win.lanes)) + '</span>' : '') +
     '</span>' + job;
   head.title = (b.customer || "Unknown customer") + "\n" + (b.suburb || b.site || "Site TBC") +
     (b.generatorSize ? " · " + b.generatorSize : "") + (machine ? "\n" + machine : "\nNo unit allocated yet");
@@ -1207,6 +1283,17 @@ function timelineRow(b, gridStart, numDays, todayCol) {
   row.appendChild(head);
 
   var track = el("div", "tl-track");
+  /* Only lanes that fall in the weeks on screen take a row: a unit that came
+     back last week is said in the row label ("1 of 2 back"), not as an empty
+     line under the bar. */
+  var lanes = win.lanes.filter(function (p) {
+    var ls = parseDate(p.start), le = parseDate(p.end || p.start);
+    return ls && le && le.getTime() >= winStart.getTime() && ls.getTime() <= winEnd.getTime();
+  });
+  if (lanes.length) {
+    row.classList.add("has-lanes");
+    track.style.gridTemplateRows = "var(--tl-row-h) repeat(" + lanes.length + ", var(--tl-lane-h))";
+  }
   for (var d = 0; d < numDays; d++) {
     var date = addDays(gridStart, d);
     var dow = date.getDay();
@@ -1216,14 +1303,56 @@ function timelineRow(b, gridStart, numDays, todayCol) {
     if (dow === 1 && d !== 0) ccls += " is-weekstart";
     var cell = el("div", ccls);
     cell.style.gridColumn = (d + 1) + " / " + (d + 2);
+    if (lanes.length) cell.style.gridRow = "1 / span " + (lanes.length + 1);
     cell.setAttribute("data-date", ymdStr(date));
     track.appendChild(cell);
   }
   var bar = buildTimelineBar(b, sm, tm, { startCol: startCol, endCol: endCol, contLeft: contLeft, contRight: contRight });
   bar.style.gridColumn = (startCol + 1) + " / " + (endCol + 2);
   track.appendChild(bar);
+  lanes.forEach(function (p, i) {
+    var lane = buildUnitLane(b, p, winStart, winEnd);
+    if (!lane) return;
+    lane.style.gridRow = String(i + 2);
+    track.appendChild(lane);
+  });
   row.appendChild(track);
   return row;
+}
+
+/* One unit's own span under its job's bar: "#602 · 60 kVA" from the day it
+   goes out to the day it is due back (or came back). Colour is its state:
+   blue on hire, green outline booked ahead, amber outline still to allocate,
+   amber due back today, red overdue, grey tick returned. */
+function buildUnitLane(b, p, winStart, winEnd) {
+  var RS = window.NexusResourcing;
+  var ls = parseDate(p.start), le = parseDate(p.end || p.start);
+  if (!ls || !le) return null;
+  if (le.getTime() < winStart.getTime() || ls.getTime() > winEnd.getTime()) return null;
+  var cl = ls.getTime() < winStart.getTime(), cr = le.getTime() > winEnd.getTime();
+  var a = cl ? winStart : ls, z = cr ? winEnd : le;
+  var c0 = Math.round((a.getTime() - winStart.getTime()) / 86400000);
+  var c1 = Math.round((z.getTime() - winStart.getTime()) / 86400000);
+  var kva = p.kva != null ? (String(Math.round(p.kva * 10) / 10) + " kVA") : "Size TBC";
+  var tag = p.fleet ? "#" + p.fleet + " \u00b7 " + kva : kva + " \u00b7 not allocated";
+  var lane = el("div", "tl-lane st-" + p.state + (p.mismatch ? " is-mismatch" : "") + (cl ? " cont-left" : "") + (cr ? " cont-right" : ""));
+  lane.style.gridColumn = (c0 + 1) + " / " + (c1 + 2);
+  lane.setAttribute("role", "button");
+  lane.setAttribute("tabindex", "0");
+  lane.setAttribute("data-deal-id", b.pipedriveDealId);
+  var state = RS.unitStateText(p);
+  var why = p.mismatch && p.sold ? " \u00b7 sold for " + RS.unitRangeText({ start: p.sold.start || p.start, end: p.sold.end || p.plannedEnd, days: null }) : "";
+  lane.innerHTML = '<span class="tl-lane-tag">' + escapeHtml(tag) + '</span>' +
+    '<span class="tl-lane-st">' + escapeHtml(state) + '</span>' +
+    (p.mismatch ? '<span class="tl-lane-flag" aria-hidden="true">!</span>' : '');
+  lane.title = tag + "\n" + RS.unitRangeText(p) + "\n" + state + why;
+  lane.setAttribute("aria-label", (b.customer || "") + ", " + tag + ", " + RS.unitRangeText(p) + ", " + state + why);
+  var open = function () { if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
+  lane.addEventListener("click", open);
+  lane.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  lane.addEventListener("mouseenter", function () { highlightDeal(b.pipedriveDealId, true); });
+  lane.addEventListener("mouseleave", function () { highlightDeal(b.pipedriveDealId, false); });
+  return lane;
 }
 
 function buildTimelineBar(b, sm, tm, seg) {
@@ -1390,10 +1519,11 @@ function renderSpanWeeks(grid, bookings, gridStart, weeks, opts) {
     var rowEnd   = startOfDay(addDays(gridStart, w * 7 + 6));
     var segments = [];
     bookings.forEach(function (b) {
-      var s0 = bStart(b);
+      var w0 = bookingWindow(b);                   // first unit out to last unit back
+      var s0 = w0.s;
       if (!s0) return;
       var bs = startOfDay(s0);
-      var be = startOfDay(bEnd(b) || s0);          // inclusive last day
+      var be = startOfDay(w0.e || s0);             // inclusive last day
       if (be.getTime() < rowStart.getTime()) return;
       if (bs.getTime() > rowEnd.getTime()) return;
       var segStart = bs.getTime() < rowStart.getTime() ? rowStart : bs;
@@ -1522,6 +1652,16 @@ function buildHireRibbon(bar, b, seg, sm, hasStaffConflict) {
     var dur = el("div", "bs-dur");
     dur.textContent = fmtShort(bStart(b)) + " → " + fmtShort(bEnd(b)) + (days ? " · " + days + "d" : "");
     bar.appendChild(dur);
+    /* Units on their own dates: say so on the bar; the detail is on hover and
+       in the 3 Week view, where each unit gets its own lane. */
+    var lanesM = unitLanes(b);
+    if (lanesM.length) {
+      var backM = lanesM.filter(function (p) { return p.state === "returned"; }).length;
+      var chip = el("span", "bs-units");
+      chip.textContent = backM ? backM + "/" + lanesM.length + " back" : lanesM.length + " units";
+      chip.title = unitLinesText(lanesM);
+      bar.appendChild(chip);
+    }
   }
 
   var end = el("div", "bs-end");
@@ -1545,13 +1685,16 @@ function bookingSpan(seg) {
     ((b.suburb || b.site) ? " \u2014 " + (b.suburb || b.site) : "") +
     " \u00b7 " + fmtShort(bStart(b)) + " \u2013 " + fmtShort(bEnd(b)) + " \u00b7 " + sm.label +
     (hasStaffConflict ? " \u26a0 Staff conflict" : "");
+  var lanesT = unitLanes(b);
+  if (lanesT.length) bar.title += "\n" + unitLinesText(lanesT);
   bar.setAttribute("role", "button");
   bar.setAttribute("tabindex", "0");
   bar.setAttribute("data-deal-id", b.pipedriveDealId);
   bar.setAttribute("aria-label",
     (b.customer || "Unknown customer") + ", " +
     (b.suburb || b.site || "") + ", " +
-    fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)));
+    fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) +
+    (lanesT.length ? ", " + unitLinesText(lanesT).replace(/\n/g, ", ") : ""));
   var isMulti = (seg.endCol > seg.startCol) || seg.continuesLeft || seg.continuesRight;
   if (isMulti) {
     /* multi-day hire → slim milestone ribbon (label repeats each week) */
@@ -1624,7 +1767,12 @@ function renderDay(root, bookings) {
   wrap.appendChild(el("h2", "day-title", day.toLocaleDateString("en-AU", {weekday:"long", day:"numeric", month:"long", year:"numeric"})));
   var dayBookings = bookings.filter(function (b) { return spansDay(b, day); });
   if (!dayBookings.length) wrap.appendChild(el("p", "empty", "No bookings on this day."));
-  dayBookings.forEach(function (b) { wrap.appendChild(bookingCard(b, false)); });
+  dayBookings.forEach(function (b) {
+    var card = bookingCard(b, false);
+    var moves = unitMovesOn(b, day);
+    if (moves) card.appendChild(moves);
+    wrap.appendChild(card);
+  });
   root.appendChild(wrap);
 }
 
@@ -2274,6 +2422,11 @@ function jsUpdateStatusUI(b) {
      See jsGenAllocField. */
   var genField = document.getElementById("jsGenAllocField");
   if (genField) genField.outerHTML = jsGenAllocField(st);
+  /* Each unit's dates move with its allocation (a Change into the 35 slot
+     takes the 35's dates), so the list is repainted with everything else. */
+  var unitsField = document.getElementById("jsUnitsField");
+  var unitsHtml = jsUnitsField(b, st);
+  if (unitsField) unitsField.outerHTML = unitsHtml || '<div id="jsUnitsField" hidden></div>';
   var ready = document.getElementById("jsReadyBtn");
   if (ready) jsSetReadyState(ready, st);
   return st;
@@ -2323,6 +2476,32 @@ function jsField(label, value, opts) {
               : '<span class="v missing">MISSING</span>';
   return '<div class="' + cls + '"' + (opts.id ? ' id="' + escapeHtml(opts.id) + '"' : "") +
     '><span class="k">' + escapeHtml(label) + "</span>" + v + "</div>";
+}
+
+/* Units on their own dates, in the Hire period card: one line per unit,
+     "#602 · 60 kVA     Tue 10 Nov -> Sun 16 Nov · 7 days · On hire"
+   Only when the units do not all share the job's dates (or some are back);
+   otherwise Hire start / Hire end above already say it. */
+function jsUnitsField(b, st) {
+  var RS = window.NexusResourcing;
+  if (!RS || !st || !st.staggered || !(st.units || []).length) return '<div id="jsUnitsField" hidden></div>';
+  var items = st.units.map(function (p) {
+    var kva = p.kva != null ? (String(Math.round(p.kva * 10) / 10) + " kVA") : "Size TBC";
+    var tag = p.fleet ? "#" + p.fleet + " \u00b7 " + kva : kva + " (not allocated)";
+    return '<li><span class="ul-tag">' + escapeHtml(tag) + '</span><span class="ul-range">' +
+      escapeHtml(RS.unitRangeText(p) + " \u00b7 " + RS.unitStateText(p)) + '</span></li>';
+  }).join("");
+  var back = st.unitsBack ? " \u00b7 " + st.unitsBack + " of " + st.units.length + " back" : "";
+  return '<div class="js-field full" id="jsUnitsField"><span class="k">Units on their own dates' + escapeHtml(back) + '</span>' +
+    '<ul class="js-units-list">' + items + '</ul></div>';
+}
+
+/* The same unit dates, for the printed / offline picking list. */
+function jsUnitStaticLine(p) {
+  var RS = window.NexusResourcing;
+  if (!p || !p.start || !RS || !RS.unitRangeText) return "";
+  return '<div class="js-unit-dates st-' + escapeHtml(p.state) + '"><span class="ud-range">' + escapeHtml(RS.unitRangeText(p)) +
+    '</span><span class="ud-state">' + escapeHtml(RS.unitStateText(p)) + '</span></div>';
 }
 
 /* The size actually going on the truck, as a field.
@@ -2890,6 +3069,7 @@ function renderJobSheet(b) {
     jsField("Duration", jsFmtDuration(b.durationDays)) +
     jsField("Outage window", jsFmtTimeRange(b.outageWindow)) +
     jsTradingHoursField(dealId, b) +
+    jsUnitsField(b, st) +
   '</div>');
 
   /* 3. EQUIPMENT REQUIRED & PICKING LIST */
@@ -3032,8 +3212,10 @@ function jsStaticEquipmentTable(b, st) {
        this table - the one that shows when the database is unreachable, i.e.
        exactly when somebody is on a phone on a bad connection - stacked into
        an unlabelled column of numbers. The live table in fleet.js has them. */
-    rows += '<tr><td data-label="Item">' + escapeHtml(r.label) + '</td><td class="num" data-label="Req">' + r.qtyRequired +
-            '</td><td data-label="Allocated">' + escapeHtml(allocated) + '</td><td data-label="Status">' + escapeHtml(a ? (a.allocation_status || "") : "not allocated") +
+    var back = r.kind === "generator" && a && window.NexusResourcing && window.NexusResourcing.isReturned && window.NexusResourcing.isReturned(a);
+    rows += '<tr' + (back ? ' class="is-returned"' : '') + '><td data-label="Item" class="js-td-rich"><div class="js-cell">' + escapeHtml(r.label) + (r.kind === "generator" ? jsUnitStaticLine(r.period) : "") +
+            '</div></td><td class="num" data-label="Req">' + r.qtyRequired +
+            '</td><td data-label="Allocated">' + escapeHtml(allocated) + '</td><td data-label="Status">' + escapeHtml(back ? "returned" : (a ? (a.allocation_status || "") : "not allocated")) +
             '</td><td class="chk" data-label="Picked"><span class="js-box"></span></td></tr>';
   });
   return '<table class="js-table js-equip stackable"><thead><tr>' +
