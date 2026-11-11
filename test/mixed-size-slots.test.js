@@ -92,3 +92,49 @@ test("2 x 60 + 35 reads as such", () => {
   assert.equal(R.soldSizeLabel(b), "2 x 60 kVA + 35 kVA");
   assert.deepEqual(R.buildRequirements(b, []).map((q) => q.label), ["Generator 60 kVA #1", "Generator 60 kVA #2", "Generator 35 kVA #3"]);
 });
+
+// ---- The calendar row, List, card and size filter name every size sold ----
+/* NEX-1651 went live with the right slots on its jobsheet while its calendar
+   row still read "Site TBC · 60kVA": those read generatorSize, which names
+   only the lead unit. They now read soldSizeText. */
+const fs = require("node:fs");
+const appJs = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
+const SIZE = new Function("window",
+  appJs.slice(appJs.indexOf("function allocatedLine(b)"), appJs.indexOf("function allocatedFleetNumbers(b)")) +
+  "; return { soldSizeText: soldSizeText, soldSizeMatches: soldSizeMatches, allocatedShort: allocatedShort };")({ NexusResourcing: R });
+
+test("a mixed job reads every size sold; a one-size job reads as Nexy sends it", () => {
+  assert.equal(SIZE.soldSizeText(NEX1651()), "60 + 35 kVA");
+  assert.equal(SIZE.soldSizeText(Object.assign(NEX1651(), { generatorQty: 3, generatorUnits: [{ kva: 60 }, { kva: 60 }, { kva: 35 }] })), "2 x 60 + 35 kVA");
+  assert.equal(SIZE.soldSizeText({ generatorSize: "60kVA", generatorQty: 2, generatorUnits: [{ kva: 60 }, { kva: 60 }] }), "60kVA");
+  assert.equal(SIZE.soldSizeText({ generatorSize: "100kVA", generatorQty: 1 }), "100kVA");
+  assert.equal(SIZE.soldSizeText({ generatorSize: "" }), "");
+});
+
+test("the size filter finds a 60 + 35 job under either size, and no other", () => {
+  assert.equal(SIZE.soldSizeMatches(NEX1651(), "60kVA"), true);
+  assert.equal(SIZE.soldSizeMatches(NEX1651(), "35kVA"), true);
+  assert.equal(SIZE.soldSizeMatches(NEX1651(), "35 kVA"), true);
+  assert.equal(SIZE.soldSizeMatches(NEX1651(), "100kVA"), false);
+  assert.equal(SIZE.soldSizeMatches({ generatorSize: "100kVA" }, "100kVA"), true);
+  assert.equal(SIZE.soldSizeMatches({ generatorSize: "100kVA" }, "60kVA"), false);
+  assert.equal(SIZE.soldSizeMatches({ generatorSize: "60kVA" }, ""), true);
+});
+
+test("the row head names mixed units by fleet number; one spec reads as before", () => {
+  const both = Object.assign(NEX1651(), { allocatedUnits: NEX1651().allocatedUnits.concat([{ fleetNumber: "351", label: "#351 · HIMOINSA HRYW-35 T5 · 35 kVA", kva: 35, status: "BOOKED" }]) });
+  assert.equal(SIZE.allocatedShort(both), "#602 + #351");
+  assert.equal(SIZE.allocatedShort(NEX1651()), "#602 · Himoinsa HRYW-60 T5 · 60 kVA");
+  const pair = { allocatedUnits: [{ fleetNumber: "H71", label: "#H71 · Honda EU70is · 7 kVA" }, { fleetNumber: "H72", label: "#H72 · Honda EU70is · 7 kVA" }] };
+  assert.equal(SIZE.allocatedShort(pair), "#H71 + #H72 · Honda EU70is · 7 kVA");
+  assert.equal(SIZE.allocatedShort({ allocatedUnits: [] }), "");
+});
+
+test("every place that shows a job's size on the board reads soldSizeText", () => {
+  assert.match(appJs, /'<span class="tl-gen"> · ' \+ escapeHtml\(soldSizeText\(b\)\)/);
+  assert.match(appJs, /escapeHtml\(soldSizeText\(b\) \|\| "TBC"\)/);
+  assert.match(appJs, /detailRow\("Generator size", soldSizeText\(b\)/);
+  assert.match(appJs, /if \(f\.size && !soldSizeMatches\(b, f\.size\)\) return false;/);
+  assert.doesNotMatch(appJs, /escapeHtml\(b\.generatorSize\)/);
+  assert.match(appJs, /'<span class="tl-unit">' \+ escapeHtml\(allocatedShort\(b\)\)/);
+});
