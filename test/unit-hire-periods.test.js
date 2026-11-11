@@ -49,7 +49,7 @@ test("NEX-1651 before anything is allocated: each slot carries the dates it was 
     ["Generator 35 kVA", "2026-11-13", "2026-11-16", "unallocated", "quote"],
   ]);
   assert.equal(p[1].days, 4);
-  assert.equal(R.hasOwnDates(JOB(), p), true, "a staggered job draws a lane per unit");
+  assert.equal(R.hasOwnDates(JOB(), p, "2026-11-11"), true, "a staggered job draws a lane per unit");
 });
 
 test("a board unit Nexy has not heard of takes its slot's sold dates", () => {
@@ -78,7 +78,7 @@ test("a unit off-hired early ends on the day it came back and keeps its slot", (
   assert.equal(p[0].end, "2026-11-14");
   assert.equal(p[0].plannedEnd, "2026-11-16");
   assert.equal(p[1].state, "on-hire");
-  assert.equal(R.hasOwnDates(b, p), true);
+  assert.equal(R.hasOwnDates(b, p, "2026-11-11"), true);
 });
 
 test("a unit swapped out (released, not returned) gives its slot back", () => {
@@ -91,7 +91,7 @@ test("a unit swapped out (released, not returned) gives its slot back", () => {
 test("one unit on the job's own dates draws no lanes", () => {
   const b = { startDate: "2026-11-10", endDate: "2026-11-16", generatorQty: 1, generatorSize: "60kVA" };
   const p = R.unitPeriods(b, [unit("602", 60)], "2026-11-11");
-  assert.equal(R.hasOwnDates(b, p), false);
+  assert.equal(R.hasOwnDates(b, p, "2026-11-11"), false);
 });
 
 test("states run upcoming, on hire, due back, overdue", () => {
@@ -213,4 +213,30 @@ test("two units of the same size on different dates each sit on their own line",
   const p = R.unitPeriods(b, [], "2026-11-11");
   assert.deepEqual(p.map((u) => [u.fleet, u.start]), [["602", "2026-11-10"], ["605", "2026-11-13"]], "seated by date, not by list order");
   assert.ok(p.every((u) => !u.mismatch), "nothing is flagged when every unit matches its own line");
+});
+
+test("a unit swapped out (off-hired, replaced) on a one-unit job is history, not a second unit", () => {
+  // Gibson's Wine Bar, NEX-1564: #H71 off-hired 23 Oct, #H72 out in its place.
+  const b = { startDate: "2026-10-08", endDate: "2027-01-31", generatorQty: 1, generatorSize: "7kVA",
+    allocatedUnits: [nexy("H72", 7, "2026-10-08", "2027-01-31")] };
+  const h71 = unit("H71", 7, { allocation_status: "released", return_status: "returned", off_hired_at: "2026-10-23T03:45:09.612Z" });
+  const p = R.unitPeriods(b, [h71], "2026-11-11");
+  assert.deepEqual(p.map((u) => [u.fleet, u.state]), [["H72", "on-hire"]]);
+  assert.equal(R.hasOwnDates(b, p, "2026-11-11"), false, "no lanes and no '1 of 2 back'");
+  const st = R.computeJobStatus(b, [h71], [], []);
+  assert.equal(st.requirements.filter((r) => r.kind === "generator").length, 1);
+  assert.notEqual(st.key, "completed", "the job is still out");
+});
+
+test("lanes are for the job in hand: none for a finished job, none for a single unit, none from a typo", () => {
+  const past = Object.assign(JOB(), { startDate: "2026-08-10", endDate: "2026-09-06" });
+  assert.equal(R.hasOwnDates(past, R.unitPeriods(past, [], "2026-11-11"), "2026-11-11"), false, "history draws no lanes");
+  const single = { startDate: "2026-10-22", endDate: "2026-12-28", generatorQty: 1 };
+  const back = unit("H72", 7, { allocation_status: "released", return_status: "returned", off_hired_at: "2026-11-02T00:00:00Z" });
+  assert.equal(R.hasOwnDates(single, R.unitPeriods(single, [back], "2026-11-11"), "2026-11-11"), false, "one unit back early is the job's own story");
+  // NEX-1641: Nexy had N2002 booked 15 Nov to 25 Oct.
+  const typo = { startDate: "2026-11-15", endDate: "2026-11-15", generatorQty: 1, allocatedUnits: [nexy("N2002", 200, "2026-11-15", "2026-10-25", "BOOKED")] };
+  const p = R.unitPeriods(typo, [], "2026-11-11");
+  assert.deepEqual([p[0].start, p[0].end], ["2026-11-15", "2026-11-15"]);
+  assert.equal(R.hasOwnDates(typo, p, "2026-11-11"), false);
 });
