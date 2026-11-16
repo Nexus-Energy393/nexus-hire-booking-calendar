@@ -19,7 +19,36 @@ try{document.addEventListener('DOMContentLoaded',function(){
   if(!i)return;
   i.setAttribute('placeholder','Filter this board: customer, site, owner, job #…');
   i.setAttribute('aria-label','Filter the bookings on this board');
-});}catch(e){}})();</script>
+});}catch(e){}})();
+/* The board must never sit on its bare page. Until app.js has started, this
+   page is only its skeleton: no dates, no bookings, a clock that reads "--".
+   On 16 Nov 2026 it sat like that inside Nexy ("an old hire calendar screen")
+   because the page was still waiting on a script from somebody else's server
+   before it could start. That script no longer holds the page up, and this is
+   the belt to go with it: if the board has not started after 12 seconds it
+   says so with a Reload button, and after 25 it reloads itself, twice at
+   most, so the office screen on the wall recovers with nobody touching it. */
+(function(){
+  var KEY='nexusHireBootRetries';
+  function started(){return window.__hireBooted===true;}
+  function tries(){try{return Number(sessionStorage.getItem(KEY)||0)||0;}catch(e){return 99;}}
+  setTimeout(function(){
+    if(started())return;
+    var el=document.getElementById('bootState');
+    if(!el)return;
+    el.className='boot-state boot-slow';
+    el.innerHTML='<strong>The hire calendar is taking longer than usual to load.</strong><span>Check your connection, then reload.</span><button type="button" class="btn" id="bootReload">Reload</button>';
+    var b=document.getElementById('bootReload');
+    if(b)b.addEventListener('click',function(){location.reload();});
+  },12000);
+  setTimeout(function(){
+    if(started())return;
+    var n=tries();
+    if(n>=2)return;
+    try{sessionStorage.setItem(KEY,String(n+1));}catch(e){return;}
+    location.reload();
+  },25000);
+})();</script>
 <title>Nexus Hire Operations</title>
 <meta name="description" content="Operational booking board for Nexus Energy generator hire and planned outage jobs." />
 <link rel="stylesheet" href="styles.css" />
@@ -63,8 +92,8 @@ try{document.addEventListener('DOMContentLoaded',function(){
 <input type="search" id="searchInput" placeholder="Search customer, site, owner, job #&hellip;" aria-label="Search bookings" />
 </div>
 <div class="header-actions">
-<span class="db-indicator" id="dbIndicator" title="Data source"><span class="db-dot"></span><span id="dbIndicatorText">Live data</span></span>
-<span class="updated" id="lastUpdated">Last updated: --</span>
+<span class="db-indicator updating" id="dbIndicator" title="Data source"><span class="db-dot"></span><span id="dbIndicatorText">Loading</span></span>
+<span class="updated" id="lastUpdated"></span>
 <button class="btn btn-icon" id="refreshBtn" title="Refresh now" aria-label="Refresh now"><span class="ico-refresh" aria-hidden="true">&#x21bb;</span></button>
 <img class="brand-logo" src="nexus-logo.png" alt="Nexus Generator Hire &amp; Electrical" />
 </div>
@@ -88,10 +117,10 @@ try{document.addEventListener('DOMContentLoaded',function(){
 
 <div class="conflict-banner" id="conflictBanner" hidden></div>
 
-<main id="calendarRoot" class="calendar-root"></main>
+<main id="calendarRoot" class="calendar-root"><div class="boot-state" id="bootState" role="status"><span class="boot-spin" aria-hidden="true"></span><span>Loading the hire calendar&hellip;</span></div></main>
 
 <footer class="app-footer">
-<span id="dataSourceNote">Sample data mode &mdash; connect Pipedrive credentials to go live. See README.</span>
+<span id="dataSourceNote">Loading the hire calendar&hellip;</span>
 </footer>
 
 </div>
@@ -109,7 +138,11 @@ try{document.addEventListener('DOMContentLoaded',function(){
 <script src="off-hire.js"></script>
 <!-- Before app.js: app.js reads window.NexusEvents during its first render. -->
 <script src="events.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<!-- html2pdf (the jobsheet's Download PDF) is NOT loaded here. It comes from a
+     CDN, and a plain script tag in this list holds up everything after it,
+     app.js included, for as long as that server takes to answer: a slow CDN
+     meant no calendar at all. app.js fetches it in the background once the
+     board is up, and again on demand if a PDF is asked for first. -->
 <script src="app.js"></script>
 <script src="service-overlay.js"></script>
 <script src="staff.js"></script>

@@ -3473,3 +3473,14 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
   border-color: var(--danger, #d23f3f) !important;
   background: var(--danger-bg, rgba(210,63,63,.08)) !important;
 }
+
+/* ===================== before the board has started =====================
+   The calendar area while app.js is still on its way: a quiet "loading", and
+   if that drags on, a plain message with a Reload button (index.html's
+   watchdog swaps it in). Replaced by the first render. */
+.boot-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 46vh; padding: 24px; text-align: center; color: var(--muted); font-size: 15px; }
+.boot-state strong { color: var(--text); font-size: 16px; }
+.boot-state .btn { margin-top: 4px; min-height: 44px; padding: 0 22px; font-weight: 600; }
+.boot-spin { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--border-strong); border-top-color: var(--success); animation: bootSpin .9s linear infinite; }
+@keyframes bootSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .boot-spin { animation: none; } }

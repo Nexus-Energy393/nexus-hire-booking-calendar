@@ -477,15 +477,36 @@ window.NexusJobsheetSync = function (dealId, allocations, engineHours) {
   return b;
 };
 
+/*
+ * The pill beside the clock says what the board is actually showing.
+ *
+ * refresh() has always called syncDbIndicator "if it exists", and it did not:
+ * the function was lost in a refactor, so the pill read a green "Live data"
+ * from the first paint, before a single booking had loaded, and went on
+ * reading it if the feed never answered. Three honest states: loading (until
+ * the first read lands), live, and not live (sample data on screen because
+ * the feed could not be reached). A routine refresh does not flicker it.
+ */
+function syncDbIndicator() {
+  var pill = document.getElementById("dbIndicator"), text = document.getElementById("dbIndicatorText");
+  if (!pill || !text) return;
+  var state = !STATE.loaded ? "updating" : STATE.live ? "live" : (CONFIG.apiBase ? "off" : "sample");
+  pill.classList.toggle("updating", state === "updating");
+  pill.classList.toggle("off", state === "off");
+  pill.classList.toggle("sample", state === "sample");
+  text.textContent = state === "updating" ? "Loading" : state === "live" ? "Live data" : state === "off" ? "Feed offline" : "Sample data";
+}
+
 function refresh() {
   STATE.updating = true;
-  if (typeof syncDbIndicator === "function") { try { syncDbIndicator(); } catch (e) {} }
+  syncDbIndicator();
   updateDataSourceNote();
   return loadBookings().then(function (bookings) {
     STATE.updating = false;
     STATE.bookings = bookings;
     STATE.lastUpdated = new Date();
     STATE.loaded = true;
+    syncDbIndicator();
     updateDataSourceNote();
     populateFilterOptions();
     render();
@@ -1174,7 +1195,7 @@ function render() {
 
   updatePeriodLabel();
   var lu = document.getElementById("lastUpdated");
-  lu.textContent = "Last updated: " + (STATE.lastUpdated ? STATE.lastUpdated.toLocaleTimeString("en-AU") : "--");
+  lu.textContent = STATE.lastUpdated ? "Last updated: " + STATE.lastUpdated.toLocaleTimeString("en-AU") : "";
 }
 window.__hireRerender = render;
 
@@ -2313,9 +2334,56 @@ function init() {
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
 
   setupEventDrag();   // drag typed events between days (delegated, survives re-renders)
+  /* The board has started: the watchdog in index.html stands down, and a
+     reload it may have counted is forgotten. Set before the first read, which
+     is allowed to be slow; what it guards against is never getting this far. */
+  window.__hireBooted = true;
+  try { sessionStorage.removeItem("nexusHireBootRetries"); } catch (e) {}
   refresh();
   Promise.all([loadGroups(), loadDismissals(), loadAcknowledgements()]).then(function () { if ((STATE.bookings || []).length) render(); });
   setInterval(refresh, REFRESH_MS); // auto-refresh for the office screen
+  // Fetch the PDF library once the board is up, so Download PDF is instant.
+  setTimeout(function () { loadHtml2pdf().catch(function () {}); }, 5000);
+}
+
+/*
+ * html2pdf, fetched without holding the page up.
+ *
+ * It used to be a script tag in index.html, in front of this file. A script
+ * tag stops the page until its file arrives, and this one comes from a CDN:
+ * when that was slow, nothing after it ran, so the board never started and
+ * people were left looking at the bare page. It is only needed for the
+ * jobsheet's Download PDF, so it is loaded here, in the background, and
+ * waited for only by the button that needs it.
+ */
+var HTML2PDF_URL = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+var _html2pdfLoading = null;
+function loadHtml2pdf() {
+  if (window.html2pdf) return Promise.resolve();
+  if (_html2pdfLoading) return _html2pdfLoading;
+  _html2pdfLoading = new Promise(function (resolve, reject) {
+    var s = document.createElement("script");
+    var done = false;
+    function fail(msg) {
+      if (done) return;
+      done = true;
+      _html2pdfLoading = null; // the next click tries again
+      if (s.parentNode) s.parentNode.removeChild(s);
+      reject(new Error(msg));
+    }
+    var timer = setTimeout(function () { fail("The PDF library took too long to load."); }, 15000);
+    s.src = HTML2PDF_URL;
+    s.async = true;
+    s.onload = function () {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (window.html2pdf) resolve(); else { _html2pdfLoading = null; reject(new Error("The PDF library did not load.")); }
+    };
+    s.onerror = function () { clearTimeout(timer); fail("The PDF library could not be loaded."); };
+    document.head.appendChild(s);
+  });
+  return _html2pdfLoading;
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
@@ -3777,7 +3845,20 @@ function jsWire(m, b) {
   var pdfBtn = document.getElementById("jsPdfBtn");
   if (pdfBtn) pdfBtn.addEventListener("click", function () {
     var node = document.getElementById("jsSheetBody");
-    if (!window.html2pdf || !node) { window.print(); return; }
+    if (!node) { window.print(); return; }
+    if (pdfBtn.disabled) return;
+    var label = pdfBtn.textContent;
+    pdfBtn.disabled = true;
+    pdfBtn.textContent = "Building PDF\u2026";
+    function restore() { pdfBtn.disabled = false; pdfBtn.textContent = label; }
+    loadHtml2pdf().then(exportPdf, function (e) {
+      // No library, no PDF of our own: the browser's Save as PDF still works.
+      restore();
+      console.warn("[jobsheet] " + ((e && e.message) || e));
+      alert("The PDF builder could not be loaded just now.\n\nPrinting instead: choose \u201cSave as PDF\u201d.");
+      window.print();
+    });
+    function exportPdf() {
     document.body.classList.add("js-exporting");
     var fname = (jsDocumentTitle(b) || jobRef(b)).replace(/[^\w\- ]+/g, "").trim() + ".pdf";
     window.html2pdf().set({
@@ -3791,13 +3872,15 @@ function jsWire(m, b) {
       /* between the clone and the canvas: the only moment the tree html2canvas
          will read exists and can still be changed. */
       jsPdfSanitiseColours(this.prop.container);
-    }).save().then(function () { document.body.classList.remove("js-exporting"); })
+    }).save().then(function () { document.body.classList.remove("js-exporting"); restore(); })
       .catch(function (e) {
         document.body.classList.remove("js-exporting");
+        restore();
         console.error("[jobsheet] PDF export failed:", e);
-        alert("Could not build the PDF: " + ((e && e.message) || e) + "\n\nPrinting instead \u2014 choose \u201cSave as PDF\u201d.");
+        alert("Could not build the PDF: " + ((e && e.message) || e) + "\n\nPrinting instead: choose \u201cSave as PDF\u201d.");
         window.print();
       });
+    }
   });
 
   var readyBtn = document.getElementById("jsReadyBtn");
