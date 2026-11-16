@@ -1,6 +1,6 @@
 /*
- * service-overlay.js - overlays scheduled SERVICE jobs from the Nexus hub onto
- * the hire booking calendar (read-only).
+ * service-overlay.js - overlays scheduled SERVICE jobs from Nexy onto the hire
+ * booking calendar (read-only).
  *
  * The hire board (app.js) is a self-contained IIFE, so this module integrates
  * through two tiny, public seams it exposes:
@@ -13,17 +13,22 @@
  * MutationObserver that restyles freshly-rendered service tiles, so app.js needs
  * no knowledge of services beyond passing the items through.
  *
- * Data source: GET {serviceApiBase} on the Nexus hub ->
- *   { ok, count, services: [{ id, date, asset, serviceType, serviceTypeFull,
- *                             status, statusLabel, path }] }
+ * Data source: GET {serviceApiBase}, this app's own /api/service, which reads
+ * the jobs from the Nexy CRM (the service module lives there now; the Nexus
+ * hub this used to ask never saw a job booked in Nexy, so those were missing
+ * from the board) ->
+ *   { ok, count, services: [{ id, date, asset, client, site, serviceType,
+ *                             serviceTypeFull, status, statusLabel, done,
+ *                             technician, path }] }
  */
 (function () {
   "use strict";
 
   var CFG = window.NEXUS_CONFIG || {};
-  var API = CFG.serviceApiBase || "https://nexus-hub-ashy.vercel.app/api/service/calendar";
-  var HUB = (CFG.hubBase || "https://nexus-hub-ashy.vercel.app").replace(/\/+$/, "");
-  var REFRESH_MS = (CFG.serviceRefreshSeconds || 300) * 1000;
+  var API = CFG.serviceApiBase || "/api/service";
+  // Where a tile opens: the job's own page in Nexy.
+  var HUB = (CFG.serviceBase || CFG.crmBase || "https://crm.nexusenergy.au").replace(/\/+$/, "");
+  var REFRESH_MS = (CFG.serviceRefreshSeconds || 120) * 1000;
 
   var cache = []; // array of service "booking-like" items
 
@@ -44,8 +49,11 @@
       suburb: s.serviceType || s.serviceTypeFull || "Service",
       serviceType: s.serviceType || "",
       serviceTypeFull: s.serviceTypeFull || s.serviceType || "Service",
+      asset: s.asset || "",
       jobStatusLabel: s.statusLabel || "",
-      done: s.status === "report_sent",
+      // Finished work stays on the board, faded and ticked. The feed says
+      // which; an older feed that does not is read by its status.
+      done: s.done === true || s.status === "report_sent" || s.status === "completed",
       hubUrl: HUB + path
     };
   }
@@ -82,7 +90,14 @@
       ".booking-span.jt-service{cursor:pointer;}" +
       ".booking-span.jt-service.is-svc-done,.booking-card.jt-service.is-svc-done{opacity:.62;}" +
       ".booking-span.jt-service.is-svc-done .bs-cust::before,.booking-card.jt-service.is-svc-done .bc-cust::before{content:'\\2713';color:#16a34a;margin-right:4px;}" +
-      ".booking-span.jt-service.is-svc-done .bs-status,.booking-card.jt-service.is-svc-done .bc-status{background:#dcfce7 !important;color:#166534 !important;}";
+      ".booking-span.jt-service.is-svc-done .bs-status,.booking-card.jt-service.is-svc-done .bc-status{background:#dcfce7 !important;color:#166534 !important;}" +
+      /* The 3 Week and Week timelines draw a job as a row with a bar. Without
+         these a service job wore the red of a hire that "needs review". */
+      ".tl-row.jt-service .tl-rowhead,.tl-bar.jt-service{--tl-accent:#0d9488;--tl-dot:#0d9488;--tl-type:#0d9488;}" +
+      ".tl-bar.jt-service{border-style:dashed;border-left-style:solid;}" +
+      ".tl-row.jt-service .tl-rowhead{cursor:pointer;}" +
+      ".tl-row.jt-service.is-svc-done{opacity:.62;}" +
+      ".tl-bar.jt-service .svc-mark{font-size:12px;line-height:1;}";
     var st = document.createElement("style");
     st.id = "nexus-service-css";
     st.textContent = css;
@@ -116,13 +131,73 @@
     return it ? it.hubUrl : "";
   }
 
+  /* The tile's badge says where the job is up to and who is on it ("Assigned
+     to Jarrod", "Report sent"). app.js only knows hire statuses, so it writes
+     the bare word "service" there; the label the feed sent replaces it. The
+     hover names the machine, which the tile has no room for. */
+  function label(n, it) {
+    if (!it) return;
+    var badge = n.querySelector(".bs-status, .bc-status");
+    if (badge && it.jobStatusLabel && badge.textContent !== it.jobStatusLabel) badge.textContent = it.jobStatusLabel;
+    var tip = [it.asset, it.serviceTypeFull, it.jobStatusLabel].filter(Boolean).join(" \u00b7 ");
+    if (tip && n.getAttribute("title") !== tip) n.setAttribute("title", tip);
+  }
+
+  /* A service job's row on the 3 Week and Week timelines.
+   *
+   * app.js draws it as it would a hire: red (its status, "service", is not one
+   * app.js knows, so it lands on "needs review"), with a delivery truck and an
+   * off-hire flag on the bar, and a click that opened the hire jobsheet for a
+   * job that is not a hire. Here it becomes what it is: teal, a spanner, the
+   * service and where it is up to, and a click that opens the job in Nexy. */
+  function paintRow(row, it) {
+    if (!it) return;
+    row.classList.add("jt-service");
+    if (it.done) row.classList.add("is-svc-done");
+    if (!row.getAttribute("data-svc-url")) row.setAttribute("data-svc-url", it.hubUrl || "");
+    var tip = [it.customer, it.asset, it.serviceTypeFull, it.jobStatusLabel].filter(Boolean).join(" \u00b7 ");
+    var sub = row.querySelector(".tl-sub");
+    var subText = [it.serviceTypeFull, it.jobStatusLabel].filter(Boolean).join(" \u00b7 ");
+    if (sub && sub.textContent !== subText) sub.textContent = subText;
+    var dot = row.querySelector(".tl-dot");
+    if (dot) dot.setAttribute("title", it.jobStatusLabel || "Service");
+    var head = row.querySelector(".tl-rowhead");
+    if (head) head.setAttribute("title", tip);
+    var bar = row.querySelector(".tl-bar");
+    if (bar && bar.getAttribute("data-svc-painted") !== "1") {
+      bar.setAttribute("data-svc-painted", "1");
+      bar.classList.add("jt-service");
+      bar.innerHTML = '<span class="tl-bar-cap tl-bar-l"><span class="svc-mark" aria-hidden="true">\uD83D\uDD27</span></span>' +
+        '<span class="tl-bar-lbl"></span><span class="tl-bar-dur"></span>';
+      bar.querySelector(".tl-bar-lbl").textContent = it.serviceType || it.serviceTypeFull;
+      bar.querySelector(".tl-bar-dur").textContent = it.jobStatusLabel;
+      bar.setAttribute("title", tip);
+      bar.setAttribute("aria-label", tip + ". Opens the job in Nexy.");
+    }
+    if (row.getAttribute("data-svc-done") === "1") return;
+    row.setAttribute("data-svc-done", "1");
+    var go = function (e) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      var url = row.getAttribute("data-svc-url");
+      if (url) window.open(url, "_blank", "noopener");
+    };
+    // capture, on the row: ahead of app.js's own handlers on the head and the bar
+    row.addEventListener("click", go, true);
+    row.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") go(e); }, true);
+  }
+
   function scan() {
+    // timeline rows (3 Week / Week): data-deal-id = "svc-<id>" on the row
+    var rows = document.querySelectorAll('.tl-row[data-deal-id^="svc-"]');
+    rows.forEach(function (n) { paintRow(n, itemForId(n.getAttribute("data-deal-id"))); });
     // span tiles (month / fortnight): data-deal-id = "svc-<id>"
     var spans = document.querySelectorAll('.booking-span[data-deal-id^="svc-"]');
     spans.forEach(function (n) {
       var it = itemForId(n.getAttribute("data-deal-id"));
       if (!n.getAttribute("data-svc-url")) n.setAttribute("data-svc-url", (it && it.hubUrl) || "");
       if (it && it.done) n.classList.add("is-svc-done");
+      label(n, it);
       decorate(n);
     });
     // card tiles (week / day): data-id = "svc-<id>"
@@ -131,6 +206,7 @@
       var it = itemForId(n.getAttribute("data-id"));
       if (!n.getAttribute("data-svc-url")) n.setAttribute("data-svc-url", (it && it.hubUrl) || "");
       if (it && it.done) n.classList.add("is-svc-done");
+      label(n, it);
       decorate(n);
     });
   }
@@ -153,8 +229,11 @@
     return fetch(API, { headers: { Accept: "application/json" } })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        var arr = data && Array.isArray(data.services) ? data.services : [];
-        cache = arr.map(toItem);
+        // A failed read keeps what is already drawn. Treating it as an empty
+        // list would wipe every service job off the board, which reads as
+        // "nothing is booked".
+        if (!data || data.ok === false || !Array.isArray(data.services)) return cache.length;
+        cache = data.services.map(toItem);
         rerender();
         scan();
         return cache.length;
