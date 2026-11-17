@@ -147,7 +147,20 @@ MIGRATIONS["009_jobsheet_notes_text"] = [
   `ALTER TABLE jobsheet_notes ALTER COLUMN pipedrive_deal_id TYPE TEXT USING pipedrive_deal_id::TEXT`,
 ];
 
+/* 010: a cross-hire says who, what and what it costs (Justin, 18 Nov 2026:
+ * "offer to include the cost price"). Seven nullable columns on allocations,
+ * nothing else touched. The statements live in lib/store-fleet.js, which also
+ * applies them at runtime the first time a cross-hire with details is saved,
+ * so this entry and that path can never disagree. */
+MIGRATIONS["010_cross_hire_details"] = require("../lib/store-fleet").CROSS_HIRE_COLUMNS_SQL;
+
 const VERIFY = {
+  "010_cross_hire_details": async function () {
+    const cols = await db.query(
+      "SELECT column_name FROM information_schema.columns " +
+      "WHERE table_name = 'allocations' AND (column_name LIKE 'xhire\\_%' OR column_name = 'crm_crosshire_id')", []);
+    return { columns: cols.map(function (c) { return c.column_name; }).sort() };
+  },
   "006_events": async function () {
     const [{ count }] = await db.query("SELECT count(*)::int AS count FROM events", []);
     return { eventsTableExists: true, eventsRowCount: count };

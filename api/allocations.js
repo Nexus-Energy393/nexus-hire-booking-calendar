@@ -19,6 +19,7 @@ const store = require("../lib/store-fleet");
 const auth = require("../lib/auth");
 const http = require("../lib/http");
 const R = require("../lib/resourcing");
+const XH = require("../lib/cross-hire");
 
 /* Mirror an allocation to the Nexy CRM — the authoritative EquipmentBooking
    store — the instant it is made on the board, so the deal and fleet reflect it
@@ -49,6 +50,43 @@ async function crmMirror(action, dealId, fleetNumber) {
     }
   } catch (e) {
     console.error("[api/allocations] CRM mirror failed:", e.message);
+  }
+}
+
+/* A cross-hire is a cost against the job, and Nexy is where the job's margin
+   and its supplier bills live: CrossHire on the deal already holds supplier,
+   rate, unit and PO, and the scan-to-Xero inbox matches a Kennards bill to the
+   job by that PO or supplier. So each cross-hire made here keeps one CrossHire
+   row there up to date (POST /api/hire/crosshire, the same token as the feed).
+   Best-effort with a short wait: the board's own save never fails on it, and
+   the answer says whether Nexy took it so the sheet can say so. */
+const CRM_XHIRE_URL = (
+  process.env.CRM_XHIRE_URL ||
+  (process.env.HIRE_FEED_URL || "https://nexus-crm-gilt.vercel.app/api/hire/calendar").replace(/\/calendar\/?$/, "/crosshire")
+).replace(/\/+$/, "");
+async function crmCrossHire(payload) {
+  if (!CRM_XHIRE_URL) return null;
+  const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctl ? setTimeout(function () { ctl.abort(); }, 6000) : null;
+  try {
+    const url = CRM_XHIRE_URL + (CRM_TOKEN ? "?token=" + encodeURIComponent(CRM_TOKEN) : "");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, CRM_TOKEN ? { Authorization: "Bearer " + CRM_TOKEN } : {}),
+      body: JSON.stringify(payload),
+      signal: ctl ? ctl.signal : undefined,
+    });
+    const json = await res.json().catch(function () { return null; });
+    if (!res.ok || !json || json.ok === false) {
+      console.error("[api/allocations] Nexy cross-hire " + payload.action + " answered " + res.status + ": " + JSON.stringify(json).slice(0, 200));
+      return null;
+    }
+    return json;
+  } catch (e) {
+    console.error("[api/allocations] Nexy cross-hire " + payload.action + " failed:", e.message);
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -126,6 +164,14 @@ module.exports = async function handler(req, res) {
         assetId: req.query && req.query.assetId,
         stockItemId: req.query && req.query.stockItemId
       };
+      /* Suppliers already used for cross-hire, for the sheet's suggestions. */
+      if (req.query && req.query.xhireSuppliers) {
+        const suppliers = await store.crossHireSuppliers(12).catch(function () { return []; });
+        res.status(200).json({ ok: true, suppliers: suppliers });
+        return;
+      }
+      // The cost price only to a caller with the admin token (see store).
+      filter.withCost = auth.isAuthorised(req);
       const allocations = await store.listAllocations(filter);
       res.status(200).json({ ok: true, dbConfigured: true, writesEnabled: auth.configured(), count: allocations.length, allocations: allocations });
       return;
@@ -137,6 +183,26 @@ module.exports = async function handler(req, res) {
       if (http.badBody(res, body)) return;
       const id = req.query && req.query.id;
       if (req.method === "PATCH" && id) body.allocation_id = id;
+
+      /* Cross-hire details: cleaned, and summed up in override_note, the one
+         line every reader written before them (print, alerts, status) uses. */
+      const prev = req.method === "PATCH" && id ? await store.getAllocation(id) : null;
+      const xh = XH.cleanCrossHire(body);
+      if (xh) {
+        Object.assign(body, xh);
+        if (body.override_note == null) {
+          const line = XH.summary(Object.assign({}, prev || {}, xh));
+          if (line) body.override_note = line;
+        }
+      }
+      /* One of our units free after all: the cross-hire row becomes that
+         unit's allocation, and the supplier it no longer has goes with it. */
+      const swapped = !!(prev && XH.isCrossHireRow(prev) && body.asset_id);
+      if (swapped) {
+        Object.assign(body, XH.cleared());
+        if (body.override_note === undefined) body.override_note = null;
+        if (body.allocation_status === "cross_hire_required") delete body.allocation_status;
+      }
 
       if (req.method === "POST" && !body.pipedrive_deal_id) {
         res.status(400).json({ ok: false, error: "pipedrive_deal_id is required." });
@@ -187,12 +253,29 @@ module.exports = async function handler(req, res) {
       row = await store.updateAllocation(id, body);
     }
 
+      // Cross-hire -> the deal's CrossHire in Nexy (see crmCrossHire).
+      let nexy = "skipped";
+      try {
+        if (row && XH.isCrossHireRow(row) && row.pipedrive_deal_id && XH.hasDetail(row) && (req.method === "POST" || xh)) {
+          const r = await crmCrossHire(Object.assign({ action: "upsert", id: row.crm_crosshire_id || null, dealId: String(row.pipedrive_deal_id) }, XH.nexyPayload(row)));
+          nexy = r && r.id ? "saved" : "failed";
+          if (r && r.id && r.id !== row.crm_crosshire_id) row = (await store.updateAllocation(row.allocation_id, { crm_crosshire_id: String(r.id) })) || row;
+        } else if (row && prev && prev.crm_crosshire_id && (swapped || /^(released|cancelled)$/.test(String(row.allocation_status || "")))) {
+          const r = await crmCrossHire({ action: "remove", id: prev.crm_crosshire_id, dealId: String(prev.pipedrive_deal_id || "") });
+          nexy = r ? "removed" : "failed";
+          if (r && row.crm_crosshire_id) row = (await store.updateAllocation(row.allocation_id, { crm_crosshire_id: null })) || row;
+        }
+      } catch (e) {
+        nexy = "failed";
+        console.error("[api/allocations] Nexy cross-hire error:", e.message);
+      }
+
       // Mirror to the CRM (authoritative allocation): create -> allocate,
       // release -> remove. Best-effort; the board's own write already succeeded.
       try {
         if (row && row.asset_id && row.pipedrive_deal_id) {
           const st = String(row.allocation_status || "");
-          if (req.method === "POST" && (st === "allocated" || st === "conflict")) {
+          if ((req.method === "POST" || swapped) && (st === "allocated" || st === "conflict")) {
             const asset = await store.getAsset(row.asset_id);
             if (asset && asset.fleet_number) await crmMirror("allocate", row.pipedrive_deal_id, asset.fleet_number);
           } else if (req.method === "PATCH" && st === "released") {
@@ -204,7 +287,7 @@ module.exports = async function handler(req, res) {
         console.error("[api/allocations] CRM mirror error:", e.message);
       }
 
-      res.status(req.method === "POST" ? 201 : 200).json({ ok: true, allocation: row });
+      res.status(req.method === "POST" ? 201 : 200).json({ ok: true, allocation: row, nexy: nexy });
       return;
     }
 

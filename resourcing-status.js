@@ -26,6 +26,32 @@
     return s !== "released" && s !== "cancelled";
   }
 
+  /* ---- Cross-hire: a generator coming from another supplier ---------------
+     Justin, 18 Nov 2026: "fix the cross hire allocation, should update the
+     'Kennards 60kVA' or what ever the detail is on the fly". A cross-hire row
+     has no asset of ours and no stock item, and every generator filter here
+     read only rows with an asset_id. So the row saved, the yellow warning
+     showed, and the slot still read "not allocated": IndustELEC got two
+     "Kennards 60kVA" rows from two taps and neither appeared. It is a
+     generator on the job like any other, so it takes a slot like any other. */
+  function isCrossHire(a) {
+    return !!a && !a.asset_id && !a.stock_item_id &&
+      String(a.allocation_status || "").toLowerCase() === "cross_hire_required";
+  }
+  function isGenRow(a) { return !!a && (!!a.asset_id || isCrossHire(a)); }
+
+  /* Who and what, as the row reads: "Kennards Hire · 60 kVA". Rows saved
+     before the details had columns of their own carry it in the note. */
+  function crossHireLabel(a) {
+    if (!a) return "";
+    var sup = String(a.xhire_supplier || "").trim();
+    var item = String(a.xhire_item || "").trim();
+    if (sup || item) return [sup, item].filter(Boolean).join(" \u00b7 ");
+    return String(a.override_note || a.notes || "").trim();
+  }
+  /* A cross-hire is settled once somebody has said where it comes from. */
+  function crossHireResolved(a) { return !!crossHireLabel(a); }
+
 
   /* ---- Generator size: the allocated unit answers the question -------------
      A job is sold as a size ("100kVA Generator Hire") and dispatched as a fleet
@@ -55,9 +81,12 @@
   function allocatedKva(a) {
     if (!a) return null;
     var asset = a.asset || {};
-    var direct = kvaNumber(a.generator_size_kva != null ? a.generator_size_kva : asset.generator_size_kva);
+    var direct = kvaNumber(a.generator_size_kva != null ? a.generator_size_kva
+      : asset.generator_size_kva != null ? asset.generator_size_kva : a.xhire_kva);
     if (direct != null) return direct;
-    var name = asset.asset_name || a.asset_name || a.booking_title || "";
+    /* A cross-hire says its size in what is coming ("60 kVA generator"), or,
+       saved before that had a column, in the note ("Kennards 60kVA"). */
+    var name = asset.asset_name || a.asset_name || a.xhire_item || (isCrossHire(a) ? a.override_note : "") || a.booking_title || "";
     var m = /(\d+(?:\.\d+)?)\s*kva/i.exec(name);
     return m ? kvaNumber(m[1]) : null;
   }
@@ -150,6 +179,9 @@
   }
 
   function seatUnits(booking, genAllocs) {
+    /* Our own units take their slots first; a cross-hire fills what is left,
+       so #602 stays #1 and the Kennards units follow it. */
+    genAllocs = genAllocs.filter(function (a) { return !isCrossHire(a); }).concat(genAllocs.filter(isCrossHire));
     var genQty = Math.max(1, Number(booking && booking.generatorQty) || 1);
     var count = Math.max(genQty, genAllocs.length);
     var kvas = soldKvas(booking, count);
@@ -228,7 +260,7 @@
      and the caller says "Size TBC". On a mixed job it reads every slot the
      same way: the unit going if one is, else the size sold for that slot. */
   function generatorSizeLabel(booking, allocations) {
-    var gens = (allocations || []).filter(function (a) { return a.asset_id && live(a); });
+    var gens = (allocations || []).filter(function (a) { return isGenRow(a) && live(a); });
     if (soldSizeLabel(booking)) {
       var plan = slotPlan(booking, mergeCrmUnits(gens, booking));
       if (plan.mixed) {
@@ -271,7 +303,7 @@
     /* A mixed job measures each unit against the size sold for ITS slot, so
        a 35 going out for the 35 is not "smaller than the 60 sold". */
     if (soldSizeLabel(booking)) {
-      var plan = slotPlan(booking, mergeCrmUnits((allocations || []).filter(function (a) { return a.asset_id && live(a); }), booking));
+      var plan = slotPlan(booking, mergeCrmUnits((allocations || []).filter(function (a) { return isGenRow(a) && live(a); }), booking));
       if (plan.mixed) {
         var mixedOut = [];
         plan.slots.forEach(function (a, si) {
@@ -284,7 +316,7 @@
     var need = requiredKva(booking);
     if (need == null) return [];
     var out = [];
-    mergeCrmUnits((allocations || []).filter(function (a) { return a.asset_id && live(a); }), booking)
+    mergeCrmUnits((allocations || []).filter(function (a) { return isGenRow(a) && live(a); }), booking)
       .forEach(function (a) {
         var w = sizeDiff(a, need);
         if (w) out.push(w);
@@ -297,7 +329,7 @@
     var got = allocatedKva(a);
     if (got == null || got === need) return null;
     var who = (a.asset && a.asset.fleet_number) || a.fleet_number;
-    var tag = who ? "#" + who + " " : "";
+    var tag = who ? "#" + who + " " : (isCrossHire(a) ? "Cross-hire " : "");
     return got < need ? {
       kind: "under",
       key: undersizeKey(a, got, need),
@@ -505,7 +537,7 @@
     booking = booking || {};
     today = dayOf(today) || melbDay(new Date());
     var all = allocations || [];
-    var liveGens = all.filter(function (a) { return a.asset_id && live(a) && !isReturned(a); });
+    var liveGens = all.filter(function (a) { return isGenRow(a) && live(a) && !isReturned(a); });
     var plan = slotPlan(booking, mergeCrmUnits(liveGens.concat(returnedGens(all, liveGens)), booking));
     var jobS = dayOf(booking.startDate);
     var jobE = dayOf(booking.endDate) || jobS;
@@ -654,7 +686,7 @@
     if (!jobS) return out;
     var jobE = dayOf(booking.endDate) || jobS;
     var liveRows = (rows || []).filter(function (a) { return live(a) && !isReturned(a); });
-    var gens = liveRows.filter(function (a) { return a.asset_id; });
+    var gens = liveRows.filter(isGenRow);
     var plan = slotPlan(booking, mergeCrmUnits(gens, booking));
     var sold = booking.generatorUnits || [];
     var lo = jobS, hi = jobE;
@@ -683,7 +715,7 @@
      requirements so they also gate readiness. */
   function buildRequirements(booking, allocations) {
     var reqs = [];
-    var genAllocs = mergeCrmUnits(allocations.filter(function (a) { return a.asset_id; }), booking);
+    var genAllocs = mergeCrmUnits(allocations.filter(isGenRow), booking);
     // How many generator slots this job needs. The count is sourced from the
     // original Nexy booking (generatorQty, parsed from the deal's hire lines);
     // staff allocate the actual fleet number to each slot. Never fewer than the
@@ -839,7 +871,10 @@
 
     var missing = [];
     var hasConflict = allocations.some(function (a) { return a.allocation_status === "conflict"; });
-    var crossHire = allocations.some(function (a) { return a.allocation_status === "cross_hire_required"; });
+    /* Only an UNSETTLED cross-hire holds the job at "Cross-hire required".
+       Once the supplier is recorded the unit is as good as allocated, and the
+       job moves on to picked, ready and on hire like any other. */
+    var crossHire = allocations.some(function (a) { return a.allocation_status === "cross_hire_required" && !crossHireResolved(a); });
 
     reqs.forEach(function (r) {
       if (reqSatisfied(r)) return;
@@ -858,7 +893,7 @@
     var noteMissing = [];
     reqs.forEach(function (r) {
       var a = r.alloc;
-      if (a && live(a) && a.allocation_status === "cross_hire_required" && !((a.override_note || "").trim() || (a.notes || "").trim())) {
+      if (a && live(a) && a.allocation_status === "cross_hire_required" && !crossHireResolved(a)) {
         noteMissing.push('Cross-hire supplier not recorded for "' + r.label + '"');
       }
     });
@@ -984,6 +1019,7 @@
               soldSizeLabel: soldSizeLabel, slotPlan: slotPlan,
               unitPeriods: unitPeriods, hasOwnDates: hasOwnDates, jobWindow: jobWindow, allocationDates: allocationDates,
               isReturned: isReturned, dayOf: dayOf, daysBetween: daysBetween,
+              isCrossHire: isCrossHire, isGenRow: isGenRow, crossHireLabel: crossHireLabel, crossHireResolved: crossHireResolved,
               fmtUnitDay: fmtUnitDay, unitRangeText: unitRangeText, unitStateText: unitStateText, unitOffsetText: unitOffsetText };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

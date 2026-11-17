@@ -53,7 +53,8 @@ module.exports = async function handler(req, res) {
     if (req.method === "GET") {
       const dealId = req.query && req.query.dealId;
       if (!dealId) { res.status(400).json({ ok: false, error: "?dealId= is required." }); return; }
-      const allocations = await store.listAllocations({ dealId: dealId });
+      // A cross-hire's cost price only to a caller with the admin token.
+      const allocations = await store.listAllocations({ dealId: dealId, withCost: auth.isAuthorised(req) });
       const engineHours = await store.engineHoursForDeal(dealId, null);
       // Attach live service status to any allocated generator.
       for (const a of allocations) {

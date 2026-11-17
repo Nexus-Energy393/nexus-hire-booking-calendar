@@ -3484,3 +3484,79 @@ html.nx-embedded body:not([data-mode="tv"]) .app-shell .app-header {
 .boot-spin { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--border-strong); border-top-color: var(--success); animation: bootSpin .9s linear infinite; }
 @keyframes bootSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .boot-spin { animation: none; } }
+
+/* ---------------------------------------------------------------------------
+   Cross-hire (Justin, 18 Nov 2026): a generator hired in from another supplier
+   reads as itself on the jobsheet, "Kennards Hire · 60 kVA generator", made
+   and edited from one sheet. Its cost price shows to staff on screen only:
+   print hides it and the PDF builder strips it (app.js).
+   --------------------------------------------------------------------------- */
+:root { --xh: #6d4fd1; --xh-solid: #6d4fd1; --xh-soft: rgba(109,79,209,.10); --xh-line: rgba(109,79,209,.38); --xh-text: #4f37b0; }
+html.dark { --xh: #9b85f5; --xh-soft: rgba(155,133,245,.14); --xh-line: rgba(155,133,245,.42); --xh-text: #c4b6ff; }
+
+.alloc-badge.ab-xhire-ok { background: var(--xh-solid); color: #fff; white-space: nowrap; }
+.alloc-badge.xh-tag { background: var(--xh-soft); color: var(--xh-text); border: 1px solid var(--xh-line); font-size: 10px; padding: 1px 6px; border-radius: 4px; vertical-align: 1px; }
+.xh-alloc { display: inline-flex; align-items: center; gap: 7px; }
+.xh-ico { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--xh-soft); color: var(--xh); font-size: 13px; line-height: 1; flex: none; }
+.xh-name strong { color: var(--text); }
+.xh-sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.xh-missing { color: var(--danger, #c62828); font-weight: 600; }
+.js-equip tr.is-xhire td:first-child { box-shadow: inset 3px 0 0 var(--xh); }
+.js-equip tr.is-saving { animation: xhPulse 1s ease-in-out infinite; }
+@keyframes xhPulse { 50% { opacity: .55; } }
+.js-resourcing.is-refreshing { opacity: .6; transition: opacity .15s; pointer-events: none; }
+.xh-summary { display: flex; align-items: flex-start; gap: 9px; margin: 10px 0; padding: 9px 12px; border: 1px solid var(--xh-line); background: var(--xh-soft); border-radius: 8px; font-size: 13px; color: var(--text); line-height: 1.45; }
+.xh-summary .js-xhire-cost { color: var(--muted); }
+
+/* The sheet */
+.xh-modal .fleet-modal { max-width: 520px; }
+.xh-sheet { font-size: 14px; }
+.xh-sheet [hidden] { display: none !important; }   /* .xh-addcost sets display, which beat the hidden attribute */
+.xh-context { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.xh-preview { border: 1px solid var(--xh-line); background: var(--xh-soft); border-radius: 10px; padding: 10px 12px; }
+.xh-preview-k { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.xh-preview-row { display: flex; align-items: center; gap: 9px; margin-top: 6px; font-size: 15px; min-height: 24px; }
+.xh-preview-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.xh-preview-cost { margin-top: 6px; font-size: 12.5px; color: var(--muted); padding-left: 31px; }
+.xh-ghost { color: var(--muted); font-style: italic; }
+.xh-times { color: var(--muted); font-weight: 600; }
+.xh-field { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+.xh-field > span { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.xh-field em { font-style: normal; font-weight: 500; opacity: .8; margin-left: 4px; }
+.xh-field input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px 12px; font-size: 16px; color: var(--text); background: var(--panel-bg, var(--panel)); border: 1px solid var(--border-strong, var(--line)); border-radius: 8px; }
+.xh-field input:focus { outline: none; border-color: var(--xh); box-shadow: 0 0 0 3px var(--xh-soft); }
+.xh-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.xh-chip { min-height: 36px; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--border-strong, var(--line)); background: var(--panel-bg, var(--panel)); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; }
+.xh-chip:hover, .xh-chip:focus-visible { border-color: var(--xh); color: var(--xh-text); }
+.xh-qty { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.xh-step { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--border-strong, var(--line)); background: var(--panel-bg, var(--panel)); color: var(--text); font-size: 20px; font-weight: 700; cursor: pointer; }
+.xh-qty output { min-width: 28px; text-align: center; font-size: 18px; font-weight: 700; color: var(--text); }
+.xh-qty small { color: var(--muted); font-size: 12.5px; }
+.xh-addcost { display: block; width: 100%; margin-top: 14px; min-height: 44px; border: 1px dashed var(--xh-line); border-radius: 10px; background: transparent; color: var(--xh-text); font-size: 14px; font-weight: 700; cursor: pointer; }
+.xh-addcost:hover { background: var(--xh-soft); }
+.xh-costbox { margin-top: 14px; padding: 2px 12px 12px; border: 1px solid var(--border, var(--line)); border-radius: 10px; background: var(--panel-2); }
+.xh-money { display: flex; align-items: center; gap: 8px; }
+.xh-money > span { font-size: 18px; font-weight: 700; color: var(--muted); }
+.xh-money input { flex: 1; }
+.xh-seg { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 10px; border: 1px solid var(--border-strong, var(--line)); border-radius: 10px; overflow: hidden; }
+.xh-seg-btn { min-height: 42px; border: 0; border-left: 1px solid var(--border-strong, var(--line)); background: var(--panel-bg, var(--panel)); color: var(--text); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.xh-seg-btn:first-child { border-left: 0; }
+.xh-seg-btn.on { background: var(--xh-solid); color: #fff; }
+.xh-hint { display: block; margin-top: 9px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.xh-msg { min-height: 18px; margin: 12px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.xh-msg.err { color: var(--danger, #c62828); }
+.xh-msg.ok { color: var(--success, #1e8e3e); }
+.xh-msg.warn { color: #b06a00; }
+html.dark .xh-msg.warn { color: #f0b44c; }
+.xh-actions { flex-wrap: wrap; }
+.xh-actions .fleet-btn { min-height: 44px; }
+.xh-actions #xhRemove { margin-left: auto; }
+.xh-actions #xhRemove.confirm { background: var(--danger, #c62828); color: #fff; border-color: var(--danger, #c62828); }
+@media (max-width: 560px) {
+  .xh-modal.fleet-modal-back { padding: 0; align-items: flex-end; }
+  .xh-modal .fleet-modal { max-width: none; border-radius: 16px 16px 0 0; max-height: 92vh; overflow-y: auto; }
+  .xh-actions .fleet-btn { flex: 1 1 auto; }
+  .xh-actions #xhRemove { margin-left: 0; }
+}
+body.js-exporting .js-xhire-cost { display: none !important; }
+@media print { .js-xhire-cost, .xh-summary .js-xhire-cost { display: none !important; } }

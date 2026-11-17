@@ -50,6 +50,16 @@
     return fetch(API + path, { headers: { "Accept": "application/json" } })
       .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); });
   }
+  /* A read that carries the admin token when this browser has one. Used for
+     the jobsheet: a cross-hire's cost price is only sent to a staff browser
+     (lib/store-fleet.js withoutCost), never to the public read. */
+  function apiGetAuthed(path) {
+    var h = { "Accept": "application/json" };
+    var t = getToken();
+    if (t) h["x-fleet-admin-token"] = t;
+    return fetch(API + path, { headers: h })
+      .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); });
+  }
   function apiSend(method, path, body) {
     return fetch(API + path, { method: method, headers: authHeaders(), body: body != null ? JSON.stringify(body) : undefined })
       .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); });
@@ -881,12 +891,19 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
   function renderResourcing(container, booking) {
     if (!container) return;
     var dealId = booking.pipedriveDealId;
-    container.innerHTML = '<div class="js-resourcing"><div class="rs-loading">Loading equipment &amp; allocation&hellip;</div></div>';
+    /* A refresh after every allocate, pick or cross-hire used to blank the
+       table to "Loading..." and draw it again, so what had just changed was
+       the one thing you could not see. The table now stays, dimmed, until the
+       new one is ready to take its place. */
+    var prior = container.querySelector(".js-resourcing table");
+    if (prior) container.querySelector(".js-resourcing").classList.add("is-refreshing");
+    else container.innerHTML = '<div class="js-resourcing"><div class="rs-loading">Loading equipment &amp; allocation&hellip;</div></div>';
     // Returned so callers can act once the panel really exists - reopenJobsheet
     // restores unsaved hour/fuel drafts on it.
-    return apiGet("/jobsheet?dealId=" + encodeURIComponent(dealId)).then(function (r) {
+    return apiGetAuthed("/jobsheet?dealId=" + encodeURIComponent(dealId)).then(function (r) {
+      if (!container.querySelector(".js-resourcing")) return;
+      container.innerHTML = '<div class="js-resourcing"></div>';
       var box = container.querySelector(".js-resourcing");
-      if (!box) return;
       if (r.body.dbConfigured === false) {
         box.innerHTML = '<div class="rs-note">Fleet resourcing is not connected (no database). The printed checklist above remains manual. ' +
           'Configure the database, then allocate from here or the <a href="#/fleet">Fleet control centre</a>.</div>';
@@ -903,6 +920,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var st = window.NexusResourcing
         ? window.NexusResourcing.computeJobStatus(bk || booking, allocations, engineHours)
         : { requirements: [], missing: [] };
+      STATE.jobStatus = STATE.jobStatus || {};
+      STATE.jobStatus[dealId] = st;
+      var RSX = window.NexusResourcing || {};
+      var isXh = function (a) { return !!(RSX.isCrossHire && RSX.isCrossHire(a)); };
 
       var can = STATE.writesEnabled;
       var html = "";
@@ -940,6 +961,8 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
             var svc = a.service || {};
             allocatedCell = "<strong>#" + esc(a.asset.fleet_number) + "</strong> " + esc(fmtItem(a.asset.asset_name || "")) + " " + svcPill(svc);
             if (a.source === "crm") allocatedCell += ' <span class="alloc-badge crm" title="Booked against this deal in Nexy. Allocate it on the board to pick it.">from Nexy</span>';
+          } else if (a && isXh(a)) {
+            allocatedCell = crossHireCell(a, req.period && req.period.days);
           } else if (a && a.allocation_status === "cross_hire_required") {
             allocatedCell = "Cross-hire" + (a.override_note ? " — " + esc(a.override_note) : "");
           } else allocatedCell = "&mdash;";
@@ -950,11 +973,15 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           var offBtn = isOut && window.NexusOffHire && window.NexusOffHire.openReturn
             ? '<button class="fleet-btn sm primary" data-act="offhire-unit" data-asset="' + esc(a.asset_id) + '" title="Record this unit back: engine hours in and fuel. The rest of the job stays on hire.">Off-hire</button>'
             : "";
-          actions = can
-            ? offBtn + '<button class="fleet-btn sm" data-act="alloc-gen" data-slot="' + idx + '"' + (boardRow ? ' data-alloc="' + esc(a.allocation_id) + '"' : "") + ">" + (a ? (boardRow ? "Change" : "Allocate on board") : "Allocate generator") + "</button>" +
-              (boardRow ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "") +
-              (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen" data-slot="' + idx + '">Cross-hire</button>')
-            : '<span class="fleet-write-off sm">read-only</span>';
+          actions = !can ? '<span class="fleet-write-off sm">read-only</span>'
+            : (a && isXh(a))
+              /* A cross-hire is edited where it was made: supplier, cost, ref,
+                 or swapped for one of ours from inside the sheet. */
+              ? '<button class="fleet-btn sm" data-act="xhire-edit" data-slot="' + idx + '" data-alloc="' + esc(a.allocation_id) + '">Edit</button>' +
+                '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>'
+              : offBtn + '<button class="fleet-btn sm" data-act="alloc-gen" data-slot="' + idx + '"' + (boardRow ? ' data-alloc="' + esc(a.allocation_id) + '"' : "") + ">" + (a ? (boardRow ? "Change" : "Allocate on board") : "Allocate generator") + "</button>" +
+                (boardRow ? '<button class="fleet-btn sm danger" data-act="release" data-alloc="' + esc(a.allocation_id) + '">Remove</button>' : "") +
+                (a ? "" : '<button class="fleet-btn sm warn" data-act="xhire-gen" data-slot="' + idx + '">Cross-hire</button>');
         } else {
           allocatedCell = a ? esc(a.quantity_allocated || 0) : "&mdash;";
           actions = can
@@ -962,7 +989,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
             : "";
         }
         statusCell = a
-          ? allocBadge(a.allocation_status)
+          ? (isXh(a) && RSX.crossHireResolved(a) ? '<span class="alloc-badge ab-xhire-ok">Cross-hired</span>' : allocBadge(a.allocation_status))
           : '<span class="alloc-badge none">not allocated</span>';
         var picked = a && /^(picked|ready)$/i.test(a.dispatch_status || "");
         pickedCell = (a && a.allocation_id)
@@ -978,7 +1005,10 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
               ? '<input type="checkbox" class="js-chk" data-act="pick-crm" data-fleet="' + esc(a.fleet_number || (a.asset && a.asset.fleet_number) || "") + '" title="Picks this unit and records the allocation on the board" aria-label="Picked" />'
               : '<span class="js-box"' + (a && a.source === "crm" ? ' title="Allocate this unit on the board before it can be picked"' : "") + "></span>");
         var noteLine = "";
-        if (a && a.allocation_status === "cross_hire_required") {
+        if (a && isXh(a)) {
+          /* The Allocated column already says who and what. */
+          noteLine = RSX.crossHireResolved(a) ? "" : '<div class="js-xhire-note missing">Cross-hire supplier not recorded</div>';
+        } else if (a && a.allocation_status === "cross_hire_required") {
           var xn = (a.override_note || a.notes || "").trim();
           noteLine = xn ? '<div class="js-xhire-note">Cross-hire: ' + esc(xn) + "</div>"
                         : '<div class="js-xhire-note missing">Cross-hire supplier not recorded</div>';
@@ -986,7 +1016,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           noteLine = '<div class="js-xhire-note">' + esc(a.notes) + "</div>";
         }
         var unitLine = req.kind === "generator" ? unitPeriodLine(req.period, bk || booking) : "";
-        html += '<tr><td data-label="Item" class="js-td-rich"><div class="js-cell">' + esc(fmtItem(req.label)) + unitLine + noteLine + '</div></td>' +
+        html += '<tr' + (req.kind === "generator" ? ' data-slot-row="' + idx + '"' : "") + (a && isXh(a) ? ' class="is-xhire"' : "") + '><td data-label="Item" class="js-td-rich"><div class="js-cell">' + esc(fmtItem(req.label)) + unitLine + noteLine + '</div></td>' +
                 '<td class="num" data-label="Req">' + esc(req.qtyRequired) + "</td>" +
                 '<td data-label="Allocated" class="js-td-rich"><div class="js-cell">' + allocatedCell + "</div></td>" +
                 '<td data-label="Status">' + statusCell + "</td>" +
@@ -1001,8 +1031,13 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var genAlloc = st.genAlloc;
       if (genAlloc && genAlloc.allocation_status === "conflict")
         html += '<div class="rs-alert crit">Conflict: this generator overlaps another booking. Choose another fleet # or cross-hire.</div>';
-      if (allocations.some(function (a) { return a.allocation_status === "cross_hire_required"; }))
-        html += '<div class="rs-alert warn">Cross-hire required &mdash; confirm supplier, then update the allocation.</div>';
+      /* Only a cross-hire still missing its supplier asks for anything. The
+         settled ones are summed up instead: who is supplying what, and (to a
+         staff browser, never on paper) what it costs. */
+      var liveX = allocations.filter(function (a) { return isLiveAlloc(a) && a.allocation_status === "cross_hire_required"; });
+      if (liveX.some(function (a) { return !(RSX.crossHireResolved && RSX.crossHireResolved(a)); }))
+        html += '<div class="rs-alert warn">Cross-hire required: say who is supplying it. Tap <strong>Edit</strong> on the row.</div>';
+      html += crossHireSummary(liveX.filter(function (a) { return isXh(a) && RSX.crossHireResolved(a); }), st);
       if (genAlloc && genAlloc.service) {
         if (genAlloc.service.state === "overdue") html += '<div class="rs-alert crit">Generator service OVERDUE &mdash; an override note is required before dispatch.</div>';
         else if (genAlloc.service.state === "due_soon") html += '<div class="rs-alert warn">Generator service due soon (' + esc(genAlloc.service.hoursUntilDue) + ' hrs remaining).</div>';
@@ -1085,11 +1120,11 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       else if (act === "offhire-unit") {
         window.NexusOffHire.openReturn(booking.pipedriveDealId, t.getAttribute("data-asset"), function () { reopenJobsheet(booking); });
       }
-      else if (act === "xhire-gen") {
-        if (!ensureToken()) return;
-        var note = window.prompt("Cross-hire supplier name + notes (required):", "");
-        if (!note || !note.trim()) { alert("Cross-hire needs the supplier name (or a note) so dispatch knows where the unit is coming from."); return; }
-        doAllocate(booking, null, note.trim(), { close: function () {} }, true, null, slot);
+      else if (act === "xhire-gen") openCrossHireSheet(booking, st, t.getAttribute("data-slot"), null);
+      else if (act === "xhire-edit") {
+        var xid = t.getAttribute("data-alloc");
+        var xa = (((STATE.jobsheet || {})[booking.pipedriveDealId] || {}).allocations || []).filter(function (a) { return String(a.allocation_id) === String(xid); })[0];
+        if (xa) openCrossHireSheet(booking, st, t.getAttribute("data-slot"), xa);
       }
       else if (act === "alloc-stock") openAllocateStockModal(booking, Number(t.getAttribute("data-req")), st);
       else if (act === "release") {
@@ -1305,7 +1340,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     if (idx == null || idx === "") return null;
     var req = ((st && st.requirements) || [])[Number(idx)];
     if (!req || req.kind !== "generator" || !req.period) return null;
-    return { kva: req.period.kva, start: req.period.start, end: req.period.plannedEnd || req.period.end };
+    return { idx: Number(idx), kva: req.period.kva, start: req.period.start, end: req.period.plannedEnd || req.period.end };
   }
 
   function openAllocateModal(booking, replaceId, slot) {
@@ -1415,12 +1450,363 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           doAllocate(booking, b.getAttribute("data-alloc"), null, m, false, replaceId, slot);
         }
         else if (x) {
-          var note = window.prompt("Cross-hire supplier name + notes (required):", "");
-          if (!note || !note.trim()) { alert("Cross-hire needs the supplier name (or a note) so dispatch knows where the unit is coming from."); return; }
-          doAllocate(booking, null, note.trim(), m, true, null, slot);
+          /* The same sheet as the row's Cross-hire button. A "Change" on a
+             unit of ours that turns into a cross-hire releases that unit
+             first, so the slot is not counted twice. */
+          m.close();
+          var stNow = (STATE.jobStatus || {})[booking.pipedriveDealId] || null;
+          openCrossHireSheet(booking, stNow, slot ? slot.idx : null, null, replaceId);
         }
       });
     });
+  }
+
+  /* ---------- cross-hire: a generator hired in from another supplier ----------
+     Justin, 18 Nov 2026: "fix the cross hire allocation, should update the
+     'Kennards 60kVA' or what ever the detail is on the fly. make it cool and
+     offer to include the cost price".
+
+     This was two window.prompt boxes. Inside the CRM a prompt is silently
+     blocked, so the button did nothing there; on the board it saved a row the
+     slot never showed. Now it is a sheet: who it comes from, what is coming,
+     how many, and if you like what it costs. The row reads "Kennards Hire ·
+     60 kVA generator" the moment you save, and the deal in Nexy gets the cost
+     so the job's margin counts it. The cost is never printed. */
+  var XH_SUGGEST = ["Kennards Hire", "Coates", "Aggreko"];
+  var _xhSuppliers = null;   // fetched once per page: suppliers used before
+
+  function xhMoney(n) {
+    var v = Number(n);
+    if (!isFinite(v)) return "";
+    return "$" + v.toLocaleString("en-AU", { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  }
+  function xhDays(n) { return n + " day" + (n === 1 ? "" : "s"); }
+  /* "$180/day ex GST · about $720 for 4 days" */
+  function xhCostText(cost, unit, days) {
+    if (cost == null || cost === "" || !isFinite(Number(cost))) return "";
+    var c = Number(cost);
+    if (unit === "total") return xhMoney(c) + " for the hire, ex GST";
+    var per = unit === "week" ? "/week" : "/day";
+    var est = null;
+    if (days) est = unit === "week" ? c * Math.ceil(days / 7) : c * days;
+    return xhMoney(c) + per + " ex GST" + (est != null ? " · about " + xhMoney(est) + " for " + xhDays(days) : "");
+  }
+  function xhEstimate(a, days) {
+    if (a.xhire_cost == null || a.xhire_cost === "") return null;
+    var c = Number(a.xhire_cost);
+    if (!isFinite(c)) return null;
+    if (a.xhire_cost_unit === "total") return c;
+    if (!days) return null;
+    return a.xhire_cost_unit === "week" ? c * Math.ceil(days / 7) : c * days;
+  }
+
+  /* The Allocated cell for a cross-hire row. */
+  function crossHireCell(a, days) {
+    var RS = window.NexusResourcing || {};
+    var sup = String(a.xhire_supplier || "").trim();
+    var item = String(a.xhire_item || "").trim();
+    var legacy = !sup && !item ? (RS.crossHireLabel ? RS.crossHireLabel(a) : String(a.override_note || "")) : "";
+    var main = sup || item
+      ? (sup ? "<strong>" + esc(sup) + "</strong>" : "") + (item ? " " + esc(item) : "")
+      : (legacy ? "<strong>" + esc(legacy) + "</strong>" : '<span class="xh-missing">Supplier not recorded</span>');
+    var out = '<span class="xh-alloc"><span class="xh-ico" aria-hidden="true">&#8644;</span><span class="xh-name">' + main + "</span></span>" +
+      ' <span class="alloc-badge xh-tag" title="Hired in from another supplier">Cross-hire</span>';
+    if (a.xhire_ref) out += '<div class="xh-sub">Ref ' + esc(a.xhire_ref) + "</div>";
+    var cost = xhCostText(a.xhire_cost, a.xhire_cost_unit, days);
+    if (cost) out += '<div class="xh-sub js-xhire-cost" title="Cost price: inside Nexus only, never printed">' + esc(cost) + "</div>";
+    return out;
+  }
+
+  /* "Cross-hired: 2 x Kennards Hire (60 kVA generator) · about $1,440 ex GST" */
+  function crossHireSummary(rows, st) {
+    if (!rows.length) return "";
+    var RS = window.NexusResourcing || {};
+    var daysOf = {};
+    ((st && st.requirements) || []).forEach(function (r) { if (r.alloc && r.alloc.allocation_id) daysOf[r.alloc.allocation_id] = r.period && r.period.days; });
+    var groups = {}, order = [], total = 0, priced = 0;
+    rows.forEach(function (a) {
+      var key = String(a.xhire_supplier || "").trim() || (RS.crossHireLabel ? RS.crossHireLabel(a) : "Cross-hire");
+      if (!groups[key]) { groups[key] = { n: 0, items: {} }; order.push(key); }
+      groups[key].n++;
+      if (a.xhire_item) groups[key].items[a.xhire_item] = true;
+      var e = xhEstimate(a, daysOf[a.allocation_id]);
+      if (e != null) { total += e; priced++; }
+    });
+    var parts = order.map(function (k) {
+      var items = Object.keys(groups[k].items);
+      return (groups[k].n > 1 ? groups[k].n + " x " : "") + esc(k) + (items.length ? " (" + esc(items.join(", ")) + ")" : "");
+    });
+    return '<div class="xh-summary"><span class="xh-ico" aria-hidden="true">&#8644;</span><span><strong>Cross-hired:</strong> ' + parts.join(" &middot; ") +
+      (priced ? '<span class="js-xhire-cost"> &middot; about ' + esc(xhMoney(total)) + " ex GST" + (priced < rows.length ? " (" + priced + " of " + rows.length + " priced)" : "") + "</span>" : "") +
+      "</span></div>";
+  }
+
+  /* Pull a supplier and a size out of a note typed before the sheet existed
+     ("Kennards 60kVA" -> "Kennards" + 60 kVA), to start the sheet with. */
+  function xhFromNote(note) {
+    var s = String(note || "").trim();
+    var m = /(\d+(?:\.\d+)?)\s*kva/i.exec(s);
+    var sup = m ? s.replace(m[0], "").replace(/[\s,\-·]+$/, "").replace(/^[\s,\-·]+/, "").trim() : s;
+    return { supplier: sup || s, kva: m ? Number(m[1]) : null };
+  }
+
+  function openCrossHireSheet(booking, st, slotIdx, existing, replaceId) {
+    if (!ensureToken()) return;
+    var RS = window.NexusResourcing || {};
+    var reqs = (st && st.requirements) || [];
+    var si = slotIdx == null || slotIdx === "" ? null : Number(slotIdx);
+    var req = si != null ? reqs[si] : null;
+    var period = req && req.period;
+    var legacy = existing && !existing.xhire_supplier && !existing.xhire_item ? xhFromNote(existing.override_note || existing.notes) : null;
+    var kva = (period && period.kva) || (existing && (Number(existing.xhire_kva) || (RS.allocatedKva && RS.allocatedKva(existing)))) ||
+      (legacy && legacy.kva) || parseGenSize(booking.generatorSize) || null;
+    var days = (period && period.days) || (RS.daysBetween ? (RS.daysBetween(booking.startDate, booking.endDate || booking.startDate) || 0) + 1 : null);
+
+    /* Open generator slots this cross-hire could fill: the one tapped first,
+       then the rest of the same size, so "4 from Kennards" fills four. */
+    var open = [];
+    if (!existing) {
+      if (si != null && req && !req.alloc) open.push(si);
+      reqs.forEach(function (r, i) {
+        if (i === si || r.kind !== "generator" || r.alloc) return;
+        var k = r.period && r.period.kva;
+        if (kva && k != null && k !== kva) return;
+        open.push(i);
+      });
+      if (!open.length) open.push(si != null ? si : -1);   // an extra unit beyond what was sold
+    }
+    var maxQty = existing ? 1 : Math.max(1, open.filter(function (i) { return i >= 0; }).length);
+
+    var v = existing ? {
+      supplier: existing.xhire_supplier || (legacy && legacy.supplier) || "",
+      item: existing.xhire_item || (kva ? kva + " kVA generator" : "Generator"),
+      cost: existing.xhire_cost != null ? String(Number(existing.xhire_cost)) : "",
+      unit: existing.xhire_cost_unit || (days && days >= 7 ? "week" : "day"),
+      ref: existing.xhire_ref || ""
+    } : { supplier: "", item: kva ? kva + " kVA generator" : "Generator", cost: "", unit: days && days >= 7 ? "week" : "day", ref: "" };
+    var qty = 1;
+    var showCost = !!v.cost;
+
+    var ctx = (req ? fmtItem(req.label) : "Generator" + (kva ? " " + kva + " kVA" : "")) +
+      (period && RS.unitRangeText ? " · " + RS.unitRangeText(period) : (booking.startDate ? " · " + booking.startDate + (booking.endDate ? " → " + booking.endDate : "") : ""));
+    var unitBtn = function (u, label) { return '<button type="button" class="xh-seg-btn" data-unit="' + u + '" role="radio">' + label + "</button>"; };
+    var m = openModal((existing ? "Edit cross-hire - " : "Cross-hire - ") + jobLabel(booking),
+      '<div class="xh-sheet">' +
+        '<p class="xh-context">' + esc(ctx) + "</p>" +
+        '<div class="xh-preview" aria-live="polite">' +
+          '<span class="xh-preview-k">On the jobsheet</span>' +
+          '<div class="xh-preview-row"><span class="xh-ico" aria-hidden="true">&#8644;</span><span class="xh-preview-text" id="xhPv"></span><span class="alloc-badge ab-xhire-ok">Cross-hired</span></div>' +
+          '<div class="xh-preview-cost" id="xhPvCost" hidden></div>' +
+        "</div>" +
+        '<label class="xh-field"><span>Who is it coming from?</span>' +
+          '<input id="xhSup" type="text" autocomplete="off" maxlength="120" placeholder="e.g. Kennards Hire" value="' + esc(v.supplier) + '" /></label>' +
+        '<div class="xh-chips" id="xhChips"></div>' +
+        '<label class="xh-field"><span>What is coming</span>' +
+          '<input id="xhItem" type="text" autocomplete="off" maxlength="120" value="' + esc(v.item) + '" /></label>' +
+        (maxQty > 1 ? '<div class="xh-field"><span>How many from them</span><div class="xh-qty">' +
+          '<button type="button" class="xh-step" data-step="-1" aria-label="One fewer">&minus;</button><output id="xhQty">1</output>' +
+          '<button type="button" class="xh-step" data-step="1" aria-label="One more">+</button>' +
+          '<small id="xhQtyHint"></small></div></div>' : "") +
+        '<button type="button" class="xh-addcost" id="xhAddCost"' + (showCost ? " hidden" : "") + '>+ Add the cost price</button>' +
+        '<div class="xh-costbox" id="xhCostBox"' + (showCost ? "" : " hidden") + ">" +
+          '<label class="xh-field"><span>Cost price, ex GST</span><span class="xh-money"><span>$</span>' +
+            '<input id="xhCost" type="text" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(v.cost) + '" /></span></label>' +
+          '<div class="xh-seg" role="radiogroup" aria-label="Cost is">' + unitBtn("day", "per day") + unitBtn("week", "per week") + unitBtn("total", "whole hire") + "</div>" +
+          '<small class="xh-hint">Inside Nexus only: never printed on the jobsheet or the PDF. It goes onto the deal in Nexy so the job’s margin counts it.</small>' +
+        "</div>" +
+        '<label class="xh-field"><span>Their booking ref or PO <em>optional</em></span>' +
+          '<input id="xhRef" type="text" autocomplete="off" maxlength="60" placeholder="Helps match their invoice to this job" value="' + esc(v.ref) + '" /></label>' +
+        '<p class="xh-msg" id="xhMsg" role="status"></p>' +
+        '<div class="fm-actions xh-actions">' +
+          '<button type="button" class="fleet-btn primary" id="xhSave">' + (existing ? "Save changes" : "Save cross-hire") + "</button>" +
+          (existing ? '<button type="button" class="fleet-btn ghost" id="xhSwap">Use one of our units</button>' +
+                      '<button type="button" class="fleet-btn danger" id="xhRemove">Remove</button>' : "") +
+        "</div>" +
+      "</div>");
+    m.el.classList.add("xh-modal");
+    var $ = function (id) { return m.body.querySelector("#" + id); };
+    var sup = $("xhSup"), item = $("xhItem"), cost = $("xhCost"), ref = $("xhRef"), msg = $("xhMsg");
+    var busy = false;
+
+    function setMsg(text, kind) { msg.textContent = text || ""; msg.className = "xh-msg" + (kind ? " " + kind : ""); }
+    function costValue() {
+      var raw = String(cost.value || "").replace(/[$,\s]/g, "");
+      if (!raw) return null;
+      var n = Number(raw);
+      return isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : NaN;
+    }
+    function paint() {
+      var s = sup.value.trim(), it = item.value.trim();
+      $("xhPv").innerHTML = (s ? "<strong>" + esc(s) + "</strong>" : '<span class="xh-ghost">Supplier</span>') + (it ? " " + esc(it) : "") +
+        (qty > 1 ? ' <span class="xh-times">&times; ' + qty + "</span>" : "");
+      var c = showCost ? costValue() : null;
+      var pc = $("xhPvCost");
+      var text = c != null && !isNaN(c) ? xhCostText(c, v.unit, days) : "";
+      if (text && qty > 1 && v.unit !== "total") {
+        var each = v.unit === "week" ? c * Math.ceil((days || 0) / 7) : c * (days || 0);
+        if (days) text += " each · about " + xhMoney(each * qty) + " for all " + qty;
+      }
+      pc.textContent = text;
+      pc.hidden = !text;
+      m.body.querySelectorAll(".xh-seg-btn").forEach(function (b) {
+        var on = b.getAttribute("data-unit") === v.unit;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-checked", on ? "true" : "false");
+      });
+      var qh = $("xhQtyHint");
+      if (qh) qh.textContent = "Fills " + qty + " of the " + maxQty + " open " + (kva ? kva + " kVA " : "") + "slot" + (maxQty === 1 ? "" : "s");
+      if ($("xhQty")) $("xhQty").textContent = qty;
+    }
+    function chips(list) {
+      var seen = {}, out = [];
+      list.concat(XH_SUGGEST).forEach(function (n) {
+        var k = String(n || "").trim();
+        if (!k || seen[k.toLowerCase()]) return;
+        seen[k.toLowerCase()] = true;
+        out.push(k);
+      });
+      $("xhChips").innerHTML = out.slice(0, 8).map(function (n) {
+        return '<button type="button" class="xh-chip" data-sup="' + esc(n) + '">' + esc(n) + "</button>";
+      }).join("");
+    }
+    chips(_xhSuppliers || []);
+    if (!_xhSuppliers) {
+      apiGet("/allocations?xhireSuppliers=1").then(function (r) {
+        _xhSuppliers = (r.body && r.body.suppliers) || [];
+        if (m.el.parentNode) chips(_xhSuppliers);
+      }).catch(function () { _xhSuppliers = []; });
+    }
+
+    m.body.addEventListener("input", function () { setMsg(""); paint(); });
+    m.body.addEventListener("click", function (e) {
+      var c = e.target.closest && e.target.closest(".xh-chip");
+      if (c) { sup.value = c.getAttribute("data-sup"); paint(); item.focus(); return; }
+      var u = e.target.closest && e.target.closest(".xh-seg-btn");
+      if (u) { v.unit = u.getAttribute("data-unit"); paint(); return; }
+      var stp = e.target.closest && e.target.closest(".xh-step");
+      if (stp) { qty = Math.max(1, Math.min(maxQty, qty + Number(stp.getAttribute("data-step")))); paint(); return; }
+    });
+    $("xhAddCost").addEventListener("click", function () {
+      showCost = true;
+      $("xhAddCost").hidden = true;
+      $("xhCostBox").hidden = false;
+      cost.focus();
+      paint();
+    });
+    m.body.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && e.target && e.target.tagName === "INPUT") { e.preventDefault(); save(); }
+    });
+
+    /* The jobsheet rows change as soon as Save is tapped; the server's answer
+       then redraws them properly (or says why not). */
+    function paintRows(idxs, label) {
+      idxs.forEach(function (i) {
+        var tr = document.querySelector('.js-resourcing tr[data-slot-row="' + i + '"]');
+        if (!tr) return;
+        var cells = tr.querySelectorAll("td");
+        if (cells[2]) cells[2].innerHTML = '<div class="js-cell"><span class="xh-alloc"><span class="xh-ico" aria-hidden="true">&#8644;</span><span class="xh-name">' + label + '</span></span> <span class="alloc-badge xh-tag">Cross-hire</span></div>';
+        if (cells[3]) cells[3].innerHTML = '<span class="alloc-badge ab-xhire-ok">Saving&hellip;</span>';
+        tr.classList.add("is-xhire", "is-saving");
+      });
+    }
+
+    function save() {
+      if (busy) return;
+      var s = sup.value.trim(), it = item.value.trim();
+      if (!s) { setMsg("Say who it is coming from.", "err"); sup.focus(); return; }
+      var c = showCost ? costValue() : null;
+      if (c !== null && isNaN(c)) { setMsg("The cost price needs to be a dollar amount, like 180 or 1,250.", "err"); cost.focus(); return; }
+      var details = {
+        xhire_supplier: s,
+        xhire_item: it || (kva ? kva + " kVA generator" : "Generator"),
+        xhire_kva: kva || null,
+        xhire_cost: c,
+        xhire_cost_unit: c != null ? v.unit : null,
+        xhire_ref: ref.value.trim() || null
+      };
+      busy = true;
+      var btn = $("xhSave");
+      btn.disabled = true;
+      var label = "<strong>" + esc(s) + "</strong> " + esc(details.xhire_item);
+      var nexyFailed = false, nexySaved = false;
+      var noteNexy = function (r) { if (r && r.body) { if (r.body.nexy === "failed") nexyFailed = true; if (r.body.nexy === "saved") nexySaved = true; } };
+      var chain;
+      if (existing) {
+        paintRows([si], label);
+        setMsg("Saving…");
+        chain = apiSend("PATCH", "/allocations?id=" + encodeURIComponent(existing.allocation_id), details).then(function (r) {
+          if (!r.body.ok) throw new Error(r.body.error || "The cross-hire did not save.");
+          noteNexy(r);
+        });
+      } else {
+        var targets = open.slice(0, qty);
+        paintRows(targets.filter(function (i) { return i >= 0; }), label);
+        var first = replaceId
+          ? apiSend("PATCH", "/allocations?id=" + encodeURIComponent(replaceId), { allocation_status: "released", dispatch_status: "" }).then(function (r) {
+              if (!r.body.ok) throw new Error(r.body.error || "The unit it replaces could not be released.");
+            })
+          : Promise.resolve();
+        chain = targets.reduce(function (p, i, n) {
+          return p.then(function () {
+            setMsg(targets.length > 1 ? "Saving " + (n + 1) + " of " + targets.length + "…" : "Saving…");
+            var sl = i >= 0 ? slotFor(st, i) : null;
+            return apiSend("POST", "/allocations", Object.assign({
+              pipedrive_deal_id: booking.pipedriveDealId,
+              booking_title: booking.customer || "",
+              asset_id: null,
+              allocation_status: "cross_hire_required",
+              hire_start: (sl && sl.start) || booking.startDate || null,
+              hire_end: (sl && sl.end) || booking.endDate || null
+            }, details)).then(function (r) {
+              if (!r.body.ok) throw new Error(r.body.error || "The cross-hire did not save.");
+              noteNexy(r);
+            });
+          });
+        }, first);
+      }
+      chain.then(function () {
+        _xhSuppliers = null;   // the new supplier is a suggestion next time
+        setMsg(nexyFailed
+          ? "Saved on the jobsheet. Nexy did not answer, so the deal’s cross-hire list is not updated yet: open this and save again in a minute."
+          : "Saved" + (nexySaved ? ", and on the deal in Nexy" : "") + ".", nexyFailed ? "warn" : "ok");
+        reopenJobsheet(booking);
+        if (!nexyFailed) setTimeout(m.close, 700);
+        else { busy = false; btn.disabled = false; }
+      }).catch(function (err) {
+        busy = false;
+        btn.disabled = false;
+        setMsg(err.message || String(err), "err");
+        reopenJobsheet(booking);   // what did save shows; what did not, does not
+      });
+    }
+    $("xhSave").addEventListener("click", save);
+
+    if (existing) {
+      $("xhRemove").addEventListener("click", function () {
+        if (busy) return;
+        if (!$("xhRemove").classList.contains("confirm")) {
+          /* No window.confirm: it is blocked inside the CRM, where it would
+             answer "no" by itself. A second tap is the confirmation. */
+          $("xhRemove").classList.add("confirm");
+          $("xhRemove").textContent = "Tap again to remove";
+          return;
+        }
+        busy = true;
+        setMsg("Removing…");
+        apiSend("PATCH", "/allocations?id=" + encodeURIComponent(existing.allocation_id), { allocation_status: "released", dispatch_status: "" }).then(function (r) {
+          if (!r.body.ok) throw new Error(r.body.error || "It did not remove.");
+          m.close();
+          reopenJobsheet(booking);
+        }).catch(function (err) { busy = false; setMsg(err.message || String(err), "err"); });
+      });
+      $("xhSwap").addEventListener("click", function () {
+        m.close();
+        openAllocateModal(booking, existing.allocation_id, si != null ? slotFor(st, si) : null);
+      });
+    }
+
+    paint();
+    setTimeout(function () { (v.supplier ? item : sup).focus(); }, 30);
   }
 
   function doAllocate(booking, assetId, overrideNote, modal, crossHire, replaceId, slot) {
