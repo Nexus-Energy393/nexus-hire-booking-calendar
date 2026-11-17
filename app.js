@@ -3304,7 +3304,11 @@ function jsStaticEquipmentTable(b, st) {
   .forEach(function (r) {
     var a = r.alloc;
     var allocated = a ? (r.kind === "generator"
-        ? (a.asset && a.asset.fleet_number ? "#" + String(a.asset.fleet_number).replace(/^#+/, "") : (a.allocation_status === "cross_hire_required" ? "Cross-hire" : "—"))
+        ? (a.asset && a.asset.fleet_number ? "#" + String(a.asset.fleet_number).replace(/^#+/, "")
+          /* "Cross-hire: Kennards Hire · 60 kVA generator", never the cost */
+          : (a.allocation_status === "cross_hire_required"
+              ? "Cross-hire" + (window.NexusResourcing && window.NexusResourcing.crossHireLabel && window.NexusResourcing.crossHireLabel(a) ? ": " + window.NexusResourcing.crossHireLabel(a) : "")
+              : "—"))
         : String(a.quantity_allocated || 0))
       : "—";
     /* data-label on every cell: the mobile stylesheet hides the header row and
@@ -3315,7 +3319,7 @@ function jsStaticEquipmentTable(b, st) {
     var back = r.kind === "generator" && a && window.NexusResourcing && window.NexusResourcing.isReturned && window.NexusResourcing.isReturned(a);
     rows += '<tr' + (back ? ' class="is-returned"' : '') + '><td data-label="Item" class="js-td-rich"><div class="js-cell">' + escapeHtml(r.label) + (r.kind === "generator" ? jsUnitStaticLine(r.period) : "") +
             '</div></td><td class="num" data-label="Req">' + r.qtyRequired +
-            '</td><td data-label="Allocated">' + escapeHtml(allocated) + '</td><td data-label="Status">' + escapeHtml(back ? "returned" : (a ? (a.allocation_status || "") : "not allocated")) +
+            '</td><td data-label="Allocated">' + escapeHtml(allocated) + '</td><td data-label="Status">' + escapeHtml(back ? "returned" : (a ? (a.allocation_status === "cross_hire_required" ? "cross-hire" : (a.allocation_status || "")) : "not allocated")) +
             '</td><td class="chk" data-label="Picked"><span class="js-box"></span></td></tr>';
   });
   return '<table class="js-table js-equip stackable"><thead><tr>' +
@@ -3872,6 +3876,9 @@ function jsWire(m, b) {
       /* between the clone and the canvas: the only moment the tree html2canvas
          will read exists and can still be changed. */
       jsPdfSanitiseColours(this.prop.container);
+      /* A cross-hire's cost price is for the office, not the truck or the
+         client: it never reaches the PDF. (Print hides it in styles.css.) */
+      Array.prototype.forEach.call(this.prop.container.querySelectorAll(".js-xhire-cost"), function (n) { n.parentNode.removeChild(n); });
     }).save().then(function () { document.body.classList.remove("js-exporting"); restore(); })
       .catch(function (e) {
         document.body.classList.remove("js-exporting");
