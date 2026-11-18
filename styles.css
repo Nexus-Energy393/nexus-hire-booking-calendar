@@ -3507,6 +3507,15 @@ html.dark { --xh: #9b85f5; --xh-soft: rgba(155,133,245,.14); --xh-line: rgba(155
 .js-resourcing.is-refreshing { opacity: .6; transition: opacity .15s; pointer-events: none; }
 .xh-summary { display: flex; align-items: flex-start; gap: 9px; margin: 10px 0; padding: 9px 12px; border: 1px solid var(--xh-line); background: var(--xh-soft); border-radius: 8px; font-size: 13px; color: var(--text); line-height: 1.45; }
 .xh-summary .js-xhire-cost { color: var(--muted); }
+/* Other gear hired in for the job (set on the deal in Nexy) */
+.xh-gear { margin: 10px 0; padding: 9px 12px; border: 1px solid var(--xh-line); background: var(--xh-soft); border-radius: 8px; font-size: 13px; color: var(--text); line-height: 1.45; }
+.xh-gear-head { display: flex; align-items: center; gap: 7px; font-weight: 700; }
+.xh-gear-src { margin-left: auto; font-weight: 500; font-size: 11.5px; color: var(--muted); }
+.xh-gear ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.xh-gear li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 4px 0; border-top: 1px solid var(--xh-line); }
+.xh-gear li:first-child { border-top: 0; }
+.xh-gear li small { color: var(--muted); }
+.xh-gear li.is-back > span:first-child { color: var(--muted); text-decoration: line-through; }
 
 /* The sheet */
 .xh-modal .fleet-modal { max-width: 520px; }
@@ -3538,7 +3547,7 @@ html.dark { --xh: #9b85f5; --xh-soft: rgba(155,133,245,.14); --xh-line: rgba(155
 .xh-money { display: flex; align-items: center; gap: 8px; }
 .xh-money > span { font-size: 18px; font-weight: 700; color: var(--muted); }
 .xh-money input { flex: 1; }
-.xh-seg { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 10px; border: 1px solid var(--border-strong, var(--line)); border-radius: 10px; overflow: hidden; }
+.xh-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin-top: 10px; border: 1px solid var(--border-strong, var(--line)); border-radius: 10px; overflow: hidden; }
 .xh-seg-btn { min-height: 42px; border: 0; border-left: 1px solid var(--border-strong, var(--line)); background: var(--panel-bg, var(--panel)); color: var(--text); font-size: 13.5px; font-weight: 600; cursor: pointer; }
 .xh-seg-btn:first-child { border-left: 0; }
 .xh-seg-btn.on { background: var(--xh-solid); color: #fff; }

@@ -153,8 +153,14 @@ MIGRATIONS["009_jobsheet_notes_text"] = [
  * applies them at runtime the first time a cross-hire with details is saved,
  * so this entry and that path can never disagree. */
 MIGRATIONS["010_cross_hire_details"] = require("../lib/store-fleet").CROSS_HIRE_COLUMNS_SQL;
+/* 011: one board row per Nexy cross-hire (same statement as ensureCrossHireIndex). */
+MIGRATIONS["011_cross_hire_unique"] = [require("../lib/store-fleet").CROSS_HIRE_INDEX_SQL];
 
 const VERIFY = {
+  "011_cross_hire_unique": async function () {
+    const idx = await db.query("SELECT indexname FROM pg_indexes WHERE indexname = 'allocations_crm_crosshire_uq'", []);
+    return { uniqueIndex: idx.length === 1 };
+  },
   "010_cross_hire_details": async function () {
     const cols = await db.query(
       "SELECT column_name FROM information_schema.columns " +

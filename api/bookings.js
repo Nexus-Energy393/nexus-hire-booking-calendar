@@ -42,7 +42,10 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const bookings = await fetchBookings();
+    const full = await fetchBookings();
+    /* Each deal's cross-hires come with their cost (the mend below compares
+       it with the board's); this feed is public, so the cost stops here. */
+    const bookings = require('../lib/cross-hire-sync').publicBookings(full);
     CACHE = { at: now, bookings: bookings };
     /* AWAITED, not fire-and-forget.
        These are two bulk WRITES - one rewrites hire_start/hire_end on every
@@ -56,9 +59,19 @@ module.exports = async function handler(req, res) {
       const db = require('../lib/db');
       if (db.isConfigured()) {
         const store = require('../lib/store-fleet');
-        const moved = await store.syncAllocationDates(bookings);
+        /* Cross-hires made in Nexy that a push missed: put right first, so
+           the date sync below sees them. Its own try: a mend that fails
+           must not stop the date sync. */
+        try {
+          const mend = await require('../lib/cross-hire-sync').mendFromFeed(full);
+          const d = mend && mend.done;
+          if (d && (d.unlinked + d.released + d.updated + d.linked + d.created + d.pushed + d.failed)) console.log('[api/bookings] cross-hire mend ' + JSON.stringify(d));
+        } catch (e3) {
+          console.warn('[api/bookings] cross-hire mend skipped:', e3.message);
+        }
+        const moved = await store.syncAllocationDates(full);
         if (moved) console.log('[api/bookings] re-synced hire dates on ' + moved + ' allocation(s)');
-        const released = await store.releaseOrphanAllocations(bookings);
+        const released = await store.releaseOrphanAllocations(full);
         if (released) console.log('[api/bookings] auto-released ' + released + ' orphaned allocation(s)');
       }
     } catch (e2) {

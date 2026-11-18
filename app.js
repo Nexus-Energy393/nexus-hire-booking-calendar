@@ -3322,9 +3322,18 @@ function jsStaticEquipmentTable(b, st) {
             '</td><td data-label="Allocated">' + escapeHtml(allocated) + '</td><td data-label="Status">' + escapeHtml(back ? "returned" : (a ? (a.allocation_status === "cross_hire_required" ? "cross-hire" : (a.allocation_status || "")) : "not allocated")) +
             '</td><td class="chk" data-label="Picked"><span class="js-box"></span></td></tr>';
   });
+  /* Other gear hired in for the job in Nexy: on paper too, never the cost. */
+  var RSg = window.NexusResourcing || {};
+  var gear = RSg.crossHiredGear ? RSg.crossHiredGear(b) : [];
+  var gearHtml = gear.length
+    ? '<div class="xh-gear"><div class="xh-gear-head">Cross-hired gear</div><ul>' + gear.map(function (g) {
+        return '<li' + (g.returned ? ' class="is-back"' : '') + '><span>' + escapeHtml(RSg.crossHiredGearText(g)) + '</span>' +
+          (g.refs.length ? '<small>Ref ' + escapeHtml(g.refs.join(", ")) + '</small>' : '') + (g.returned ? '<small>Gone back</small>' : '') + '</li>';
+      }).join("") + '</ul></div>'
+    : "";
   return '<table class="js-table js-equip stackable"><thead><tr>' +
          '<th>Item</th><th class="num">Req</th><th>Allocated</th><th>Status</th><th class="chk">Picked</th>' +
-         "</tr></thead><tbody>" + rows + "</tbody></table>" +
+         "</tr></thead><tbody>" + rows + "</tbody></table>" + gearHtml +
          (CONFIG.apiBase ? "" : '<div class="js-line-note">Fleet resourcing not connected — allocation is manual on this sheet.</div>');
 }
 

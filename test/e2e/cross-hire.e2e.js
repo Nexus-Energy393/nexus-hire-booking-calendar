@@ -55,8 +55,24 @@ const legacy = (id) => ({
   cross_hire_qty: "0", override_note: "Kennards 60kVA", notes: null,
 });
 
-let allocations, log, seq;
-function reset() { allocations = [legacy("x1"), legacy("x2")]; log = []; seq = 0; }
+let allocations, log, seq, job;
+function reset() { allocations = [legacy("x1"), legacy("x2")]; log = []; seq = 0; job = JOB; }
+
+/* Made on the deal in Nexy: two Kennards 60s on the board (one gone back,
+   priced per month) and two light towers, which take no slot. */
+const nexyRow = (id, crm, over) => Object.assign(legacy(id), {
+  override_note: "Kennards Hire · 60 kVA generator", xhire_supplier: "Kennards Hire", xhire_item: "60 kVA generator", xhire_kva: "60",
+  xhire_cost: "4000", xhire_cost_unit: "month", xhire_ref: "Quote: 675430", crm_crosshire_id: crm }, over || {});
+function resetNexy() {
+  reset();
+  allocations = [nexyRow("y1", "c1"), nexyRow("y2", "c2", { return_status: "returned" })];
+  job = Object.assign({}, JOB, { crossHires: [
+    { id: "c1", supplier: "Kennards Hire", description: "60 kVA generator", kva: 60, poNumber: "Quote: 675430", start: null, end: null, returned: false },
+    { id: "c2", supplier: "Kennards Hire", description: "60 kVA generator", kva: 60, poNumber: "Quote: 675430", start: null, end: null, returned: true },
+    { id: "t1", supplier: "Kennards", description: "LIGHT TOWER - LED 4 HEAD DIESEL", kva: null, poNumber: null, start: null, end: null, returned: false },
+    { id: "t2", supplier: "Kennards", description: "LIGHT TOWER - LED 4 HEAD DIESEL", kva: null, poNumber: null, start: null, end: null, returned: false },
+  ] });
+}
 
 async function installRoutes(page) {
   await page.route("**/*", async (route) => {
@@ -74,7 +90,7 @@ async function installRoutes(page) {
     } else if (name === "jobsheet") {
       log.push({ method: "GET", name: name, token: req.headers()["x-fleet-admin-token"] || "" });
     }
-    if (name === "bookings") return json(200, { ok: true, count: 1, bookings: [JOB] });
+    if (name === "bookings") return json(200, { ok: true, count: 1, bookings: [job] });
     if (name === "allocations") {
       if (q.get("xhireSuppliers")) return json(200, { ok: true, suppliers: ["Kennards Hire", "Coates Hire Dandenong"] });
       if (req.method() === "POST") {
@@ -270,6 +286,32 @@ const shot = async (s, name, sel) => {
       assert.deepEqual(s.errors, []);
     });
     await shot(s, "4-sheet-dark", ".fleet-modal");
+    await s.context.close();
+
+    /* Cross-hires made on the deal in Nexy. */
+    resetNexy();
+    s = await screen(browser, "light");
+    await step("Nexy's light towers are listed as cross-hired gear, and take no slot", async () => {
+      const gear = await s.page.$eval("#jsEquipmentHolder .xh-gear", (e) => e.innerText.replace(/\s+/g, " "));
+      assert.match(gear, /Cross-hired gear/);
+      assert.match(gear, /2 x LIGHT TOWER - LED 4 HEAD DIESEL from Kennards/);
+      assert.doesNotMatch(gear, /\$/, "never a cost");
+      assert.match(await rowText(s, 4), /not allocated/, "slots 5 to 8 stay open: towers are not generators");
+    });
+    await step("a cross-hire gone back reads Gone back, with who it went back to", async () => {
+      const texts = await s.page.$$eval("#jsEquipmentHolder tr.is-returned", (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
+      assert.ok(texts.some((t) => /Kennards Hire 60 kVA generator/.test(t) && /Gone back/.test(t)), texts.join(" | "));
+    });
+    await shot(s, "6-nexy-gone-back", "#jsEquipmentHolder tr.is-returned");
+    await shot(s, "6-nexy-gear", "#jsEquipmentHolder .xh-gear");
+    await step("a per-month price set in Nexy reads per month, and keeps it when edited here", async () => {
+      assert.match(await s.page.$eval("#jsEquipmentHolder", (e) => e.innerText), /\$4,000\/month ex GST/);
+      await s.page.click('#jsEquipmentHolder [data-act="xhire-edit"][data-alloc="y1"]');
+      await s.page.waitForSelector(".xh-sheet #xhSup");
+      assert.equal(await s.page.$eval('.xh-seg-btn.on', (e) => e.getAttribute("data-unit")), "month");
+      assert.deepEqual(s.errors, []);
+    });
+    await shot(s, "7-month-sheet", ".fleet-modal");
     await s.context.close();
   } finally {
     await browser.close();

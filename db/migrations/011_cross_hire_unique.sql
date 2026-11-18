@@ -1,0 +1,21 @@
+-- ---------------------------------------------------------------------
+-- 011_cross_hire_unique.sql | One board row per Nexy cross-hire
+--
+-- Justin, 18 Nov 2026, on the deal's Equipment allocation card in Nexy: "add
+-- full cross hire functionality to this and ensure the details flow through
+-- to wherever they need to land. make everything editable and adjustable".
+--
+-- Cross-hires can now be made in Nexy and reach the board two ways: Nexy's
+-- push (POST /api/allocations?action=nexy-crosshire) and the calendar feed's
+-- mend (api/bookings). If both ran at once they could each add a row for the
+-- same unit. This index makes the second one fail (23505), and the code then
+-- updates the row the first one made.
+--
+-- Additive and safe to re-run. lib/store-fleet.js ensureCrossHireIndex()
+-- applies the same statement at runtime the first time it is needed.
+--
+-- Reversal:
+--   DROP INDEX IF EXISTS allocations_crm_crosshire_uq;
+-- ---------------------------------------------------------------------
+CREATE UNIQUE INDEX IF NOT EXISTS allocations_crm_crosshire_uq
+  ON allocations (crm_crosshire_id) WHERE crm_crosshire_id IS NOT NULL;
