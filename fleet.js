@@ -945,8 +945,11 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
           /* Off-hired already: it keeps its slot and says when it came back.
              Nothing to change or pick. */
           var fleetNo = (a.asset && a.asset.fleet_number) || a.fleet_number || "";
-          allocatedCell = (fleetNo ? "<strong>#" + esc(fleetNo) + "</strong> " : "") + esc(fmtItem((a.asset && a.asset.asset_name) || a.asset_name || ""));
-          statusCell = '<span class="alloc-badge ab-returned">Returned</span>';   // the date is on the Item line
+          var xhBack = isXh(a);
+          /* A cross-hired unit went back to its supplier, not our yard. */
+          allocatedCell = xhBack ? crossHireCell(a, req.period && req.period.days)
+            : (fleetNo ? "<strong>#" + esc(fleetNo) + "</strong> " : "") + esc(fmtItem((a.asset && a.asset.asset_name) || a.asset_name || ""));
+          statusCell = '<span class="alloc-badge ab-returned">' + (xhBack ? "Gone back" : "Returned") + "</span>";   // the date is on the Item line
           pickedCell = '<span class="js-box is-done" title="Went out and came back" aria-label="Returned">&#10003;</span>';
           html += '<tr class="is-returned"><td data-label="Item" class="js-td-rich"><div class="js-cell">' + esc(fmtItem(req.label)) + unitPeriodLine(req.period, bk || booking) + "</div></td>" +
                   '<td class="num" data-label="Req">' + esc(req.qtyRequired) + "</td>" +
@@ -1038,6 +1041,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       if (liveX.some(function (a) { return !(RSX.crossHireResolved && RSX.crossHireResolved(a)); }))
         html += '<div class="rs-alert warn">Cross-hire required: say who is supplying it. Tap <strong>Edit</strong> on the row.</div>';
       html += crossHireSummary(liveX.filter(function (a) { return isXh(a) && RSX.crossHireResolved(a); }), st);
+      html += crossHiredGearBlock(bk || booking);
       if (genAlloc && genAlloc.service) {
         if (genAlloc.service.state === "overdue") html += '<div class="rs-alert crit">Generator service OVERDUE &mdash; an override note is required before dispatch.</div>';
         else if (genAlloc.service.state === "due_soon") html += '<div class="rs-alert warn">Generator service due soon (' + esc(genAlloc.service.hoursUntilDue) + ' hrs remaining).</div>';
@@ -1481,14 +1485,20 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     return "$" + v.toLocaleString("en-AU", { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
   }
   function xhDays(n) { return n + " day" + (n === 1 ? "" : "s"); }
+  /* A rate over a span of days: part of a week is a week, part of a month
+     (30 days) is a month. Same rule as Nexy's crossHireCost. */
+  function xhOver(c, unit, days) {
+    if (unit === "week") return c * Math.ceil(days / 7);
+    if (unit === "month") return c * Math.ceil(days / 30);
+    return c * days;
+  }
   /* "$180/day ex GST · about $720 for 4 days" */
   function xhCostText(cost, unit, days) {
     if (cost == null || cost === "" || !isFinite(Number(cost))) return "";
     var c = Number(cost);
     if (unit === "total") return xhMoney(c) + " for the hire, ex GST";
-    var per = unit === "week" ? "/week" : "/day";
-    var est = null;
-    if (days) est = unit === "week" ? c * Math.ceil(days / 7) : c * days;
+    var per = unit === "week" ? "/week" : unit === "month" ? "/month" : "/day";
+    var est = days ? xhOver(c, unit, days) : null;
     return xhMoney(c) + per + " ex GST" + (est != null ? " · about " + xhMoney(est) + " for " + xhDays(days) : "");
   }
   function xhEstimate(a, days) {
@@ -1497,7 +1507,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     if (!isFinite(c)) return null;
     if (a.xhire_cost_unit === "total") return c;
     if (!days) return null;
-    return a.xhire_cost_unit === "week" ? c * Math.ceil(days / 7) : c * days;
+    return xhOver(c, a.xhire_cost_unit, days);
   }
 
   /* The Allocated cell for a cross-hire row. */
@@ -1539,6 +1549,20 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
     return '<div class="xh-summary"><span class="xh-ico" aria-hidden="true">&#8644;</span><span><strong>Cross-hired:</strong> ' + parts.join(" &middot; ") +
       (priced ? '<span class="js-xhire-cost"> &middot; about ' + esc(xhMoney(total)) + " ex GST" + (priced < rows.length ? " (" + priced + " of " + rows.length + " priced)" : "") + "</span>" : "") +
       "</span></div>";
+  }
+
+  /* Other gear hired in for the job (set on the deal in Nexy): listed, so the
+     yard knows it is coming from a supplier and not off our shelves. */
+  function crossHiredGearBlock(booking) {
+    var RS = window.NexusResourcing || {};
+    var gear = RS.crossHiredGear ? RS.crossHiredGear(booking) : [];
+    if (!gear.length) return "";
+    return '<div class="xh-gear"><div class="xh-gear-head"><span class="xh-ico" aria-hidden="true">&#8644;</span> Cross-hired gear <span class="xh-gear-src">set in Nexy</span></div><ul>' +
+      gear.map(function (g) {
+        return '<li' + (g.returned ? ' class="is-back"' : "") + "><span>" + esc(RS.crossHiredGearText(g)) + "</span>" +
+          (g.refs.length ? '<small>Ref ' + esc(g.refs.join(", ")) + "</small>" : "") +
+          (g.returned ? '<span class="alloc-badge ab-returned">Gone back</span>' : "") + "</li>";
+      }).join("") + "</ul></div>";
   }
 
   /* Pull a supplier and a size out of a note typed before the sheet existed
@@ -1611,7 +1635,9 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
         '<div class="xh-costbox" id="xhCostBox"' + (showCost ? "" : " hidden") + ">" +
           '<label class="xh-field"><span>Cost price, ex GST</span><span class="xh-money"><span>$</span>' +
             '<input id="xhCost" type="text" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(v.cost) + '" /></span></label>' +
-          '<div class="xh-seg" role="radiogroup" aria-label="Cost is">' + unitBtn("day", "per day") + unitBtn("week", "per week") + unitBtn("total", "whole hire") + "</div>" +
+          '<div class="xh-seg" role="radiogroup" aria-label="Cost is">' + unitBtn("day", "per day") + unitBtn("week", "per week") +
+            /* Per month is set in Nexy; shown here only when a row already has it, so an edit keeps it. */
+            (v.unit === "month" ? unitBtn("month", "per month") : "") + unitBtn("total", "whole hire") + "</div>" +
           '<small class="xh-hint">Inside Nexus only: never printed on the jobsheet or the PDF. It goes onto the deal in Nexy so the job’s margin counts it.</small>' +
         "</div>" +
         '<label class="xh-field"><span>Their booking ref or PO <em>optional</em></span>' +
@@ -1643,7 +1669,7 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
       var pc = $("xhPvCost");
       var text = c != null && !isNaN(c) ? xhCostText(c, v.unit, days) : "";
       if (text && qty > 1 && v.unit !== "total") {
-        var each = v.unit === "week" ? c * Math.ceil((days || 0) / 7) : c * (days || 0);
+        var each = xhOver(c, v.unit, days || 0);
         if (days) text += " each · about " + xhMoney(each * qty) + " for all " + qty;
       }
       pc.textContent = text;

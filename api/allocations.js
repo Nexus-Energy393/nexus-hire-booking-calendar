@@ -53,42 +53,10 @@ async function crmMirror(action, dealId, fleetNumber) {
   }
 }
 
-/* A cross-hire is a cost against the job, and Nexy is where the job's margin
-   and its supplier bills live: CrossHire on the deal already holds supplier,
-   rate, unit and PO, and the scan-to-Xero inbox matches a Kennards bill to the
-   job by that PO or supplier. So each cross-hire made here keeps one CrossHire
-   row there up to date (POST /api/hire/crosshire, the same token as the feed).
-   Best-effort with a short wait: the board's own save never fails on it, and
-   the answer says whether Nexy took it so the sheet can say so. */
-const CRM_XHIRE_URL = (
-  process.env.CRM_XHIRE_URL ||
-  (process.env.HIRE_FEED_URL || "https://nexus-crm-gilt.vercel.app/api/hire/calendar").replace(/\/calendar\/?$/, "/crosshire")
-).replace(/\/+$/, "");
-async function crmCrossHire(payload) {
-  if (!CRM_XHIRE_URL) return null;
-  const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const timer = ctl ? setTimeout(function () { ctl.abort(); }, 6000) : null;
-  try {
-    const url = CRM_XHIRE_URL + (CRM_TOKEN ? "?token=" + encodeURIComponent(CRM_TOKEN) : "");
-    const res = await fetch(url, {
-      method: "POST",
-      headers: Object.assign({ "Content-Type": "application/json" }, CRM_TOKEN ? { Authorization: "Bearer " + CRM_TOKEN } : {}),
-      body: JSON.stringify(payload),
-      signal: ctl ? ctl.signal : undefined,
-    });
-    const json = await res.json().catch(function () { return null; });
-    if (!res.ok || !json || json.ok === false) {
-      console.error("[api/allocations] Nexy cross-hire " + payload.action + " answered " + res.status + ": " + JSON.stringify(json).slice(0, 200));
-      return null;
-    }
-    return json;
-  } catch (e) {
-    console.error("[api/allocations] Nexy cross-hire " + payload.action + " failed:", e.message);
-    return null;
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
+/* Cross-hires made here are kept on the deal in Nexy (lib/nexy-crosshire);
+   cross-hires made in Nexy arrive at ?action=nexy-crosshire (lib/cross-hire-sync). */
+const { crmCrossHire } = require("../lib/nexy-crosshire");
+const XHS = require("../lib/cross-hire-sync");
 
 /* Nexy's own view of the unit for this deal: a unit booked online, or allocated
    on the deal page in Nexy, has no row in this board's allocations table, so the
@@ -177,6 +145,18 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    /* A cross-hire added, changed, returned or removed on the deal in Nexy
+       (src/lib/hire-board.ts postCrossHireToBoard). Nexy is the record for
+       it, so nothing is sent back. */
+    if (req.method === "POST" && req.query && req.query.action === "nexy-crosshire") {
+      if (!auth.requireAdmin(req, res)) return;
+      const body = await http.readBody(req);
+      if (http.badBody(res, body)) return;
+      const out = await XHS.applyNexyCall(body);
+      res.status(200).json(Object.assign({ ok: true }, out));
+      return;
+    }
+
     if (req.method === "POST" || req.method === "PATCH") {
       if (!auth.requireAdmin(req, res)) return;
       const body = await http.readBody(req);
@@ -259,7 +239,15 @@ module.exports = async function handler(req, res) {
         if (row && XH.isCrossHireRow(row) && row.pipedrive_deal_id && XH.hasDetail(row) && (req.method === "POST" || xh)) {
           const r = await crmCrossHire(Object.assign({ action: "upsert", id: row.crm_crosshire_id || null, dealId: String(row.pipedrive_deal_id) }, XH.nexyPayload(row)));
           nexy = r && r.id ? "saved" : "failed";
-          if (r && r.id && r.id !== row.crm_crosshire_id) row = (await store.updateAllocation(row.allocation_id, { crm_crosshire_id: String(r.id) })) || row;
+          if (r && r.id && r.id !== row.crm_crosshire_id) {
+            try { row = (await store.updateAllocation(row.allocation_id, { crm_crosshire_id: String(r.id) })) || row; }
+            catch (e2) {
+              /* Another row already stands for that Nexy cross-hire (the
+                 feed's mend got there first): the save stands, the link waits. */
+              if (!(store.isUniqueViolation && store.isUniqueViolation(e2))) throw e2;
+              console.warn("[api/allocations] Nexy cross-hire " + r.id + " is already linked to another row");
+            }
+          }
         } else if (row && prev && prev.crm_crosshire_id && (swapped || /^(released|cancelled)$/.test(String(row.allocation_status || "")))) {
           const r = await crmCrossHire({ action: "remove", id: prev.crm_crosshire_id, dealId: String(prev.pipedrive_deal_id || "") });
           nexy = r ? "removed" : "failed";

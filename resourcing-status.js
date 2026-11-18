@@ -52,6 +52,27 @@
   /* A cross-hire is settled once somebody has said where it comes from. */
   function crossHireResolved(a) { return !!crossHireLabel(a); }
 
+  /* Other gear hired in for the job in Nexy (a light tower, a board): it
+     takes no generator slot, so the jobsheet lists it on its own, from the
+     feed. One line per supplier and item: "2 x LED light tower from
+     Kennards". Never the cost (the public feed does not carry it). */
+  function crossHiredGear(booking) {
+    var list = booking && Array.isArray(booking.crossHires) ? booking.crossHires : [];
+    var out = [], seen = {};
+    list.forEach(function (c) {
+      if (!c || kvaNumber(c.kva) > 0) return;
+      var sup = String(c.supplier || "").trim(), what = String(c.description || "").trim();
+      var k = sup.toLowerCase() + "|" + what.toLowerCase() + "|" + (c.returned ? 1 : 0);
+      if (seen[k]) { seen[k].n++; if (c.poNumber && seen[k].refs.indexOf(c.poNumber) < 0) seen[k].refs.push(c.poNumber); return; }
+      seen[k] = { n: 1, supplier: sup, description: what, returned: !!c.returned, refs: c.poNumber ? [String(c.poNumber)] : [] };
+      out.push(seen[k]);
+    });
+    return out;
+  }
+  function crossHiredGearText(g) {
+    return (g.n > 1 ? g.n + " x " : "") + (g.description || "Item") + (g.supplier ? " from " + g.supplier : "");
+  }
+
 
   /* ---- Generator size: the allocated unit answers the question -------------
      A job is sold as a size ("100kVA Generator Hire") and dispatched as a fleet
@@ -492,7 +513,9 @@
      return_status 'returned' and off_hired_at stamped. A unit released for any
      other reason (swapped, removed) is not a return. */
   function isReturned(a) {
-    if (!a || !a.asset_id) return false;
+    /* One of ours back in the yard, or a cross-hire gone back to its
+       supplier (marked in Nexy): either way it went out and is back. */
+    if (!a || (!a.asset_id && !isCrossHire(a))) return false;
     return String(a.return_status || "").toLowerCase() === "returned" || !!a.off_hired_at;
   }
 
@@ -503,8 +526,11 @@
     (liveRows || []).forEach(function (a) { if (a.asset_id) liveAssets[a.asset_id] = true; });
     var seen = {};
     return (all || []).filter(function (a) {
-      if (!isReturned(a) || liveAssets[a.asset_id] || seen[a.asset_id]) return false;
-      seen[a.asset_id] = true;
+      if (!isReturned(a)) return false;
+      /* A cross-hire has no machine of ours: each row is its own unit. */
+      var key = a.asset_id || ("row:" + a.allocation_id);
+      if ((a.asset_id && liveAssets[a.asset_id]) || seen[key]) return false;
+      seen[key] = true;
       return true;
     });
   }
@@ -680,6 +706,14 @@
   /* The dates every LIVE board allocation on a job should carry, keyed by
      allocation_id. Used by the server sync that used to stamp the job's dates
      on all of them. Stock and cross-hire rows take the job's whole span. */
+  function nexyCrossHireFor(booking, a) {
+    if (!a || !a.crm_crosshire_id || !booking || !Array.isArray(booking.crossHires)) return null;
+    for (var i = 0; i < booking.crossHires.length; i++) {
+      if (String(booking.crossHires[i].id) === String(a.crm_crosshire_id)) return booking.crossHires[i];
+    }
+    return null;
+  }
+
   function allocationDates(booking, rows) {
     var out = {};
     var jobS = dayOf(booking && booking.startDate);
@@ -695,6 +729,10 @@
       var crm = crmUnitFor(booking, a);
       var s = crm ? dayOf(crm.start) : null;
       var e = crm ? dayOf(crm.end) : null;
+      /* A cross-hire made in Nexy with dates of its own (it arrives a day
+         late, goes back early) keeps them. */
+      var xh = nexyCrossHireFor(booking, a);
+      if (xh && (xh.start || xh.end)) { s = dayOf(xh.start) || s; e = dayOf(xh.end) || e; }
       if (!s && !e && sold[i]) { s = dayOf(sold[i].start); e = dayOf(sold[i].end); }
       s = s || jobS;
       e = e || jobE;
@@ -1020,6 +1058,7 @@
               unitPeriods: unitPeriods, hasOwnDates: hasOwnDates, jobWindow: jobWindow, allocationDates: allocationDates,
               isReturned: isReturned, dayOf: dayOf, daysBetween: daysBetween,
               isCrossHire: isCrossHire, isGenRow: isGenRow, crossHireLabel: crossHireLabel, crossHireResolved: crossHireResolved,
+              crossHiredGear: crossHiredGear, crossHiredGearText: crossHiredGearText,
               fmtUnitDay: fmtUnitDay, unitRangeText: unitRangeText, unitStateText: unitStateText, unitOffsetText: unitOffsetText };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
