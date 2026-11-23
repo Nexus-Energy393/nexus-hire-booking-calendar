@@ -7,8 +7,10 @@
  * same for the 2nd day."
  *
  * What only a browser can prove:
- *   1. a 9pm to 5:30am outage is half a day column wide and straddles the line
- *      between its two days, where it used to fill both;
+ *   1. a 9pm to 5:30am outage is one day column wide and straddles the line
+ *      between its two days (the afternoon of one, the morning of the next),
+ *      where it used to fill both. "rather than break the day into 1/4, lets
+ *      just make it 1/2" (Justin, later on 23 Nov 2026);
  *   2. the day lines have not moved: every day cell still sits under its header;
  *   3. a bar too short for its dates says them beside itself, in full;
  *   4. a job with no times is still whole days wide.
@@ -50,6 +52,7 @@ const BOOKING = (over) => Object.assign({
   const bookings = [
     BOOKING({ id: "night", pipedriveDealId: "night", customer: "Night outage", startDate: day(8), endDate: day(9), outageWindow: "9:00PM - 5:30AM" }),
     BOOKING({ id: "day", pipedriveDealId: "day", customer: "Day outage", startDate: day(9), endDate: day(9), outageWindow: "8:00 AM - 4:30 PM" }),
+    BOOKING({ id: "arvo", pipedriveDealId: "arvo", customer: "Afternoon outage", startDate: day(12), endDate: day(12), outageWindow: "1:00 PM - 4:30 PM" }),
     BOOKING({ id: "one", pipedriveDealId: "one", customer: "Night on one date", startDate: day(10), endDate: day(10), outageWindow: "22:00 - 06:00" }),
     BOOKING({ id: "hire", pipedriveDealId: "hire", customer: "Plain hire", jobType: "general", jobTypeLabel: "Hire", startDate: day(8), endDate: day(11), outageWindow: "" }),
   ];
@@ -77,7 +80,7 @@ const BOOKING = (over) => Object.assign({
       const row = (id) => document.querySelector('.tl-row[data-deal-id="' + id + '"]');
       const cellsOf = (id) => [...row(id).querySelectorAll(".tl-cell")].map(box);
       const out = { dayW: box(document.querySelector(".tl-day")).w, heads: [...document.querySelectorAll(".tl-day")].map(box), cells: cellsOf("night") };
-      for (const id of ["night", "day", "one", "hire"]) {
+      for (const id of ["night", "day", "arvo", "one", "hire"]) {
         const bar = row(id).querySelector(".tl-bar"), note = row(id).querySelector(".tl-note");
         out[id] = { bar: box(bar), note: note ? note.textContent : null, noteShown: note ? note.scrollWidth <= note.clientWidth + 1 : false, dur: (bar.querySelector(".tl-bar-dur") || {}).textContent || null, title: bar.title };
       }
@@ -94,18 +97,22 @@ const BOOKING = (over) => Object.assign({
       m.cells.forEach((c, i) => { near(c.l, m.heads[i].l, "day " + i + " left"); near(c.w, W, "day " + i + " width"); });
       assert.equal(m.quarterLines, 0, "quarter lines were drawn");
     });
-    check("9pm to 5:30am is half a day wide and straddles the line between its two days", () => {
-      near(m.night.bar.w, W / 2, "width");
-      near(m.night.bar.l, dayLine(9) - W / 4, "starts three quarters through the first day");
-      near(m.night.bar.r, dayLine(9) + W / 4, "ends a quarter into the second");
+    check("9pm to 5:30am is one day wide and straddles the line between its two days", () => {
+      near(m.night.bar.w, W, "width");
+      near(m.night.bar.l, dayLine(9) - W / 2, "starts at noon on the first day");
+      near(m.night.bar.r, dayLine(9) + W / 2, "ends at noon on the second");
     });
-    check("an 8am to 4:30pm job is the middle half of its day", () => {
-      near(m.day.bar.l, dayLine(9) + W / 4, "starts at 6am");
-      near(m.day.bar.r, dayLine(9) + 3 * W / 4, "ends at 6pm");
+    check("an 8am to 4:30pm job is its whole day", () => {
+      near(m.day.bar.l, dayLine(9), "from the start of the day");
+      near(m.day.bar.r, dayLine(10), "to the end of it");
+    });
+    check("a job inside the afternoon is the second half of its day", () => {
+      near(m.arvo.bar.l, dayLine(12) + W / 2, "starts at noon");
+      near(m.arvo.bar.r, dayLine(13), "ends with the day");
     });
     check("a night job entered on one date runs into the next morning", () => {
-      near(m.one.bar.l, dayLine(10) + 3 * W / 4, "starts at 6pm");
-      near(m.one.bar.r, dayLine(11) + W / 4, "ends at 6am the next day");
+      near(m.one.bar.l, dayLine(10) + W / 2, "starts at noon");
+      near(m.one.bar.r, dayLine(11) + W / 2, "ends at noon the next day");
     });
     check("a hire with no times is whole days, as before", () => {
       near(m.hire.bar.l, dayLine(8), "from the start of its first day");
