@@ -844,12 +844,27 @@
     }
     return { h: h, mi: mi };
   }
+  /* A window typed any other way is read by the timeline's reader (windowClock,
+     below), so "5.00AM - 4.00PM", "8.30 - 4.30" and "6AM Delivery - 4PM
+     Collection" are windows too. Justin, 23 Nov 2026: "how do we fix The
+     board's On Hire status cannot read times typed with a dot". Eighteen of
+     the 72 jobs with a window in the feed that day were typed that way, and
+     each one fell through to "no window recorded": On Hire from midnight to
+     midnight, so the 5am job read On Hire at 1am the night before and a
+     9.30pm to 5am outage went dark at midnight with the generator running.
+     A start with no end, or a word ("Morning"), is still no window: there is
+     nothing to say when it finishes, so the whole day stands. */
   function splitOutageWindow(s) {
     if (!s) return null;
     var parts = String(s).split(/\s*(?:-|\u2013|\u2014|to)\s*/i);
-    if (parts.length !== 2) return null;
-    var a = parseHM(parts[0]), b = parseHM(parts[1]);
-    return (a && b) ? { start: a, end: b } : null;
+    if (parts.length === 2) {
+      var a = parseHM(parts[0]), b = parseHM(parts[1]);
+      if (a && b) return { start: a, end: b };
+    }
+    var t = windowClock(s);
+    if (!t || t.words || t.end == null) return null;
+    var hm = function (mins) { return { h: Math.floor(mins / 60) % 24, mi: mins % 60 }; };
+    return { start: hm(t.start), end: hm(t.end) };
   }
   function dateAt(dateStr, hm) {
     var d = new Date(dateStr + "T00:00:00");
@@ -1051,6 +1066,128 @@
     };
   }
 
+  /* ---- Where a job sits inside its days: the timeline's quarters ----------
+     Justin, 23 Nov 2026: "Break the day, not visually, into quarters, so a
+     booking that starts at 6pm is shown in this perspective. A night booking
+     should not span over 2 full days, but the last 1/2 or 1/4 of the 1st day
+     and same for the 2nd day."
+
+     The board drew every job from the start of its first date to the end of
+     its last, so a 9pm to 5:30am outage filled two whole days. A day is four
+     quarters of six hours (midnight, 6am, noon, 6pm). A job with times starts
+     in the quarter its start time falls in and ends in the quarter its end
+     time falls in; one with no times still runs whole days.
+
+     The times come from the same field the jobsheet prints (outageWindow),
+     which people type every way there is: "9:00PM - 5:30AM", "9.30PM - 5.00AM",
+     "08:30:00 - 14:30:00", "8AM", "8.30 - 4.30", "6AM Delivery - 4PM
+     Collection", "Morning". This reader takes them all. On Hire tries its own
+     strict parseHM first and comes here for the rest (splitOutageWindow). */
+  var QUARTER_MINS = 360;
+
+  /* Minutes after midnight for the first clock time in a string, and whether
+     it said am or pm. A bare number ("8") is not a time. */
+  function clockOf(s) {
+    var str = String(s == null ? "" : s);
+    var re = /(\d{1,2})(?:\s?[:.]\s?(\d{2}))?(?::\d{2})?\s*(a\.?m\.?|p\.?m\.?)?/ig, m;
+    while ((m = re.exec(str))) {
+      if (m[2] == null && !m[3]) continue;
+      var h = +m[1], mi = m[2] == null ? 0 : +m[2];
+      if (mi > 59) continue;
+      if (m[3]) {
+        if (h < 1 || h > 12) continue;
+        h = h % 12;
+        if (/^p/i.test(m[3])) h += 12;
+      } else if (h > 23) continue;
+      return { mins: h * 60 + mi, meridiem: !!m[3] };
+    }
+    return null;
+  }
+
+  /* A typed event's own times, else the job's outage window. Null: no times. */
+  function jobClock(booking) {
+    if (!booking) return null;
+    if (booking.kind === "event") {
+      if (booking.allDay !== false) return null;
+      var es = clockOf(booking.startTime), ee = clockOf(booking.endTime);
+      return es ? { start: es.mins, end: ee ? ee.mins : null, words: false } : null;
+    }
+    return windowClock(booking.outageWindow);
+  }
+
+  /* An outage window as typed -> { start, end, words } in minutes after
+     midnight, or null. Shared by where a bar is drawn and by On Hire. */
+  function windowClock(value) {
+    var raw = String(value == null ? "" : value).trim();
+    if (!raw) return null;
+    var parts = raw.split(/\s+(?:to|until|till)\s+|\s*[-–—]\s*/i);
+    var a = clockOf(parts[0]), b = parts.length > 1 ? clockOf(parts[1]) : null;
+    if (a) {
+      var start = a.mins, end = b ? b.mins : null;
+      /* "8.30 - 4.30": nobody means half past four in the morning. With no am
+         or pm on either side, a morning start and an earlier end is a day
+         shift, so the end is the afternoon. */
+      if (b && !a.meridiem && !b.meridiem && end <= start && start >= 300 && start < 720 && end < 720) end += 720;
+      return { start: start, end: end, words: false };
+    }
+    if (/\d/.test(raw)) return null;
+    if (/\bmorning\b/i.test(raw)) return { start: 360, end: 720, words: true };
+    if (/\bafternoon\b/i.test(raw)) return { start: 720, end: 1080, words: true };
+    if (/\bevening\b/i.test(raw)) return { start: 1080, end: 1440, words: true };
+    if (/\b(?:over\s?night|night)\b/i.test(raw)) return { start: 1080, end: 360, words: true };
+    return null;
+  }
+
+  /* The quarter an end time closes: 6:00am closes the first, 6:01am is in the second. */
+  function endQuarter(mins) {
+    return Math.max(0, Math.min(3, Math.ceil(mins / QUARTER_MINS) - 1));
+  }
+
+  /*
+   * dayQuarters(booking, startDay, endDay) ->
+   *   { timed, startQ, endQ, extraEndDays, startMin, endMin, words }
+   *
+   * startQ is the quarter (0 to 3) of the first day the job starts in; endQ
+   * the quarter of the last day it ends in. extraEndDays is 1 when a job on
+   * ONE date runs past midnight (22:00 to 06:00 on the 24th ends on the 25th),
+   * the same reading isOnHire takes. startMin and endMin are minutes after
+   * midnight for a caption, null when the time is not known or was a word.
+   *
+   * startDay and endDay (YYYY-MM-DD) are the days the bar is drawn on; they
+   * default to the booking's own dates.
+   */
+  function dayQuarters(booking, startDay, endDay) {
+    var out = { timed: false, startQ: 0, endQ: 3, extraEndDays: 0, startMin: null, endMin: null, words: false };
+    var t = jobClock(booking);
+    if (!t) return out;
+    var sd = startDay || dayOf(booking.startDate);
+    var ed = endDay || dayOf(booking.endDate) || sd;
+    var oneDay = !sd || !ed || sd === ed;
+    out.timed = true;
+    out.words = !!t.words;
+    out.startQ = Math.min(3, Math.floor(t.start / QUARTER_MINS));
+    if (!t.words) { out.startMin = t.start; out.endMin = t.end; }
+    if (t.end != null) {
+      if (oneDay && t.end <= t.start) {
+        /* Past midnight. Ending AT midnight is the end of its own day. */
+        if (t.end === 0) out.endQ = 3;
+        else { out.extraEndDays = 1; out.endQ = endQuarter(t.end); }
+      } else {
+        out.endQ = endQuarter(t.end);
+      }
+    }
+    if (oneDay && !out.extraEndDays && out.endQ < out.startQ) out.endQ = out.startQ;
+    return out;
+  }
+
+  /* "9pm", "5:30am", "12pm": a time for a bar's caption. */
+  function clockText(mins) {
+    if (mins == null || isNaN(mins)) return "";
+    mins = ((Math.round(mins) % 1440) + 1440) % 1440;
+    var h = Math.floor(mins / 60), mi = mins % 60, h12 = h % 12 || 12;
+    return h12 + (mi ? ":" + (mi < 10 ? "0" : "") + mi : "") + (h < 12 ? "am" : "pm");
+  }
+
   var api = { computeJobStatus: computeJobStatus, buildRequirements: buildRequirements, reqSatisfied: reqSatisfied, reqPicked: reqPicked, isOnHire: isOnHire,
               generatorSizeLabel: generatorSizeLabel, allocatedKva: allocatedKva, requiredKva: requiredKva, undersizeWarnings: undersizeWarnings, fmtKva: fmtKva,
               undersizeKey: undersizeKey, ackIndex: ackIndex, sizeWarnings: sizeWarnings, crmUnits: crmUnits,
@@ -1059,7 +1196,8 @@
               isReturned: isReturned, dayOf: dayOf, daysBetween: daysBetween,
               isCrossHire: isCrossHire, isGenRow: isGenRow, crossHireLabel: crossHireLabel, crossHireResolved: crossHireResolved,
               crossHiredGear: crossHiredGear, crossHiredGearText: crossHiredGearText,
-              fmtUnitDay: fmtUnitDay, unitRangeText: unitRangeText, unitStateText: unitStateText, unitOffsetText: unitOffsetText };
+              fmtUnitDay: fmtUnitDay, unitRangeText: unitRangeText, unitStateText: unitStateText, unitOffsetText: unitOffsetText,
+              dayQuarters: dayQuarters, clockText: clockText };
   if (typeof window !== "undefined") window.NexusResourcing = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

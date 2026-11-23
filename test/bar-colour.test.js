@@ -98,7 +98,8 @@ test("an emergency still shouts, whatever its readiness", () => {
 });
 
 test("the hover text names both the type and the readiness", () => {
-  assert.match(appJs, /bar\.title = \(b\.customer \|\| ""\) \+ " \\u2014 " \+ tm\.label \+ " \\u2014 " \+ sm\.label;/);
+  // Type, then readiness, then when it is on (test/day-quarters.test.js). No em dashes: people read this.
+  assert.match(appJs, /bar\.title = \(b\.customer \|\| ""\) \+ " \\u00b7 " \+ tm\.label \+ " \\u00b7 " \+ sm\.label \+ \(seg\.when \? "\\n" \+ seg\.when : ""\);/);
 });
 
 test("the ribbon view already meant readiness, and still does — the two agree now", () => {
