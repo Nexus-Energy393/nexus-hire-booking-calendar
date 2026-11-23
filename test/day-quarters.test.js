@@ -136,11 +136,69 @@ test("clockText: short, the way a bar's caption can carry it", () => {
   assert.equal(R.clockText(null), "");
 });
 
-test("On Hire is untouched: its strict reader is still the one it uses", () => {
+/* ---- On Hire reads the same times -------------------------------------
+   Justin, 23 Nov 2026: "how do we fix The board's On Hire status cannot read
+   times typed with a dot". A window it could not read was "no window": On
+   Hire for the whole of each hire day, midnight to midnight. */
+const at = (day, hm) => new Date(day + "T" + hm + ":00");
+
+test("On Hire: a day window typed with dots is a window, with its two hours either side", () => {
+  const b = job("5.00AM - 4.00PM", "2026-11-24"); // Dingley Village, NEX-1679
+  assert.equal(R.isOnHire(b, at("2026-11-24", "01:00")), false, "On Hire at 1am, four hours before it starts");
+  assert.equal(R.isOnHire(b, at("2026-11-24", "03:00")), true, "the two hour lead-in");
+  assert.equal(R.isOnHire(b, at("2026-11-24", "12:00")), true);
+  assert.equal(R.isOnHire(b, at("2026-11-24", "18:00")), true, "the two hours after");
+  assert.equal(R.isOnHire(b, at("2026-11-24", "18:01")), false, "On Hire all evening after a 4pm finish");
+});
+
+test("On Hire: a night window typed with dots stays On Hire through the night", () => {
+  const b = job("9.30PM - 5.00AM", "2026-10-21", "2026-10-22"); // NEX-1572
+  assert.equal(R.isOnHire(b, at("2026-10-21", "10:00")), false, "On Hire in the middle of the day before");
+  assert.equal(R.isOnHire(b, at("2026-10-21", "22:00")), true);
+  assert.equal(R.isOnHire(b, at("2026-10-22", "02:00")), true);
+  assert.equal(R.isOnHire(b, at("2026-10-22", "09:00")), false);
+  // On ONE date it still ends the next morning.
+  const one = job("11.00PM - 5.00AM", "2026-08-20");
+  assert.equal(R.isOnHire(one, at("2026-08-21", "01:00")), true, "dark at 1am with the generator running");
+  assert.equal(R.isOnHire(one, at("2026-08-20", "12:00")), false);
+});
+
+test("On Hire: every other way a window is typed in the feed", () => {
+  for (const w of ["8.30AM - 4.30PM", "8.30am - 4.00pm", "8.30 - 4.30", "6AM Delivery - 4PM Collection", "8.00AM-5.00PM"]) {
+    const b = job(w, "2026-07-28");
+    assert.equal(R.isOnHire(b, at("2026-07-28", "10:00")), true, w + " at 10am");
+    assert.equal(R.isOnHire(b, at("2026-07-28", "02:00")), false, w + " at 2am");
+    assert.equal(R.isOnHire(b, at("2026-07-28", "22:00")), false, w + " at 10pm");
+  }
+});
+
+test("On Hire: a window it could already read is read exactly as before", () => {
+  const day = job("8:00 AM - 4:30 PM", "2026-11-25");
+  assert.equal(R.isOnHire(day, at("2026-11-25", "06:00")), true);
+  assert.equal(R.isOnHire(day, at("2026-11-25", "05:59")), false);
+  assert.equal(R.isOnHire(day, at("2026-11-25", "18:30")), true);
+  assert.equal(R.isOnHire(day, at("2026-11-25", "18:31")), false);
+  const night = job("22:00 - 06:00", "2026-09-16");
+  assert.equal(R.isOnHire(night, at("2026-09-17", "01:00")), true);
+  assert.equal(R.isOnHire(night, at("2026-09-16", "10:00")), false);
+});
+
+test("On Hire: a start with no end, a word, or no times is still the whole hire day", () => {
+  for (const w of ["8.30AM", "8AM", "Morning", "", "TBC"]) {
+    const b = job(w, "2026-11-19", "2026-11-20");
+    assert.equal(R.isOnHire(b, at("2026-11-19", "00:30")), true, JSON.stringify(w) + " just after midnight");
+    assert.equal(R.isOnHire(b, at("2026-11-20", "23:30")), true, JSON.stringify(w) + " late on the last day");
+    assert.equal(R.isOnHire(b, at("2026-11-21", "00:30")), false);
+  }
+});
+
+test("On Hire: its own strict reader goes first, and it never reads a typed event's times", () => {
   const fn = readFileSync(path.join(ROOT, "resourcing-status.js"), "utf8");
+  const split = fn.slice(fn.indexOf("function splitOutageWindow("), fn.indexOf("function dateAt("));
+  assert.ok(split.indexOf("parseHM(parts[0])") < split.indexOf("windowClock(s)"), "the strict reader no longer goes first");
   const onHire = fn.slice(fn.indexOf("function isOnHire("), fn.indexOf("function computeJobStatus("));
   assert.match(onHire, /splitOutageWindow\(booking\.outageWindow\)/);
-  assert.ok(!/dayQuarters|clockOf/.test(onHire));
+  assert.ok(!/jobClock|startTime/.test(onHire));
 });
 
 /* ---- the drawing ---------------------------------------------------- */
