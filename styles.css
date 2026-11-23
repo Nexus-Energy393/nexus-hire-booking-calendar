@@ -2804,9 +2804,14 @@ html.nx-embedded .side-rail .tab.active {
 .tl-job { flex: 0 0 auto; font-size: 10px; font-weight: 700; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 1px 5px; letter-spacing: .01em; }
 
 /* ---- day track + banding ---- */
+/* The track is cut into quarters of a day (midnight, 6am, noon, 6pm), four
+   to each day column, so a bar can start at 6pm and end at 6am. Nothing is
+   drawn for them: a day cell spans its four and the day lines are where they
+   were. --tl-qcols is set beside --tl-days (app.js renderTimeline); the 56 is
+   two weeks, for a track drawn before it is. */
 .tl-track {
   flex: 1 1 auto; min-width: 0; position: relative;
-  display: grid; grid-template-columns: repeat(var(--tl-days), minmax(var(--tl-col-min), 1fr));
+  display: grid; grid-template-columns: repeat(var(--tl-qcols, 56), minmax(calc(var(--tl-col-min) / 4), 1fr));
   grid-auto-rows: minmax(var(--tl-row-h), 1fr);
   align-items: center;
 }
@@ -2848,6 +2853,55 @@ html.nx-embedded .side-rail .tab.active {
 .tl-bar-lbl { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 .tl-bar-dur { font-size: 11px; color: color-mix(in srgb, var(--text) 62%, transparent); white-space: nowrap; flex: 0 0 auto; }
 .tl-chev { font-weight: 800; color: var(--tl-accent, var(--general)); font-size: 15px; line-height: 1; }
+
+/* ---- a bar of any width --------------------------------------------------
+   A night outage is half a day column wide, a morning job a quarter. The bar
+   drops what it has no room for, in the order it matters least: the dates,
+   the customer (the row's own label says it), the off-hire flag, the
+   milestones. What is always left is its colour and its job type. (Each rule
+   names .tl-bar so it outranks the part's own display, set further down.) It never
+   shrinks to nothing: a quarter of a day in the month view is still a mark
+   you can see and tap. */
+.tl-bar { container: tl-bar / inline-size; min-width: 20px; }
+.tl-bar.is-tight { padding: 0 2px; gap: 3px; border-left-width: 3px; justify-content: center; }
+.tl-bar.is-tight .tl-bar-r { margin-left: 0; }
+@container tl-bar (max-width: 240px) { .tl-bar .tl-bar-dur { display: none; } }
+@container tl-bar (max-width: 118px) { .tl-bar .tl-bar-lbl, .tl-bar .tl-bar-grp { display: none; } }
+@container tl-bar (max-width: 78px)  { .tl-bar .tl-bar-r { display: none; } }
+@container tl-bar (max-width: 52px)  { .tl-bar .tl-bar-miles { display: none; } }
+@container tl-bar (max-width: 14px)  { .tl-bar .tl-bar-l { display: none; } }
+/* The X that dismisses a pending booking keeps its place down to a bar that
+   can still hold it beside the job type; narrower than that it would be the
+   whole bar, and a tap meant to open the job would remove it. */
+@container tl-bar (max-width: 52px)  { .tl-bar .tl-bar-dismiss { margin: 0; } }
+@container tl-bar (max-width: 38px)  { .tl-bar .tl-bar-dismiss { display: none; } }
+
+/* When it is on, beside a bar too short to hold it: "Tue 24, 9pm → Wed 25,
+   5:30am". In the free part of the job's own row, so nothing is covered, and
+   never in the way of a click or a drop on the days behind it. */
+.tl-note {
+  grid-row: 1; z-index: 1; align-self: center; min-width: 0;
+  padding: 0 10px; font-size: 11px; line-height: 1.2; font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 64%, transparent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
+.tl-note.is-left { text-align: right; }
+.tl-row.st-completed .tl-note { opacity: .7; }
+
+/* Now: a hairline down today's column at the time of day. Under the sticky
+   row labels, over the bars. */
+.tl-body { position: relative; }
+.tl-now {
+  position: absolute; top: 0; bottom: 0; z-index: 2; width: 0;
+  left: calc(var(--tl-head) + (100% - var(--tl-head)) * var(--tl-now, 0));
+  border-left: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  pointer-events: none;
+}
+.tl-now::before {
+  content: ""; position: absolute; top: -1px; left: -5px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--accent);
+}
 
 /* ---- one lane per unit, under its job's bar (units on their own dates) ----
    Only drawn when the units do not simply share the job's dates. Colour is the
@@ -2968,6 +3022,7 @@ body[data-mode="tv"] .tl-cust { font-size: 16px; }
 body[data-mode="tv"] .tl-sub, body[data-mode="tv"] .tl-unit { font-size: 13px; }
 body[data-mode="tv"] .tl-bar-lbl { font-size: 15px; }
 body[data-mode="tv"] .tl-dnum { font-size: 17px; }
+body[data-mode="tv"] .tl-note { font-size: 14px; }
 
 /* ---- narrow screens: shrink the identity column, let the grid scroll ---- */
 @media (max-width: 720px) {

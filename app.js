@@ -274,6 +274,62 @@ function bookingWindow(b) {
   return { s: s, e: e, lanes: lanes };
 }
 
+/* ---------- where a job sits on the timeline, to the quarter of a day ----------
+   Justin, 23 Nov 2026: "Break the day, not visually, into quarters, so a
+   booking that starts at 6pm is shown in this perspective. A night booking
+   should not span over 2 full days, but the last 1/2 or 1/4 of the 1st day and
+   same for the 2nd day."
+
+   Every bar ran from the start of its first date to the end of its last, so a
+   9pm to 5:30am outage filled two whole day columns and read as a two day job.
+   Each day column is four quarters now (midnight, 6am, noon, 6pm; no lines
+   are drawn for them) and a job with times starts and ends in the quarter its
+   times fall in. The rule is NexusResourcing.dayQuarters; this turns it into
+   the days and quarters one bar is drawn across.
+
+   A job's units can go out before its own start date or come back after its
+   end (bookingWindow widens for that). The times belong to the job's own
+   dates, so a widened end is a whole day. */
+var TL_Q = 4;
+function timelineSpan(b) {
+  var win = bookingWindow(b);
+  if (!win.s) return null;
+  var s = startOfDay(win.s), e = startOfDay(win.e || win.s);
+  var bs = bStart(b), be = bEnd(b) || bs;
+  var RS = window.NexusResourcing;
+  var q = (RS && RS.dayQuarters && bs)
+    ? RS.dayQuarters(b, ymdStr(bs), ymdStr(be))
+    : { timed: false, startQ: 0, endQ: TL_Q - 1, extraEndDays: 0, startMin: null, endMin: null, words: false };
+  var startQ = (bs && s.getTime() === bs.getTime()) ? q.startQ : 0;
+  var endQ = TL_Q - 1;
+  if (be && e.getTime() === be.getTime()) {
+    endQ = q.endQ;
+    if (q.extraEndDays) e = startOfDay(addDays(e, q.extraEndDays));
+  }
+  if (e.getTime() === s.getTime() && endQ < startQ) endQ = startQ;
+  return { s: s, e: e, startQ: startQ, endQ: endQ, q: q, lanes: win.lanes };
+}
+function tlDayText(d) { return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric" }); }
+/* When a job is on, said the short way a bar can carry beside it:
+   "Tue 24, 9pm \u2192 Wed 25, 5:30am", "Wed 25 \u00b7 8am \u2192 4:30pm", "Wed 25 \u00b7 1 day".
+   A job with no times keeps the board's own "24 Nov \u2192 30 Nov \u00b7 7d". */
+function timelineWhen(b, sp) {
+  var RS = window.NexusResourcing;
+  var q = sp.q, one = sp.s.getTime() === sp.e.getTime();
+  var days = durationDays(b);
+  if (q.timed && q.startMin != null && RS && RS.clockText) {
+    var from = RS.clockText(q.startMin), to = q.endMin != null ? RS.clockText(q.endMin) : "";
+    if (one) return tlDayText(sp.s) + " \u00b7 " + (to ? from + " \u2192 " + to : "from " + from);
+    return tlDayText(sp.s) + ", " + from + " \u2192 " + tlDayText(sp.e) + (to ? ", " + to : "");
+  }
+  if (q.timed && q.words && b.outageWindow) {
+    var word = String(b.outageWindow).trim();
+    return (one ? tlDayText(sp.s) : tlDayText(sp.s) + " \u2192 " + tlDayText(sp.e)) + " \u00b7 " + word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  }
+  if (one) return tlDayText(sp.s) + " \u00b7 1 day";
+  return fmtShort(bStart(b)) + " \u2192 " + fmtShort(bEnd(b)) + (days ? " \u00b7 " + days + "d" : "");
+}
+
 /* On a staggered job, which units go out or come back on this day:
    "Out today: 35 kVA (not allocated)" / "Back today: #602 · 60 kVA". */
 function unitMovesOn(b, day) {
@@ -1233,15 +1289,17 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
 
   var rows = bookings.filter(function (b) {
     if (b.status === "cancelled") return false;
-    var w = bookingWindow(b);
-    var s = w.s; if (!s) return false;
-    var e = startOfDay(w.e || s);
-    if (e.getTime() < today.getTime()) return false; // forward view: a hire already returned is history
-    return !(e.getTime() < winStart.getTime() || startOfDay(s).getTime() > winEnd.getTime());
+    /* The span, not the dates: a 10pm to 6am outage entered on ONE date is
+       still running this morning, and belongs on the board until it ends. */
+    var sp = timelineSpan(b);
+    if (!sp) return false;
+    if (sp.e.getTime() < today.getTime()) return false; // forward view: a hire already returned is history
+    return !(sp.e.getTime() < winStart.getTime() || sp.s.getTime() > winEnd.getTime());
   });
 
   var tl = el("div", "tl tl-" + (opts.view || "fortnight"));
   tl.style.setProperty("--tl-days", String(numDays));
+  tl.style.setProperty("--tl-qcols", String(numDays * TL_Q)); // the track's real columns: four quarters a day
   tl.style.minWidth = "calc(var(--tl-head) + " + numDays + " * var(--tl-col-min))";
 
   // ---- sticky day header: one row of day columns, banded ----
@@ -1284,14 +1342,25 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
   // "Equipment bookings" is a single forward list — what is out now and what is
   // coming next, earliest start first (so live hires lead, then upcoming). Any
   // hire that already came back was dropped above, so there is no past section.
-  rows.sort(function (a, z) {
-    var sa = startOfDay(bStart(a)).getTime(), sz = startOfDay(bStart(z)).getTime();
-    return sa - sz || (durationDays(z) || 0) - (durationDays(a) || 0);
-  });
+  // Within a day, the morning's job sits above the night's.
+  var startQOf = function (b) { var sp = timelineSpan(b); return sp ? sp.startQ : 0; };
+  rows = rows.map(function (b) { return { b: b, day: startOfDay(bStart(b)).getTime(), q: startQOf(b) }; })
+    .sort(function (a, z) { return a.day - z.day || a.q - z.q || (durationDays(z.b) || 0) - (durationDays(a.b) || 0); })
+    .map(function (r) { return r.b; });
 
   var body = el("div", "tl-body");
   tl.appendChild(body);
   rows.forEach(function (b) { body.appendChild(timelineRow(b, gridStart, numDays, todayCol)); });
+
+  /* Now, as a hairline down today's column. With bars placed by time of day,
+     this is what says whether tonight's job is still ahead or already on. */
+  if (todayCol >= 0 && todayCol < numDays) {
+    var nowAt = new Date();
+    var nowLine = el("div", "tl-now");
+    nowLine.style.setProperty("--tl-now", ((todayCol + (nowAt.getHours() * 60 + nowAt.getMinutes()) / 1440) / numDays).toFixed(5));
+    nowLine.setAttribute("aria-hidden", "true");
+    body.appendChild(nowLine);
+  }
 
   root.appendChild(tl);
 }
@@ -1299,15 +1368,26 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
 function timelineRow(b, gridStart, numDays, todayCol) {
   var winStart = startOfDay(gridStart);
   var winEnd = startOfDay(addDays(gridStart, numDays - 1));
-  var win = bookingWindow(b);
-  var s = startOfDay(win.s);
-  var e = startOfDay(win.e || win.s);
+  var win = timelineSpan(b);
+  var s = win.s;
+  var e = win.e;
   var segStart = s.getTime() < winStart.getTime() ? winStart : s;
   var segEnd   = e.getTime() > winEnd.getTime()   ? winEnd   : e;
   var startCol = Math.round((segStart.getTime() - winStart.getTime()) / 86400000);
   var endCol   = Math.round((segEnd.getTime()   - winStart.getTime()) / 86400000);
   var contLeft  = s.getTime() < winStart.getTime();
   var contRight = e.getTime() > winEnd.getTime();
+  /* The same span in quarter columns. A bar cut off by the edge of the window
+     runs to that edge. */
+  var q0 = startCol * TL_Q + (contLeft ? 0 : win.startQ);
+  var q1 = endCol * TL_Q + (contRight ? TL_Q - 1 : win.endQ);
+  var spanQ = q1 - q0 + 1;
+  var totalQ = numDays * TL_Q;
+  /* Under two day columns there is no room for the dates inside the bar (it
+     printed "24 Nov \u2192 25 No" and stopped), so they sit beside it, on
+     whichever side of the row has the room. */
+  var when = timelineWhen(b, win);
+  var noteOut = spanQ < 2 * TL_Q;
 
   var sm = statusMeta(b), tm = typeMeta(b);
   var row = el("div", "tl-row " + tm.cls + " " + sm.cls + (b.prospective ? " is-prospective" : ""));
@@ -1355,16 +1435,25 @@ function timelineRow(b, gridStart, numDays, todayCol) {
     if (d === todayCol) ccls += " is-today";
     if (dow === 1 && d !== 0) ccls += " is-weekstart";
     var cell = el("div", ccls);
-    cell.style.gridColumn = (d + 1) + " / " + (d + 2);
+    cell.style.gridColumn = (d * TL_Q + 1) + " / span " + TL_Q; // a day cell is its four quarters
     if (lanes.length) cell.style.gridRow = "1 / span " + (lanes.length + 1);
     cell.setAttribute("data-date", ymdStr(date));
     track.appendChild(cell);
   }
-  var bar = buildTimelineBar(b, sm, tm, { startCol: startCol, endCol: endCol, contLeft: contLeft, contRight: contRight });
-  bar.style.gridColumn = (startCol + 1) + " / " + (endCol + 2);
+  var bar = buildTimelineBar(b, sm, tm, { startCol: startCol, endCol: endCol, contLeft: contLeft, contRight: contRight, when: when, noteOut: noteOut, tight: spanQ < TL_Q });
+  bar.style.gridColumn = (q0 + 1) + " / " + (q1 + 2);
   track.appendChild(bar);
+  if (noteOut && when) {
+    var freeRight = totalQ - 1 - q1, freeLeft = q0;
+    var onRight = freeRight >= 10 || freeRight >= freeLeft;
+    var note = el("div", "tl-note" + (onRight ? "" : " is-left"));
+    note.textContent = when;
+    note.style.gridColumn = onRight ? (q1 + 2) + " / -1" : "1 / " + (q0 + 1);
+    note.setAttribute("aria-hidden", "true"); // the bar's own label says it
+    if (onRight ? freeRight > 0 : freeLeft > 0) track.appendChild(note);
+  }
   lanes.forEach(function (p, i) {
-    var lane = buildUnitLane(b, p, winStart, winEnd);
+    var lane = buildUnitLane(b, p, winStart, winEnd, win);
     if (!lane) return;
     lane.style.gridRow = String(i + 2);
     track.appendChild(lane);
@@ -1377,19 +1466,31 @@ function timelineRow(b, gridStart, numDays, todayCol) {
    goes out to the day it is due back (or came back). Colour is its state:
    blue on hire, green outline booked ahead, amber outline still to allocate,
    amber due back today, red overdue, grey tick returned. */
-function buildUnitLane(b, p, winStart, winEnd) {
+function buildUnitLane(b, p, winStart, winEnd, span) {
   var RS = window.NexusResourcing;
   var ls = parseDate(p.start), le = parseDate(p.end || p.start);
   if (!ls || !le) return null;
   if (le.getTime() < winStart.getTime() || ls.getTime() > winEnd.getTime()) return null;
+  /* A unit that goes out on the job's start date goes out at the job's start
+     time, and one due back on its end date comes back at its end time. A unit
+     on its own dates, or already back, keeps whole days. */
+  var bs = bStart(b), be = bEnd(b) || bs, q = span && span.q;
+  var laneQ0 = (q && bs && ls.getTime() === bs.getTime()) ? q.startQ : 0;
+  var laneQ1 = TL_Q - 1;
+  if (q && be && le.getTime() === be.getTime() && p.state !== "returned") {
+    laneQ1 = q.endQ;
+    if (q.extraEndDays) le = startOfDay(addDays(le, q.extraEndDays));
+  }
   var cl = ls.getTime() < winStart.getTime(), cr = le.getTime() > winEnd.getTime();
   var a = cl ? winStart : ls, z = cr ? winEnd : le;
   var c0 = Math.round((a.getTime() - winStart.getTime()) / 86400000);
   var c1 = Math.round((z.getTime() - winStart.getTime()) / 86400000);
+  var lq0 = c0 * TL_Q + (cl ? 0 : laneQ0), lq1 = c1 * TL_Q + (cr ? TL_Q - 1 : laneQ1);
+  if (lq1 < lq0) lq1 = lq0;
   var kva = p.kva != null ? (String(Math.round(p.kva * 10) / 10) + " kVA") : "Size TBC";
   var tag = p.fleet ? "#" + p.fleet + " \u00b7 " + kva : kva + " \u00b7 not allocated";
   var lane = el("div", "tl-lane st-" + p.state + (p.mismatch ? " is-mismatch" : "") + (cl ? " cont-left" : "") + (cr ? " cont-right" : ""));
-  lane.style.gridColumn = (c0 + 1) + " / " + (c1 + 2);
+  lane.style.gridColumn = (lq0 + 1) + " / " + (lq1 + 2);
   lane.setAttribute("role", "button");
   lane.setAttribute("tabindex", "0");
   lane.setAttribute("data-deal-id", b.pipedriveDealId);
@@ -1413,7 +1514,8 @@ function buildTimelineBar(b, sm, tm, seg) {
   if (!seg.contLeft)  bar.classList.add("bar-start");
   if (!seg.contRight) bar.classList.add("bar-end");
   if (seg.contLeft)   bar.classList.add("cont-left");
-  if (seg.contRight)  bar.classList.add("cont-right");
+  if (seg.contRight) bar.classList.add("cont-right");
+  if (seg.tight) bar.classList.add("is-tight"); // under a day wide: no room for padding
   var hasStaffConflict = STATE.staffConflicts && STATE.staffConflicts[String(b.pipedriveDealId)];
   var days = durationDays(b);
 
@@ -1433,7 +1535,7 @@ function buildTimelineBar(b, sm, tm, seg) {
     (opensInCrm(b) ? '<button type="button" class="tl-bar-dismiss" title="Dismiss this pending booking — it won\u2019t return unless the deal is won" aria-label="Dismiss pending booking">\u2715</button>' : '') +
     '<span class="tl-bar-lbl">' + escapeHtml(b.customer || "") + '</span>' +
     (b.isGroup ? '<span class="tl-bar-grp">' + b.memberCount + ' jobs</span>' : '') +
-    '<span class="tl-bar-dur">' + dur + '</span>' +
+    (seg.noteOut ? '' : '<span class="tl-bar-dur">' + dur + '</span>') + // a short bar says its dates beside itself
     '<span class="tl-bar-cap tl-bar-r">' + right + '</span>';
 
   bar.title = (b.customer || "Unknown customer") +
@@ -1445,9 +1547,9 @@ function buildTimelineBar(b, sm, tm, seg) {
   bar.setAttribute("data-deal-id", b.pipedriveDealId);
   bar.setAttribute("aria-label",
     (b.customer || "Unknown customer") + ", " + (b.suburb || b.site || "") + ", " +
-    fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b)) + ", " + tm.label + ", " + sm.label);
-  // The colour now means readiness, so say which readiness on hover.
-  bar.title = (b.customer || "") + " \u2014 " + tm.label + " \u2014 " + sm.label;
+    (seg.when ? seg.when.replace(/\s*\u2192\s*/g, " to ").replace(/\s*\u00b7\s*/g, ", ") : fmtShort(bStart(b)) + " to " + fmtShort(bEnd(b))) + ", " + tm.label + ", " + sm.label);
+  // The colour now means readiness, so say which readiness on hover, and when it is on.
+  bar.title = (b.customer || "") + " \u00b7 " + tm.label + " \u00b7 " + sm.label + (seg.when ? "\n" + seg.when : "");
 
   var open = function () { if (b.isGroup) { openGroupModal(b); return; } if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; } openModal(b); };
   bar.addEventListener("click", function (e) {
