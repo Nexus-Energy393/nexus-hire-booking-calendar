@@ -2804,14 +2804,14 @@ html.nx-embedded .side-rail .tab.active {
 .tl-job { flex: 0 0 auto; font-size: 10px; font-weight: 700; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 1px 5px; letter-spacing: .01em; }
 
 /* ---- day track + banding ---- */
-/* The track is cut into quarters of a day (midnight, 6am, noon, 6pm), four
-   to each day column, so a bar can start at 6pm and end at 6am. Nothing is
-   drawn for them: a day cell spans its four and the day lines are where they
-   were. --tl-qcols is set beside --tl-days (app.js renderTimeline); the 56 is
-   two weeks, for a track drawn before it is. */
+/* The track is cut into half days, split at noon, two to each day column,
+   so a night job can start in one afternoon and end the next morning. Nothing
+   is drawn for the split: a day cell spans its two and the day lines are
+   where they were. --tl-qcols and --tl-parts are set beside --tl-days (app.js
+   renderTimeline); the 28 is two weeks, for a track drawn before they are. */
 .tl-track {
   flex: 1 1 auto; min-width: 0; position: relative;
-  display: grid; grid-template-columns: repeat(var(--tl-qcols, 56), minmax(calc(var(--tl-col-min) / 4), 1fr));
+  display: grid; grid-template-columns: repeat(var(--tl-qcols, 28), minmax(calc(var(--tl-col-min) / var(--tl-parts, 2)), 1fr));
   grid-auto-rows: minmax(var(--tl-row-h), 1fr);
   align-items: center;
 }
@@ -2855,12 +2855,13 @@ html.nx-embedded .side-rail .tab.active {
 .tl-chev { font-weight: 800; color: var(--tl-accent, var(--general)); font-size: 15px; line-height: 1; }
 
 /* ---- a bar of any width --------------------------------------------------
-   A night outage is half a day column wide, a morning job a quarter. The bar
+   A morning job is half a day column wide, and narrower still in the month
+   view. The bar
    drops what it has no room for, in the order it matters least: the dates,
    the customer (the row's own label says it), the off-hire flag, the
    milestones. What is always left is its colour and its job type. (Each rule
    names .tl-bar so it outranks the part's own display, set further down.) It never
-   shrinks to nothing: a quarter of a day in the month view is still a mark
+   shrinks to nothing: half a day in the month view is still a mark
    you can see and tap. */
 .tl-bar { container: tl-bar / inline-size; min-width: 20px; }
 .tl-bar.is-tight { padding: 0 2px; gap: 3px; border-left-width: 3px; justify-content: center; }

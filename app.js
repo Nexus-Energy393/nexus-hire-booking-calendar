@@ -274,36 +274,36 @@ function bookingWindow(b) {
   return { s: s, e: e, lanes: lanes };
 }
 
-/* ---------- where a job sits on the timeline, to the quarter of a day ----------
-   Justin, 23 Nov 2026: "Break the day, not visually, into quarters, so a
-   booking that starts at 6pm is shown in this perspective. A night booking
-   should not span over 2 full days, but the last 1/2 or 1/4 of the 1st day and
-   same for the 2nd day."
+/* ---------- where a job sits on the timeline, to the half day ----------
+   Justin, 23 Nov 2026: "A night booking should not span over 2 full days",
+   and, once quarters were live, "rather than break the day into 1/4, lets
+   just make it 1/2".
 
    Every bar ran from the start of its first date to the end of its last, so a
    9pm to 5:30am outage filled two whole day columns and read as a two day job.
-   Each day column is four quarters now (midnight, 6am, noon, 6pm; no lines
-   are drawn for them) and a job with times starts and ends in the quarter its
-   times fall in. The rule is NexusResourcing.dayQuarters; this turns it into
-   the days and quarters one bar is drawn across.
+   Each day column is two halves now, split at noon (no line is drawn for it),
+   and a job with times starts and ends in the half its times fall in: a night
+   job is the afternoon of one day and the morning of the next. The rule is
+   NexusResourcing.dayParts; this turns it into the days and parts one bar is
+   drawn across.
 
    A job's units can go out before its own start date or come back after its
    end (bookingWindow widens for that). The times belong to the job's own
    dates, so a widened end is a whole day. */
-var TL_Q = 4;
+var TL_Q = 2; // the same number as NexusResourcing.DAY_PARTS (test/day-quarters.test.js holds them together)
 function timelineSpan(b) {
   var win = bookingWindow(b);
   if (!win.s) return null;
   var s = startOfDay(win.s), e = startOfDay(win.e || win.s);
   var bs = bStart(b), be = bEnd(b) || bs;
   var RS = window.NexusResourcing;
-  var q = (RS && RS.dayQuarters && bs)
-    ? RS.dayQuarters(b, ymdStr(bs), ymdStr(be))
-    : { timed: false, startQ: 0, endQ: TL_Q - 1, extraEndDays: 0, startMin: null, endMin: null, words: false };
-  var startQ = (bs && s.getTime() === bs.getTime()) ? q.startQ : 0;
+  var q = (RS && RS.dayParts && bs)
+    ? RS.dayParts(b, ymdStr(bs), ymdStr(be))
+    : { timed: false, startPart: 0, endPart: TL_Q - 1, extraEndDays: 0, startMin: null, endMin: null, words: false };
+  var startQ = (bs && s.getTime() === bs.getTime()) ? q.startPart : 0;
   var endQ = TL_Q - 1;
   if (be && e.getTime() === be.getTime()) {
-    endQ = q.endQ;
+    endQ = q.endPart;
     if (q.extraEndDays) e = startOfDay(addDays(e, q.extraEndDays));
   }
   if (e.getTime() === s.getTime() && endQ < startQ) endQ = startQ;
@@ -1299,7 +1299,8 @@ function renderTimeline(root, bookings, gridStart, numDays, opts) {
 
   var tl = el("div", "tl tl-" + (opts.view || "fortnight"));
   tl.style.setProperty("--tl-days", String(numDays));
-  tl.style.setProperty("--tl-qcols", String(numDays * TL_Q)); // the track's real columns: four quarters a day
+  tl.style.setProperty("--tl-qcols", String(numDays * TL_Q)); // the track's real columns: two halves a day
+  tl.style.setProperty("--tl-parts", String(TL_Q));
   tl.style.minWidth = "calc(var(--tl-head) + " + numDays + " * var(--tl-col-min))";
 
   // ---- sticky day header: one row of day columns, banded ----
@@ -1377,7 +1378,7 @@ function timelineRow(b, gridStart, numDays, todayCol) {
   var endCol   = Math.round((segEnd.getTime()   - winStart.getTime()) / 86400000);
   var contLeft  = s.getTime() < winStart.getTime();
   var contRight = e.getTime() > winEnd.getTime();
-  /* The same span in quarter columns. A bar cut off by the edge of the window
+  /* The same span in half-day columns. A bar cut off by the edge of the window
      runs to that edge. */
   var q0 = startCol * TL_Q + (contLeft ? 0 : win.startQ);
   var q1 = endCol * TL_Q + (contRight ? TL_Q - 1 : win.endQ);
@@ -1435,7 +1436,7 @@ function timelineRow(b, gridStart, numDays, todayCol) {
     if (d === todayCol) ccls += " is-today";
     if (dow === 1 && d !== 0) ccls += " is-weekstart";
     var cell = el("div", ccls);
-    cell.style.gridColumn = (d * TL_Q + 1) + " / span " + TL_Q; // a day cell is its four quarters
+    cell.style.gridColumn = (d * TL_Q + 1) + " / span " + TL_Q; // a day cell is its two halves
     if (lanes.length) cell.style.gridRow = "1 / span " + (lanes.length + 1);
     cell.setAttribute("data-date", ymdStr(date));
     track.appendChild(cell);
@@ -1445,7 +1446,7 @@ function timelineRow(b, gridStart, numDays, todayCol) {
   track.appendChild(bar);
   if (noteOut && when) {
     var freeRight = totalQ - 1 - q1, freeLeft = q0;
-    var onRight = freeRight >= 10 || freeRight >= freeLeft;
+    var onRight = freeRight >= 2.5 * TL_Q || freeRight >= freeLeft; // two and a half days of room is plenty
     var note = el("div", "tl-note" + (onRight ? "" : " is-left"));
     note.textContent = when;
     note.style.gridColumn = onRight ? (q1 + 2) + " / -1" : "1 / " + (q0 + 1);
@@ -1475,10 +1476,10 @@ function buildUnitLane(b, p, winStart, winEnd, span) {
      time, and one due back on its end date comes back at its end time. A unit
      on its own dates, or already back, keeps whole days. */
   var bs = bStart(b), be = bEnd(b) || bs, q = span && span.q;
-  var laneQ0 = (q && bs && ls.getTime() === bs.getTime()) ? q.startQ : 0;
+  var laneQ0 = (q && bs && ls.getTime() === bs.getTime()) ? q.startPart : 0;
   var laneQ1 = TL_Q - 1;
   if (q && be && le.getTime() === be.getTime() && p.state !== "returned") {
-    laneQ1 = q.endQ;
+    laneQ1 = q.endPart;
     if (q.extraEndDays) le = startOfDay(addDays(le, q.extraEndDays));
   }
   var cl = ls.getTime() < winStart.getTime(), cr = le.getTime() > winEnd.getTime();
