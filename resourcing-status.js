@@ -844,12 +844,27 @@
     }
     return { h: h, mi: mi };
   }
+  /* A window typed any other way is read by the timeline's reader (windowClock,
+     below), so "5.00AM - 4.00PM", "8.30 - 4.30" and "6AM Delivery - 4PM
+     Collection" are windows too. Justin, 23 Nov 2026: "how do we fix The
+     board's On Hire status cannot read times typed with a dot". Eighteen of
+     the 72 jobs with a window in the feed that day were typed that way, and
+     each one fell through to "no window recorded": On Hire from midnight to
+     midnight, so the 5am job read On Hire at 1am the night before and a
+     9.30pm to 5am outage went dark at midnight with the generator running.
+     A start with no end, or a word ("Morning"), is still no window: there is
+     nothing to say when it finishes, so the whole day stands. */
   function splitOutageWindow(s) {
     if (!s) return null;
     var parts = String(s).split(/\s*(?:-|\u2013|\u2014|to)\s*/i);
-    if (parts.length !== 2) return null;
-    var a = parseHM(parts[0]), b = parseHM(parts[1]);
-    return (a && b) ? { start: a, end: b } : null;
+    if (parts.length === 2) {
+      var a = parseHM(parts[0]), b = parseHM(parts[1]);
+      if (a && b) return { start: a, end: b };
+    }
+    var t = windowClock(s);
+    if (!t || t.words || t.end == null) return null;
+    var hm = function (mins) { return { h: Math.floor(mins / 60) % 24, mi: mins % 60 }; };
+    return { start: hm(t.start), end: hm(t.end) };
   }
   function dateAt(dateStr, hm) {
     var d = new Date(dateStr + "T00:00:00");
@@ -1066,8 +1081,8 @@
      The times come from the same field the jobsheet prints (outageWindow),
      which people type every way there is: "9:00PM - 5:30AM", "9.30PM - 5.00AM",
      "08:30:00 - 14:30:00", "8AM", "8.30 - 4.30", "6AM Delivery - 4PM
-     Collection", "Morning". parseHM above stays strict because On Hire turns
-     on it; this reader is only for where a bar is drawn, so it reads them all. */
+     Collection", "Morning". This reader takes them all. On Hire tries its own
+     strict parseHM first and comes here for the rest (splitOutageWindow). */
   var QUARTER_MINS = 360;
 
   /* Minutes after midnight for the first clock time in a string, and whether
@@ -1097,7 +1112,13 @@
       var es = clockOf(booking.startTime), ee = clockOf(booking.endTime);
       return es ? { start: es.mins, end: ee ? ee.mins : null, words: false } : null;
     }
-    var raw = String(booking.outageWindow == null ? "" : booking.outageWindow).trim();
+    return windowClock(booking.outageWindow);
+  }
+
+  /* An outage window as typed -> { start, end, words } in minutes after
+     midnight, or null. Shared by where a bar is drawn and by On Hire. */
+  function windowClock(value) {
+    var raw = String(value == null ? "" : value).trim();
     if (!raw) return null;
     var parts = raw.split(/\s+(?:to|until|till)\s+|\s*[-–—]\s*/i);
     var a = clockOf(parts[0]), b = parts.length > 1 ? clockOf(parts[1]) : null;
