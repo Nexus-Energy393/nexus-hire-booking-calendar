@@ -2243,6 +2243,7 @@ body[data-mode="tv"] .month-row-spans { grid-auto-rows: 50px; }
 .oh-result { margin-top: 10px; font-size: 13px; min-height: 18px; }
 .oh-result .ok { color: #156c39; font-weight: 600; }
 .oh-result .bad { color: var(--danger, #d23f3f); font-weight: 600; }
+.oh-result .muted { color: var(--muted); font-weight: 600; }
 
 /* home banner (calendar) */
 .offhire-home-banner {
