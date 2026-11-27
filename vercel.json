@@ -1,5 +1,6 @@
 {
   "functions": {
-    "api/off-hire.js": { "maxDuration": 30 }
+    "api/off-hire.js": { "maxDuration": 30 },
+    "api/jobsheet.js": { "maxDuration": 30 }
   }
 }

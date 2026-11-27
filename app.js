@@ -156,6 +156,23 @@ function allocatedShort(b) {
   return units.map(function (u) { return "#" + String(u.fleetNumber || "").replace(/^#+/, "").trim(); })
     .filter(function (t) { return t !== "#"; }).join(" + ") || allocatedLine(b);
 }
+/* A job with more than one generator, counted on its calendar row. NEX-1622
+   was eight 60 kVA sets, two of ours and six from Kennards, and its row read
+   "60kVA" and "#601 + #451": nothing said eight, and nothing said cross-hire.
+   The row head has room for about twenty characters, so the count leads the
+   line and the fleet numbers follow it: "8 gens · 6 cross-hired · #601 + ...".
+   The whole of it is in the tooltip. A one-unit job reads exactly as it did. */
+function rowSum(b) {
+  return (window.NexusJobBrain && !b.isGroup) ? window.NexusJobBrain.rowSummary(b) : null;
+}
+function rowLead(b) {
+  var s = rowSum(b);
+  if (!s) return "";
+  var bits = [s.total + " gens"];
+  if (s.open) bits.push(s.open + " to fill");
+  if (s.crossHired) bits.push(s.crossHired + " cross-hired");
+  return bits.join(" \u00b7 ");
+}
 /* True when a job sold a unit of the size picked in the size filter, so a
    60 + 35 job is found under 35 kVA as well as 60 kVA. */
 function soldSizeMatches(b, size) {
@@ -1404,11 +1421,14 @@ function timelineRow(b, gridStart, numDays, todayCol) {
       '<span class="tl-sub">' + escapeHtml(b.suburb || b.site || "Site TBC") +
         (soldSizeText(b) ? '<span class="tl-gen"> · ' + escapeHtml(soldSizeText(b)) + '</span>' : '') +
       '</span>' +
-      (machine ? '<span class="tl-unit">' + escapeHtml(allocatedShort(b)) + '</span>' : '') +
+      (rowLead(b) ? '<span class="tl-unit tl-unit-multi"><span class="tl-qty">' + escapeHtml(rowLead(b)) + '</span>' +
+                      (machine ? ' · ' + escapeHtml(allocatedShort(b)) : '') + '</span>'
+        : (machine ? '<span class="tl-unit">' + escapeHtml(allocatedShort(b)) + '</span>' : '')) +
       (unitsBackText(win.lanes) ? '<span class="tl-unit tl-unit-back">' + escapeHtml(unitsBackText(win.lanes)) + '</span>' : '') +
     '</span>' + job;
   head.title = (b.customer || "Unknown customer") + "\n" + (b.suburb || b.site || "Site TBC") +
-    (soldSizeText(b) ? " · " + soldSizeText(b) : "") + (machine ? "\n" + machine : "\nNo unit allocated yet");
+    (soldSizeText(b) ? " · " + soldSizeText(b) : "") + (machine ? "\n" + machine : "\nNo unit allocated yet") +
+    (rowSum(b) ? "\n" + rowSum(b).text : "");
   head.addEventListener("click", function () {
     if (b.isGroup) { openGroupModal(b); return; }
     if (opensInCrm(b)) { window.open(dealUrl(b), "_blank", "noopener"); return; }
@@ -3076,9 +3096,55 @@ var JS_HERO_SVG = {
 };
 
 /* ---------- the dispatch hero (screen only; sits above the printable sheet) --- */
+/* Job Control's reading of the job (job-brain.js), from the same status the
+   rest of the sheet uses. Staff counts are null until the staff list has
+   loaded, so "No staff allocated" is never said on a guess. */
+function jsBrain(b, st) {
+  if (!window.NexusJobBrain) return null;
+  var id = String(b.pipedriveDealId);
+  var sc = (STATE.staffCountByDeal || {})[id] || null;
+  try {
+    return window.NexusJobBrain.analyse(b, (STATE.allocationsByDeal || {})[id] || [], (STATE.hoursByDeal || {})[id] || [],
+      { status: st, staffCount: sc ? sc.labour : null, inspectorCount: sc ? sc.inspector : null });
+  } catch (e) {
+    console.warn("[job control] " + ((e && e.message) || e));
+    return null;
+  }
+}
+/* The one list of what is outstanding, worst first, each with the button that
+   deals with it. Items the status engine raised keep the jh-missing-i class
+   the browser tests read. */
+function jcChecksHtml(jb) {
+  if (!jb) return "";
+  /* The first item is already the Next card above; saying it twice makes the
+     list look longer than the job is. */
+  var rest = jb.checks.filter(function (c) { return !(jb.next && jb.next.checkId === c.id); });
+  if (!rest.length) return "";
+  return '<ul class="jc-checks" aria-label="Also outstanding on this job">' + rest.map(function (c) {
+    var fromStatus = c.id.indexOf("missing:") === 0;
+    return '<li class="jc-check is-' + c.level + '">' +
+      '<span class="jc-check-dot" aria-hidden="true"></span>' +
+      '<span class="jc-check-tx"><span class="jc-check-t' + (fromStatus ? ' jh-missing-i' : '') + '">' + escapeHtml(c.title) + '</span>' +
+        (c.detail ? '<span class="jc-check-d">' + escapeHtml(c.detail) + '</span>' : '') + '</span>' +
+      (c.fix ? '<button type="button" class="jc-fix" data-jc-fix="' + escapeHtml(c.fix.type) + '">' + escapeHtml(c.fix.label) + '</button>' : '') +
+    '</li>';
+  }).join("") + '</ul>';
+}
+function jcNextHtml(jb) {
+  if (!jb || !jb.next) return "";
+  var n = jb.next;
+  return '<div class="jc-next is-' + jb.tone + '">' +
+    '<span class="jc-next-k">Next</span>' +
+    '<span class="jc-next-tx"><span class="jc-next-t' + (String(n.checkId || "").indexOf("missing:") === 0 ? ' jh-missing-i' : '') + '">' + escapeHtml(n.title) + '</span>' +
+      (n.detail ? '<span class="jc-next-d">' + escapeHtml(n.detail) + '</span>' : '') + '</span>' +
+    (n.fix ? '<button type="button" class="jc-fix jc-fix-main" data-jc-fix="' + escapeHtml(n.fix.type) + '">' + escapeHtml(n.fix.label) + '</button>' : '') +
+  '</div>';
+}
+
 function jsHero(b, st) {
   var tm = typeMeta(b);
   var lc = jsLifecycle(b);
+  var jb = jsBrain(b, st);
 
   /* "Ready" is somebody asserting they have done the checks. It is not a
      reason to stop showing what is still outstanding: a job can be marked
@@ -3098,6 +3164,16 @@ function jsHero(b, st) {
     readySub = nOut ? (nOut + (nOut === 1 ? " item outstanding" : " items outstanding")) : "Nothing outstanding";
   }
   else { readyTone = "warn"; readyLabel = (nOut || "Checks") + (nOut ? (nOut === 1 ? " item to sort" : " items to sort") : " pending"); readySub = "Before dispatch"; }
+  /* Job Control has the last word. The badge used to count only what the
+     dispatch gate counts, so NEX-1622 read "Cleared, nothing outstanding"
+     with no staff on it, a 45 kVA in a 60 slot and hours that could not be
+     right. It now reads the same list the checks below are drawn from. */
+  if (jb) {
+    readyLabel = jb.status;
+    readyTone = jb.tone === "block" ? "block" : jb.tone === "warn" ? "warn" : (st.key === "ready" || st.key === "on-hire") ? "ready" : "ok";
+    readySub = jb.tone === "block" ? "Fix before dispatch" : jb.tone === "warn" ? (st.key === "ready" ? "Marked ready" : "Check before it leaves")
+      : jb.counts.slots > 1 ? jb.counts.slots + " generators" : "Job control";
+  }
 
   function tile(ico, k, v, tone) {
     return '<div class="jh-stat' + (tone ? " is-" + tone : "") + '"><span class="jh-stat-ic">' + (JS_HERO_SVG[ico] || "") + '</span>' +
@@ -3111,6 +3187,8 @@ function jsHero(b, st) {
      unit going is not the size sold, and amber when nothing anywhere knows
      the size. */
   var genSize = st.generatorSize || jsFmtKva(b.generatorSize) || "";
+  /* More than one generator: the tile counts them ("8 x 60 kVA"). */
+  if (jb && jb.counts.slots > 1) genSize = jb.headline;
   var genTone = genSize ? ((st.substitutions || st.undersize || []).length ? "warn" : "") : "warn";
   var tiles =
     tile("gen", "Generator", genSize || "Size TBC", genTone) +
@@ -3138,6 +3216,10 @@ function jsHero(b, st) {
           '</span>';
       }).join("") + '</div>'
     : "";
+  /* Job Control draws these in its own list (jcChecksHtml), every one of them,
+     ready or not. The chip row stays as the fallback if job-brain.js did not
+     load, so an outstanding item can never go unshown. */
+  if (jb) missing = "";
 
   /* Accepted ones are not deleted. They sit quietly with a name against them,
      and one click puts them back. A warning somebody waved away without trace
@@ -3149,7 +3231,10 @@ function jsHero(b, st) {
   var subs = (st.substitutions || st.oversize || []);
   var oversizeRow = subs.length
     ? '<div class="jh-accepted jh-note"><span class="jh-accepted-k">Substitution</span>' +
-      subs.map(function (w) { return '<span class="jh-accepted-i">' + escapeHtml(w.text) + '</span>'; }).join("") + '</div>'
+      subs.map(function (w) { return '<span class="jh-accepted-i">' + escapeHtml(w.text) + '</span>'; }).join("") +
+      /* Still a fact, not a fault. Claude can look for the size sold if
+         somebody wants it; nothing asks them to. */
+      (jb && (st.undersize || []).length ? '<button type="button" class="jc-fix jc-fix-quiet" data-jc-fix="propose">Find a swap</button>' : '') + '</div>'
     : "";
 
   var acceptedRow = (st.accepted || []).length
@@ -3179,6 +3264,7 @@ function jsHero(b, st) {
         '<div class="jh-cust">' + escapeHtml(b.customer || "Unknown customer") +
           (jsVal(b.suburb) ? ' <span class="jh-sub">· ' + escapeHtml(b.suburb) + '</span>' : '') + '</div>' +
         '<span class="jh-type ' + tm.cls + '">' + tm.label + '</span>' +
+        (jb && jb.parts.length ? '<span class="jc-units">' + escapeHtml(jb.title) + '</span>' : '') +
       '</div>' +
       '<div class="jh-ready is-' + readyTone + '">' +
         '<div class="jh-ready-lbl">' + escapeHtml(readyLabel) + '</div>' +
@@ -3192,6 +3278,8 @@ function jsHero(b, st) {
     '</div>' +
     '<div class="jh-stats">' + tiles + '</div>' +
     (alerts ? '<div class="jh-alerts">' + alerts + '</div>' : '') +
+    jcNextHtml(jb) +
+    jcChecksHtml(jb) +
     missing +
     oversizeRow +
     acceptedRow +
@@ -3215,7 +3303,7 @@ function renderJobSheet(b) {
 
   /* toolbar (screen only - excluded from print/PDF) */
   html += '<div class="js-toolbar">';
-  html += '<span class="js-title-min">Dispatch jobsheet &mdash; ' + escapeHtml(b.customer || "Unknown customer") + '</span>';
+  html += '<span class="js-title-min">Job control &middot; ' + escapeHtml(b.customer || "Unknown customer") + '</span>';
   html += '<button class="js-btn primary" id="jsPdfBtn" type="button">Download PDF</button>';
   html += '<a class="js-btn pd" id="jsPdBtn" target="_blank" rel="noopener" href="' + dealUrl(b) + '">Nexy deal &rarr;</a>';
   html += '<a class="js-btn survey" id="jsSurveyBtn" target="_blank" rel="noopener" href="https://nexus-site-survey.vercel.app/survey?dealId=' + encodeURIComponent(dealId) + '">Site Survey &rarr;</a>';
@@ -3226,6 +3314,9 @@ function renderJobSheet(b) {
   /* screen-only intelligence hero (sits above the printable A4 sheet; the PDF
      export captures #jsSheetBody only, so the hero never lands in the PDF) */
   html += '<div id="jsHeroHolder">' + jsHero(b, st) + '</div>';
+  /* Claude's panel and the section links. Outside the hero, which is redrawn
+     on every sync and would take a half-read proposal with it. Screen only. */
+  html += '<div id="jcHolder" class="jc-holder" data-deal="' + escapeHtml(String(dealId)) + '"></div>';
 
   html += '<div class="js-body" id="jsSheetBody">';
 
@@ -3353,6 +3444,7 @@ function renderJobSheet(b) {
   document.getElementById("modalBackdrop").hidden = false;
   document.title = jsDocumentTitle(b);
   jsWire(m, b);
+  if (window.NexusJobControl) window.NexusJobControl.mount(m, b);
   jsUpdateStatusUI(b);
   /* Ask again as the sheet opens. Acknowledgements were only ever read at
      start-up and after a save made on THIS screen, so a job confirmed in the
@@ -3561,6 +3653,19 @@ function jsRenderStaffAllocations(holder, booking, opts) {
     var allocs = (allocData.allocations || []).filter(function(a) { return a.status !== "cancelled"; });
     var labourAllocs    = allocs.filter(function(a){ return !isInspectorRole(a.staff_role); });
     var inspectorAllocs = allocs.filter(function(a){ return  isInspectorRole(a.staff_role); });
+    /* Job Control reads these: only now, with the list really loaded, can it
+       say "No staff allocated". */
+    STATE.staffCountByDeal = STATE.staffCountByDeal || {};
+    var jcPrev = STATE.staffCountByDeal[String(booking.pipedriveDealId)];
+    STATE.staffCountByDeal[String(booking.pipedriveDealId)] = { labour: labourAllocs.length, inspector: inspectorAllocs.length };
+    if ((!jcPrev || jcPrev.labour !== labourAllocs.length || jcPrev.inspector !== inspectorAllocs.length) &&
+        document.getElementById("jsHeroHolder")) {
+      /* Only if the sheet on screen is still this job's. */
+      var jcOpen = document.getElementById("jcHolder");
+      if (jcOpen && jcOpen.getAttribute("data-deal") === String(booking.pipedriveDealId)) {
+        document.getElementById("jsHeroHolder").innerHTML = jsHero(booking, jsComputeStatus(booking));
+      }
+    }
 
     var sumEl = document.getElementById("jsStaffSummary");
     if (sumEl) sumEl.textContent = allocs.length
