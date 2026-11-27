@@ -58,7 +58,10 @@ test("IndustELEC: the two Kennards rows fill slots 3 and 4, after #602 and #451"
 });
 
 test("a settled cross-hire lets the job move on; an unsettled one holds it", () => {
-  const b = { generatorSize: "60kVA", generatorQty: 2, contactPhone: "1", startDate: "2026-11-27", endDate: "2026-11-30" };
+  /* Dates well ahead, so the job is not yet On Hire: this test is about the
+     step before that. It was written with 27 to 30 Nov 2026 and began to
+     fail on 27 Nov 2026, the day those dates arrived. */
+  const b = { generatorSize: "60kVA", generatorQty: 2, contactPhone: "1", startDate: "2099-11-27", endDate: "2099-11-30" };
   const settled = R.computeJobStatus(b, [unit("602", 60), xrow("x1")], []);
   assert.equal(settled.key, "allocated", "Kennards on the second slot is as good as allocated");
   const bare = xrow("x2", { xhire_supplier: null, xhire_item: null, override_note: null });

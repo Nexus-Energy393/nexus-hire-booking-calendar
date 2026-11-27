@@ -47,6 +47,17 @@ Calendar (month / office screen), List (current + upcoming only), 2 Week (this +
 - A job flagged `conflict` because of a hire only Nexy could see is re-checked after every off-hire and on every bookings sync, and goes back to `allocated` once Nexy says the unit is free. It is only cleared on a clear answer from Nexy, never on silence.
 - Browser test: `node test/e2e/auto-onhire.e2e.js` (needs Playwright).
 
+## Job Control (27 Nov 2026)
+
+The jobsheet's header is now Job Control. It reads the job and says what to do next; Claude proposes allocations and a person approves each one.
+
+- `job-brain.js` (browser and Node, pure): the headline ("8 x 60 kVA, 2 own, 6 cross-hired"), one list of checks with the action that clears each, the next step, and the calendar row count. It reads `computeJobStatus`, so it cannot disagree with the rest of the board. A size substitution is stated on its own line and is never a check, as before.
+- `job-control.js` (browser): the checks' buttons, the section links, and Claude's panel (Review this job, Approve, Dismiss, a question box).
+- `lib/job-brain-ai.js` + `POST /api/jobsheet?action=brain` (admin token): builds the real options for each slot from live availability, asks Claude to choose among them and explain, drops anything not on the list, and falls back to the rules' own choice if Claude cannot be reached. It never writes. Approve on the screen calls the ordinary `/api/allocations` route (`fleet.js applyProposal`).
+- Claude is reached through the Vercel AI Gateway with the function's own OIDC token (`x-vercel-oidc-token`), so there is no key to store. Set `AI_GATEWAY_API_KEY` to use a key instead, and `JOB_BRAIN_MODEL` to change the model (default `anthropic/claude-sonnet-5`). Usage is billed to the team's AI Gateway credit. The job number, customer name, suburb, dates, units and checks are sent; phone numbers, emails and cost prices are not.
+- The sign-off block is hidden on screen and still prints and exports to PDF.
+- Tests: `npm test -- job-brain`, and in a browser `node test/e2e/job-control.e2e.js` (needs Playwright).
+
 ## Outstanding / roadmap
 
 - Many won deals lack a hire **start date**, so they land in Missing Info / needs-review. That is a data-entry task for the team in Nexy, not an app bug.

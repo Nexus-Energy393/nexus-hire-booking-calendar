@@ -2107,10 +2107,62 @@ function fmtDate(v) { if (v == null || v === "") return "\u2014"; var d = new Da
   }
 
   /* ---------- public API + router ---------- */
+  /* Job Control: carry out one proposal a person has just approved. It is the
+     same call the Allocate box makes (a new row for an open slot, a PATCH of
+     the slot's own row for a swap), so the server's conflict and service
+     rules still have the last word. A cross-hire opens the cross-hire sheet
+     for the slot, where the supplier and cost are entered. Answers
+     done({ ok, error?, opened? }) and never throws. */
+  function applyProposal(booking, p, done) {
+    done = done || function () {};
+    if (!p) { done({ ok: false, error: "Nothing to apply." }); return; }
+    if (!guardWrite()) { done({ ok: false, error: "Not signed in for changes.", cancelled: true }); return; }
+    var st = (STATE.jobStatus || {})[booking.pipedriveDealId] || null;
+    var slot = slotFor(st, Number(p.slot) - 1);
+    if (p.kind === "cross_hire") {
+      var existing = null;
+      if (p.replace_allocation_id && STATE.jobsheet && STATE.jobsheet[booking.pipedriveDealId]) {
+        (STATE.jobsheet[booking.pipedriveDealId].allocations || []).forEach(function (a) {
+          if (String(a.allocation_id) === String(p.replace_allocation_id)) existing = a;
+        });
+      }
+      openCrossHireSheet(booking, st, Number(p.slot) - 1, existing, p.replace_allocation_id || null);
+      done({ ok: true, opened: true });
+      return;
+    }
+    if (!p.asset_id) { done({ ok: false, error: "That proposal names no unit." }); return; }
+    var payload = { pipedrive_deal_id: booking.pipedriveDealId, booking_title: booking.customer || "", asset_id: p.asset_id,
+      hire_start: (slot && slot.start) || booking.startDate || null, hire_end: (slot && slot.end) || booking.endDate || null,
+      override_note: null };
+    var req = p.replace_allocation_id
+      ? apiSend("PATCH", "/allocations?id=" + encodeURIComponent(p.replace_allocation_id), payload)
+      : apiSend("POST", "/allocations", payload);
+    req.then(function (r) {
+      if (!r.body || !r.body.ok) { done({ ok: false, error: (r.body && r.body.error) || "The allocation was refused." }); return; }
+      /* The feed still names the unit that was just swapped out until its
+         next refresh, and the sheet would go on warning about a machine that
+         is no longer on the job. Take it off this screen's copy now; the next
+         feed read is the truth either way, and puts it back if Nexy did not
+         take the change. */
+      var gone = String(p.replaces || "").replace(/^#+/, "").trim();
+      if (p.replace_allocation_id && gone && Array.isArray(booking.allocatedUnits)) {
+        booking.allocatedUnits = booking.allocatedUnits.filter(function (u) {
+          return String((u && u.fleetNumber) || "").replace(/^#+/, "").trim() !== gone;
+        });
+      }
+      reopenJobsheet(booking);
+      done({ ok: true });
+    }).catch(function (e) { done({ ok: false, error: (e && e.message) || "The allocation could not be sent." }); });
+  }
+
   window.NexusFleet = {
     renderFleetPage: renderFleetPage,
     renderResourcing: renderResourcing,
     setDispatchReady: setDispatchReady,
+    applyProposal: applyProposal,
+    ensureToken: ensureToken,
+    authHeaders: authHeaders,
+    writesEnabled: function () { return !!STATE.writesEnabled; },
     isFleetRoute: function () { return /#\/(fleet|rental-stock|fleet-control)/.test(location.hash); },
     hasToken: hasToken, setToken: setToken
   };
