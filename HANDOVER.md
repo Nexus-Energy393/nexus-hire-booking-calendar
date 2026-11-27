@@ -43,7 +43,8 @@ Calendar (month / office screen), List (current + upcoming only), 2 Week (this +
 
 - Every 15 minutes Nexy's `/api/cron/auto-onhire` puts each generator booked to a won hire job on hire on its start day (Melbourne). It writes the departure here through `POST /api/jobsheet?action=engine-hours` with `recorded_by = "Auto On-Hire"`: hours out = the unit's last return reading (this board's Off Hire hours in, or Nexy's, whichever is later), fuel out = 100%.
 - The jobsheet shows those rows with an **Auto** badge and a note. Typing over the figures and saving replaces them (here and, through the usual mirror, in Nexy). "Save all" deliberately skips an Auto row nobody changed, so the badge stays honest. The constant `AUTO_ONHIRE_BY` in `fleet.js` must match Nexy's `src/lib/hire/auto-onhire-rules.ts`.
-- The Off Hire page still does not call Nexy. Instead the same Nexy sweep reads each live job's allocations and returns any unit this board has off-hired, using the hours in recorded here. Expect up to 15 minutes before Nexy shows a board return.
+- The Off Hire page tells Nexy as soon as a unit is returned (`lib/nexy-returns.js` -> Nexy `POST /api/hire/returns`, which runs the same return sweep as the cron), so Nexy shows the return straight away. If Nexy does not answer, the 15-minute sweep still picks it up and the form says so.
+- A job flagged `conflict` because of a hire only Nexy could see is re-checked after every off-hire and on every bookings sync, and goes back to `allocated` once Nexy says the unit is free. It is only cleared on a clear answer from Nexy, never on silence.
 - Browser test: `node test/e2e/auto-onhire.e2e.js` (needs Playwright).
 
 ## Outstanding / roadmap

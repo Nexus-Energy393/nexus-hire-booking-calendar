@@ -358,13 +358,18 @@
             elSubmit.textContent = "Off hired ✓";
             elResult.innerHTML = '<span class="ok">Returned to fleet · ' +
               (res.body.runtime_hours != null ? round1(res.body.runtime_hours) + ' hrs runtime · ' : '') +
-              round1(res.body.fuel_used_litres || 0) + ' L fuel recorded.</span>';
+              round1(res.body.fuel_used_litres || 0) + ' L fuel recorded.</span>' +
+              // What happened in Nexy, so nobody has to wonder whether it knows.
+              '<span class="' + (res.body.nexy === "pending" ? 'muted' : 'ok') + '"> ' +
+              (res.body.nexy === "pending" ? 'Nexy will show the return within 15 minutes.' : 'Nexy updated.') +
+              (res.body.conflicts_cleared ? ' ' + res.body.conflicts_cleared + ' conflict' + (res.body.conflicts_cleared === 1 ? '' : 's') + ' cleared.' : '') +
+              '</span>';
             setTimeout(function () {
               m.close();
               if (root) render(root);
               refreshBadge();
               if (typeof onDone === "function") onDone(res.body);
-            }, 900);
+            }, 1600);
           } else {
             elSubmit.disabled = false; elSubmit.textContent = "Complete off hire";
             elResult.innerHTML = '<span class="bad">' + esc((res.body && res.body.error) || "Off-hire failed.") + '</span>';

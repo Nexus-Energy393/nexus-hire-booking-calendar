@@ -19,12 +19,15 @@
  *            refuels:[{litres,refuelled_at,notes}], returned_to_yard,
  *            recorded_by, notes }
  *     -> records hours-in + fuel litres, returns the asset to the fleet,
- *        recomputes service, releases the allocation, clears alerts.
+ *        recomputes service, releases the allocation, clears alerts, then
+ *        asks Nexy to return the unit there too. The answer carries
+ *        nexy: "returned" | "nothing" | "pending" and conflicts_cleared.
  */
 const db = require("../lib/db");
 const store = require("../lib/store-offhire");
 const auth = require("../lib/auth");
 const http = require("../lib/http");
+const returns = require("../lib/nexy-returns");
 
 module.exports = async function handler(req, res) {
   http.cors(res, "GET, POST, OPTIONS");
@@ -61,6 +64,21 @@ module.exports = async function handler(req, res) {
 
       if (action === "off-hire" || action === "complete") {
         const out = await store.offHireEquipment(body);
+        /* Tell Nexy now, rather than leave it to Nexy's 15-minute sweep, and
+           then look again at any job that was told this unit clashed while
+           Nexy still had it out (lib/nexy-returns). Best-effort: the return
+           above has already been saved and never fails on this. */
+        out.nexy = "pending";
+        out.conflicts_cleared = 0;
+        try {
+          const told = await returns.tellNexy({ dealId: body.pipedrive_deal_id });
+          out.nexy = told.state;
+          const re = await returns.recheckNexyConflicts({ assetId: body.asset_id });
+          out.conflicts_cleared = re.cleared;
+          if (re.cleared) console.log("[api/off-hire] cleared " + re.cleared + " Nexy conflict(s) after the return");
+        } catch (e2) {
+          console.warn("[api/off-hire] Nexy follow-up skipped:", e2.message);
+        }
         res.status(201).json(out);
         return;
       }
