@@ -106,11 +106,24 @@ test("what Claude is told carries no phone number, email or cost", () => {
 
 // ------------------------------------------------------------ the calendar row
 test("the calendar row counts a multi-generator job and leaves a single alone", () => {
-  const b = JOB({ allocatedUnits: [{ fleetNumber: "601", status: "OUT" }, { fleetNumber: "451", status: "OUT" }],
-    crossHires: [1, 2, 3, 4, 5, 6].map(() => ({ kva: 60 })).concat([{ kva: null, description: "Light tower" }]) });
-  assert.equal(B.rowSummary(b).text, "8 generators: 2 own, 6 cross-hired");
-  assert.equal(B.rowSummary(JOB({ generatorQty: 1, allocatedUnits: [{ fleetNumber: "601", status: "OUT" }] })), null);
-  assert.equal(B.rowSummary(JOB({ generatorQty: 3, allocatedUnits: [{ fleetNumber: "601", status: "BOOKED" }] })).text, "3 generators: 1 own, 2 to fill");
+  const counts = B.analyse(JOB(), ALLOCS(), HOURS(), { today: TODAY }).counts;
+  assert.equal(B.rowSummary(JOB(), counts).text, "8 generators: 2 own, 6 cross-hired");
+  const one = JOB({ generatorQty: 1 });
+  assert.equal(B.rowSummary(one, B.analyse(one, [own("a2", "601", 60, 564)], [], { today: TODAY }).counts), null);
+  const short = JOB({ generatorQty: 3 });
+  assert.equal(B.rowSummary(short, B.analyse(short, [own("a2", "601", 60, 564)], [], { today: TODAY }).counts).text, "3 generators: 1 own, 2 to fill");
+});
+
+test("from the feed alone the row never claims a slot is still to fill", () => {
+  /* Production, 27 Nov 2026: the feed named #601 and #451 and none of the six
+     Kennards sets, which are board rows. The first build drew "6 to fill". */
+  const feedOnly = JOB({ allocatedUnits: [{ fleetNumber: "601", status: "OUT" }, { fleetNumber: "451", status: "OUT" }] });
+  const r = B.rowSummary(feedOnly);
+  assert.equal(r.text, "8 generators: 2 own");
+  assert.equal(r.open, 0);
+  assert.equal(r.known, false);
+  const withXh = JOB({ allocatedUnits: [{ fleetNumber: "601", status: "OUT" }], crossHires: [{ kva: 60 }, { kva: 60 }, { kva: null, description: "Light tower" }] });
+  assert.equal(B.rowSummary(withXh).text, "8 generators: 1 own, 2 cross-hired");
 });
 
 // ------------------------------------------------------------ the options
