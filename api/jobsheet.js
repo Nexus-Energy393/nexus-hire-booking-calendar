@@ -14,12 +14,57 @@
  *     body { asset_id, service_type, service_completed_hours, service_completed_date,
  *            completed_by, service_form_url, notes }
  *     -> adds a service record, updates last_service_hours, clears service alerts.
+ *
+ *   POST /api/jobsheet?action=brain          (admin)
+ *     body { dealId, ask? }
+ *     -> Job Control: Claude's brief on the job and its proposed allocations,
+ *        each one a unit that is really free. Changes nothing (see
+ *        lib/job-brain-ai.js); the screen applies a proposal only on Approve.
  */
 const db = require("../lib/db");
 const store = require("../lib/store-fleet");
 const auth = require("../lib/auth");
 const http = require("../lib/http");
 const R = require("../lib/resourcing");
+const feed = require("../lib/feed");
+const staffStore = require("../lib/store-staff");
+const brainAi = require("../lib/job-brain-ai");
+
+/* Job Control: everything Claude is shown about one job, read fresh on the
+   server so a stale screen cannot feed it. Returns null when the feed does
+   not carry the job. Read-only. */
+async function brainInput(dealId) {
+  const bookings = await feed.getBookings();
+  const booking = (bookings || []).find(function (b) {
+    return b && (String(b.pipedriveDealId) === String(dealId) || String(b.crmDealId) === String(dealId));
+  });
+  if (!booking) return null;
+  const allocations = (await store.listAllocations({ dealId: dealId, withCost: false }))
+    .filter(function (a) { return String(a.allocation_status || "").toLowerCase() !== "released"; });
+  for (const a of allocations) {
+    if (a.asset_id) {
+      const asset = await store.getAsset(a.asset_id);
+      if (asset) { a.asset = asset; a.service = R.serviceStatus(asset); }
+    }
+  }
+  const engineHours = await store.engineHoursForDeal(dealId, null);
+  let availability = { available: [], conflicted: [] };
+  if (booking.startDate) {
+    let external = [];
+    try { external = feed.crmAllocations(bookings); } catch (e) { /* board rows only */ }
+    availability = await store.generatorAvailability(
+      { hire_start: booking.startDate, hire_end: booking.endDate || booking.startDate, pipedrive_deal_id: dealId }, external);
+  }
+  /* null, not 0, when staff could not be read: "nobody allocated" is a claim. */
+  let staffCount = null, inspectorCount = null;
+  try {
+    const staff = await staffStore.listAllocations({ dealId: dealId });
+    inspectorCount = staff.filter(function (s) { return /inspector/i.test(s.staff_role || ""); }).length;
+    staffCount = staff.length - inspectorCount;
+  } catch (e) { console.warn("[api/jobsheet] staff not read for the brain:", e.message); }
+  return { booking: booking, allocations: allocations, engineHours: engineHours, availability: availability,
+           staffCount: staffCount, inspectorCount: inspectorCount };
+}
 
 /* Mirror an engine-hours/fuel reading to the Nexy CRM — the authoritative hire
    engine-hours store — on write, so the CRM records it and keeps the unit's
@@ -74,6 +119,17 @@ module.exports = async function handler(req, res) {
       const body = await http.readBody(req);
       if (http.badBody(res, body)) return;
 
+      if (action === "brain") {
+        const dealId = body.dealId != null ? String(body.dealId).trim() : "";
+        if (!dealId) { res.status(400).json({ ok: false, error: "dealId is required." }); return; }
+        if (body.ask != null && typeof body.ask !== "string") { res.status(400).json({ ok: false, error: "ask must be text." }); return; }
+        const input = await brainInput(dealId);
+        if (!input) { res.status(404).json({ ok: false, error: "That job is not on the hire feed." }); return; }
+        const result = await brainAi.think(Object.assign(input, { ask: body.ask || "", req: req }));
+        res.status(200).json(Object.assign({ ok: true, dealId: dealId }, result));
+        return;
+      }
+
       if (action === "engine-hours") {
         if (!body.asset_id) { res.status(400).json({ ok: false, error: "asset_id is required." }); return; }
         const rec = await store.recordEngineHours(body);
@@ -110,7 +166,7 @@ module.exports = async function handler(req, res) {
         return;
       }
 
-      res.status(400).json({ ok: false, error: "Unknown action. Use ?action=engine-hours or ?action=service-record." });
+      res.status(400).json({ ok: false, error: "Unknown action. Use ?action=engine-hours, ?action=service-record or ?action=brain." });
       return;
     }
 
