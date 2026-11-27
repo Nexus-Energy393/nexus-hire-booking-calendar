@@ -47,7 +47,8 @@ const JOB = {
     { fleetNumber: "601", label: "#601 · PowerLink PR66C-SAE · 60 kVA", kva: 60, status: "OUT", start: START, end: END },
     { fleetNumber: "451", label: "#451 · HIMOINSA HRYW-45 T5 · 45 kVA", kva: 45, status: "OUT", start: START, end: END },
   ],
-  crossHires: [1, 2, 3, 4, 5, 6].map((i) => ({ id: "c" + i, supplier: "Kennards Hire", description: "60 kVA generator", kva: 60, returned: false })),
+  /* No crossHires on the feed: in production the six Kennards sets are board
+     rows the feed never names, and the row has to count them anyway. */
 };
 const own = (id, fleet, kva, cur) => ({
   allocation_id: id, pipedrive_deal_id: DEAL, asset_id: "as" + fleet, stock_item_id: null, allocation_status: "allocated",
