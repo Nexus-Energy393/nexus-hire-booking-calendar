@@ -73,6 +73,16 @@ module.exports = async function handler(req, res) {
         if (moved) console.log('[api/bookings] re-synced hire dates on ' + moved + ' allocation(s)');
         const released = await store.releaseOrphanAllocations(full);
         if (released) console.log('[api/bookings] auto-released ' + released + ' orphaned allocation(s)');
+        /* A job told its unit clashed with a hire in Nexy keeps that flag
+           until someone looks again. Look again here, so a return made in
+           Nexy (the deal page, the QR sticker) clears it as well as one made
+           on the Off Hire page. Its own try, and only ever a handful of rows. */
+        try {
+          const re = await require('../lib/nexy-returns').recheckNexyConflicts();
+          if (re.cleared) console.log('[api/bookings] cleared ' + re.cleared + ' Nexy conflict(s) that no longer apply');
+        } catch (e4) {
+          console.warn('[api/bookings] Nexy conflict re-check skipped:', e4.message);
+        }
       }
     } catch (e2) {
       // Never fail the read because the reconciliation failed - the board
