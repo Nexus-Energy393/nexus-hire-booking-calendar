@@ -290,28 +290,40 @@
     };
   }
 
-  /* The calendar row's second line for a job with more than one generator:
-     "8 x 60 kVA" plus who is supplying them. Empty for a one-unit job, which
-     reads as it always did. */
-  function rowSummary(booking) {
-    var qty = Number(booking && booking.generatorQty) || 0;
-    var xhN = 0;
-    ((booking && booking.crossHires) || []).forEach(function (c) {
-      if (c && !c.returned && Number(c.kva) > 0) xhN++;
-    });
-    var ownN = 0;
-    ((booking && booking.allocatedUnits) || []).forEach(function (u) {
-      var s = String((u && u.status) || "").toUpperCase();
-      if (u && u.fleetNumber && s !== "RETURNED" && s !== "CANCELLED") ownN++;
-    });
-    var total = Math.max(qty, ownN + xhN);
+  /* The calendar row's count for a job with more than one generator: "8
+     generators: 2 own, 6 cross-hired". Null for a one-unit job, which reads as
+     it always did.
+
+     `counts` is analyse().counts, worked from the board's own allocation rows,
+     and is the real answer. Without it only the feed is known, and the feed
+     does not carry every cross-hire (NEX-1622's six Kennards sets are board
+     rows the feed never names), so the feed alone can say how many generators
+     the job has but must not say how many are still "to fill". The first
+     build said "6 to fill" on a job with every slot covered. */
+  function rowSummary(booking, counts) {
+    var total, ownN, xhN, open = 0;
+    if (counts) {
+      total = counts.slots; ownN = counts.own; xhN = counts.crossHired; open = counts.open;
+    } else {
+      var qty = Number(booking && booking.generatorQty) || 0;
+      xhN = 0;
+      ((booking && booking.crossHires) || []).forEach(function (c) {
+        if (c && !c.returned && Number(c.kva) > 0) xhN++;
+      });
+      ownN = 0;
+      ((booking && booking.allocatedUnits) || []).forEach(function (u) {
+        var st = String((u && u.status) || "").toUpperCase();
+        if (u && u.fleetNumber && st !== "RETURNED" && st !== "CANCELLED") ownN++;
+      });
+      total = Math.max(qty, ownN + xhN);
+    }
     if (total < 2) return null;
-    var open = Math.max(0, total - ownN - xhN);
     var bits = [];
     if (ownN) bits.push(ownN + " own");
     if (xhN) bits.push(xhN + " cross-hired");
     if (open) bits.push(open + " to fill");
-    return { total: total, own: ownN, crossHired: xhN, open: open, text: total + " generators" + (bits.length ? ": " + bits.join(", ") : "") };
+    return { total: total, own: ownN, crossHired: xhN, open: open, known: !!counts,
+             text: total + " generators" + (bits.length ? ": " + bits.join(", ") : "") };
   }
 
   var api = { analyse: analyse, rowSummary: rowSummary, niceDay: niceDay };

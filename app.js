@@ -163,7 +163,15 @@ function allocatedShort(b) {
    line and the fleet numbers follow it: "8 gens · 6 cross-hired · #601 + ...".
    The whole of it is in the tooltip. A one-unit job reads exactly as it did. */
 function rowSum(b) {
-  return (window.NexusJobBrain && !b.isGroup) ? window.NexusJobBrain.rowSummary(b) : null;
+  if (!window.NexusJobBrain || b.isGroup) return null;
+  /* Counted from the board's allocation rows once they have loaded: the feed
+     alone does not name every cross-hire, and would call a covered slot open. */
+  var counts = null;
+  var rows = STATE.allocationsByDeal ? (STATE.allocationsByDeal[String(b.pipedriveDealId)] || []) : null;
+  if (rows && window.NexusResourcing) {
+    try { counts = window.NexusJobBrain.analyse(b, rows, []).counts; } catch (e) { counts = null; }
+  }
+  return window.NexusJobBrain.rowSummary(b, counts);
 }
 function rowLead(b) {
   var s = rowSum(b);
